@@ -4,6 +4,7 @@
 
 using Microsoft.Win32.SafeHandles;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -97,10 +98,16 @@ namespace System.IO
                     ignoreNotSupported: true); // just a hint.
             }
 
-            // Jump to the end of the file if opened as Append.
             if (_mode == FileMode.Append)
             {
+                // Jump to the end of the file if opened as Append.
                 _appendStart = SeekCore(_fileHandle, 0, SeekOrigin.End);
+            }
+            else if (mode == FileMode.Create || mode == FileMode.Truncate)
+            {
+                // Truncate the file now if the file mode requires it. This ensures that the file only will be truncated
+                // if opened successfully.
+                CheckFileCall(Interop.Sys.FTruncate(_fileHandle, 0));
             }
         }
 
@@ -128,23 +135,17 @@ namespace System.IO
             {
                 default:
                 case FileMode.Open: // Open maps to the default behavior for open(...).  No flags needed.
+                case FileMode.Truncate: // We truncate the file after getting the lock
                     break;
 
                 case FileMode.Append: // Append is the same as OpenOrCreate, except that we'll also separately jump to the end later
                 case FileMode.OpenOrCreate:
+                case FileMode.Create: // We truncate the file after getting the lock
                     flags |= Interop.Sys.OpenFlags.O_CREAT;
-                    break;
-
-                case FileMode.Create:
-                    flags |= (Interop.Sys.OpenFlags.O_CREAT | Interop.Sys.OpenFlags.O_TRUNC);
                     break;
 
                 case FileMode.CreateNew:
                     flags |= (Interop.Sys.OpenFlags.O_CREAT | Interop.Sys.OpenFlags.O_EXCL);
-                    break;
-
-                case FileMode.Truncate:
-                    flags |= Interop.Sys.OpenFlags.O_TRUNC;
                     break;
             }
 
@@ -239,7 +240,7 @@ namespace System.IO
                     {
                         FlushWriteBuffer();
                     }
-                    catch (IOException) when (!disposing)
+                    catch (Exception e) when (IsIoRelatedException(e) && !disposing)
                     {
                         // On finalization, ignore failures from trying to flush the write buffer,
                         // e.g. if this stream is wrapping a pipe and the pipe is now broken.
@@ -459,7 +460,7 @@ namespace System.IO
             VerifyOSHandlePosition();
 
             int bytesRead;
-            fixed (byte* bufPtr = &buffer.DangerousGetPinnableReference())
+            fixed (byte* bufPtr = &MemoryMarshal.GetReference(buffer))
             {
                 bytesRead = CheckFileCall(Interop.Sys.Read(_fileHandle, bufPtr, buffer.Length));
                 Debug.Assert(bytesRead <= buffer.Length);
@@ -612,7 +613,7 @@ namespace System.IO
         {
             VerifyOSHandlePosition();
 
-            fixed (byte* bufPtr = &source.DangerousGetPinnableReference())
+            fixed (byte* bufPtr = &MemoryMarshal.GetReference(source))
             {
                 int offset = 0;
                 int count = source.Length;
@@ -634,12 +635,12 @@ namespace System.IO
         /// <param name="source">The buffer to write data from.</param>
         /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
         /// <returns>A task that represents the asynchronous write operation.</returns>
-        private Task WriteAsyncInternal(ReadOnlyMemory<byte> source, CancellationToken cancellationToken)
+        private ValueTask WriteAsyncInternal(ReadOnlyMemory<byte> source, CancellationToken cancellationToken)
         {
             Debug.Assert(_useAsyncIO);
 
             if (cancellationToken.IsCancellationRequested)
-                return Task.FromCanceled(cancellationToken);
+                return new ValueTask(Task.FromCanceled(cancellationToken));
 
             if (_fileHandle.IsClosed)
                 throw Error.GetFileNotOpen();
@@ -666,11 +667,11 @@ namespace System.IO
                         source.Span.CopyTo(new Span<byte>(GetBuffer(), _writePos, source.Length));
                         _writePos += source.Length;
 
-                        return Task.CompletedTask;
+                        return default;
                     }
                     catch (Exception exc)
                     {
-                        return Task.FromException(exc);
+                        return new ValueTask(Task.FromException(exc));
                     }
                     finally
                     {
@@ -681,7 +682,7 @@ namespace System.IO
 
             // Otherwise, issue the whole request asynchronously.
             _asyncState.ReadOnlyMemory = source;
-            return waitTask.ContinueWith((t, s) =>
+            return new ValueTask(waitTask.ContinueWith((t, s) =>
             {
                 // The options available on Unix for writing asynchronously to an arbitrary file 
                 // handle typically amount to just using another thread to do the synchronous write, 
@@ -701,7 +702,7 @@ namespace System.IO
                     thisRef.WriteSpan(readOnlyMemory.Span);
                 }
                 finally { thisRef._asyncState.Release(); }
-            }, this, CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default);
+            }, this, CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default));
         }
 
         /// <summary>Sets the current position of this stream to the given value.</summary>

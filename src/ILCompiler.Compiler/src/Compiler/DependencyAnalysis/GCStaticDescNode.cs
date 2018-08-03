@@ -13,7 +13,7 @@ using Debug = System.Diagnostics.Debug;
 
 namespace ILCompiler.DependencyAnalysis
 {
-    public class GCStaticDescNode : EmbeddedObjectNode, ISymbolDefinitionNode
+    public class GCStaticDescNode : EmbeddedObjectNode, ISymbolDefinitionNode, ISortableSymbolNode
     {
         private MetadataType _type;
         private GCPointerMap _gcMap;
@@ -170,14 +170,29 @@ namespace ILCompiler.DependencyAnalysis
 
             Debug.Assert(numSeries == NumSeries);
         }
+
+        internal int CompareTo(GCStaticDescNode other, TypeSystemComparer comparer)
+        {
+            var compare = _isThreadStatic.CompareTo(other._isThreadStatic);
+            return compare != 0 ? compare : comparer.Compare(_type, other._type);
+        }
+
+        public sealed override int ClassCode => 2142332918;
+        
+        public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
+        {
+            return CompareTo((GCStaticDescNode)other, comparer);
+        }
     }
 
     public class GCStaticDescRegionNode : ArrayOfEmbeddedDataNode<GCStaticDescNode>
     {
-        public GCStaticDescRegionNode(string startSymbolMangledName, string endSymbolMangledName)
-            : base(startSymbolMangledName, endSymbolMangledName, null)
+        public GCStaticDescRegionNode(string startSymbolMangledName, string endSymbolMangledName, IComparer<GCStaticDescNode> nodeSorter)
+            : base(startSymbolMangledName, endSymbolMangledName, nodeSorter)
         {
         }
+
+        public override int ClassCode => 1312891560;
 
         protected override void GetElementDataForNodes(ref ObjectDataBuilder builder, NodeFactory factory, bool relocsOnly)
         {
@@ -231,6 +246,13 @@ namespace ILCompiler.DependencyAnalysis
         protected override string GetName(NodeFactory context)
         {
             return "Standalone" + _standaloneGCStaticDesc.GetMangledName(context.NameMangler);
+        }
+        
+        public override int ClassCode => 2091208431;
+
+        public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
+        {
+            return _standaloneGCStaticDesc.CompareTo(((StandaloneGCStaticDescRegionNode)other)._standaloneGCStaticDesc, comparer);
         }
     }
 }

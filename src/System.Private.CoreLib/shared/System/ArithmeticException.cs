@@ -17,7 +17,8 @@ namespace System
 {
     // The ArithmeticException is thrown when overflow or underflow
     // occurs.
-    // 
+    [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class ArithmeticException : SystemException
     {
         // Creates a new ArithmeticException with its message string set to
@@ -33,13 +34,13 @@ namespace System
         // message, its HRESULT set to COR_E_ARITHMETIC, 
         // and its ExceptionInfo reference set to null. 
         // 
-        public ArithmeticException(String message)
+        public ArithmeticException(string message)
             : base(message)
         {
             HResult = HResults.COR_E_ARITHMETIC;
         }
 
-        public ArithmeticException(String message, Exception innerException)
+        public ArithmeticException(string message, Exception innerException)
             : base(message, innerException)
         {
             HResult = HResults.COR_E_ARITHMETIC;
@@ -47,7 +48,6 @@ namespace System
 
         protected ArithmeticException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
-            throw new PlatformNotSupportedException();
         }
     }
 }

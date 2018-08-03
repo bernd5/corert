@@ -75,5 +75,7 @@ namespace ILCompiler.DependencyAnalysis
 
             return dataBuilder.ToObjectData();
         }
+
+        public override int ClassCode => -160325006;
     }
 }

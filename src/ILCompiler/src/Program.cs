@@ -17,6 +17,8 @@ namespace ILCompiler
 {
     internal class Program
     {
+        private const string DefaultSystemModule = "System.Private.CoreLib";
+
         private Dictionary<string, string> _inputFilePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, string> _referenceFilePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -37,13 +39,18 @@ namespace ILCompiler
         private OptimizationMode _optimizationMode;
         private bool _enableDebugInfo;
         private string _ilDump;
-        private string _systemModuleName = "System.Private.CoreLib";
+        private string _systemModuleName = DefaultSystemModule;
         private bool _multiFile;
+        private bool _nativeLib;
+        private string _exportsFile;
         private bool _useSharedGenerics;
         private bool _useScanner;
         private bool _noScanner;
+        private bool _emitStackTraceData;
         private string _mapFileName;
         private string _metadataLogFileName;
+        private bool _noMetadataBlocking;
+        private bool _completeTypesMetadata;
 
         private string _singleMethodTypeName;
         private string _singleMethodName;
@@ -52,6 +59,12 @@ namespace ILCompiler
         private IReadOnlyList<string> _codegenOptions = Array.Empty<string>();
 
         private IReadOnlyList<string> _rdXmlFilePaths = Array.Empty<string>();
+
+        private IReadOnlyList<string> _initAssemblies = Array.Empty<string>();
+
+        private IReadOnlyList<string> _appContextSwitches = Array.Empty<string>();
+
+        private IReadOnlyList<string> _runtimeOptions = Array.Empty<string>();
 
         private bool _help;
 
@@ -85,21 +98,26 @@ namespace ILCompiler
 
             switch (RuntimeInformation.ProcessArchitecture)
             {
-            case Architecture.X86:
-                _targetArchitecture = TargetArchitecture.X86;
-                break;
-            case Architecture.X64:
-                _targetArchitecture = TargetArchitecture.X64;
-                break;
-            case Architecture.Arm:
-                _targetArchitecture = TargetArchitecture.ARM;
-                break;
-            case Architecture.Arm64:
-                _targetArchitecture = TargetArchitecture.ARM64;
-                break;
-            default:
-                throw new NotImplementedException();
+                case Architecture.X86:
+                    _targetArchitecture = TargetArchitecture.X86;
+                    break;
+                case Architecture.X64:
+                    _targetArchitecture = TargetArchitecture.X64;
+                    break;
+                case Architecture.Arm:
+                    _targetArchitecture = TargetArchitecture.ARM;
+                    break;
+                case Architecture.Arm64:
+                    _targetArchitecture = TargetArchitecture.ARM64;
+                    break;
+                default:
+                    throw new NotImplementedException();
             }
+
+            // Workaround for https://github.com/dotnet/corefx/issues/25267
+            // If pointer size is 8, we're obviously not an X86 process...
+            if (_targetArchitecture == TargetArchitecture.X86 && IntPtr.Size == 8)
+                _targetArchitecture = TargetArchitecture.X64;
         }
 
         private ArgumentSyntax ParseCommandLine(string[] args)
@@ -126,6 +144,8 @@ namespace ILCompiler
                 syntax.DefineOption("g", ref _enableDebugInfo, "Emit debugging information");
                 syntax.DefineOption("cpp", ref _isCppCodegen, "Compile for C++ code-generation");
                 syntax.DefineOption("wasm", ref _isWasmCodegen, "Compile for WebAssembly code-generation");
+                syntax.DefineOption("nativelib", ref _nativeLib, "Compile as static or shared library");
+                syntax.DefineOption("exportsfile", ref _exportsFile, "File to write exported method definitions");
                 syntax.DefineOption("dgmllog", ref _dgmlLogFileName, "Save result of dependency analysis as DGML");
                 syntax.DefineOption("fulllog", ref _generateFullDgmlLog, "Save detailed log of dependency analysis");
                 syntax.DefineOption("scandgmllog", ref _scanDgmlLogFileName, "Save result of scanner dependency analysis as DGML");
@@ -139,9 +159,15 @@ namespace ILCompiler
                 syntax.DefineOptionList("rdxml", ref _rdXmlFilePaths, "RD.XML file(s) for compilation");
                 syntax.DefineOption("map", ref _mapFileName, "Generate a map file");
                 syntax.DefineOption("metadatalog", ref _metadataLogFileName, "Generate a metadata log file");
+                syntax.DefineOption("nometadatablocking", ref _noMetadataBlocking, "Ignore metadata blocking for internal implementation details");
+                syntax.DefineOption("completetypemetadata", ref _completeTypesMetadata, "Generate complete metadata for types");
                 syntax.DefineOption("scan", ref _useScanner, "Use IL scanner to generate optimized code (implied by -O)");
                 syntax.DefineOption("noscan", ref _noScanner, "Do not use IL scanner to generate optimized code");
                 syntax.DefineOption("ildump", ref _ilDump, "Dump IL assembly listing for compiler-generated IL");
+                syntax.DefineOption("stacktracedata", ref _emitStackTraceData, "Emit data to support generating stack trace strings at runtime");
+                syntax.DefineOptionList("initassembly", ref _initAssemblies, "Assembly(ies) with a library initializer");
+                syntax.DefineOptionList("appcontextswitch", ref _appContextSwitches, "System.AppContext switches to set");
+                syntax.DefineOptionList("runtimeopt", ref _runtimeOptions, "Runtime options to set");
 
                 syntax.DefineOption("targetarch", ref _targetArchitectureStr, "Target architecture for cross compilation");
                 syntax.DefineOption("targetos", ref _targetOSStr, "Target OS for cross compilation");
@@ -169,6 +195,33 @@ namespace ILCompiler
             return argSyntax;
         }
 
+        private IReadOnlyCollection<MethodDesc> CreateInitializerList(TypeSystemContext context)
+        {
+            List<ModuleDesc> assembliesWithInitalizers = new List<ModuleDesc>();
+
+            // Build a list of assemblies that have an initializer that needs to run before
+            // any user code runs.
+            foreach (string initAssemblyName in _initAssemblies)
+            {
+                ModuleDesc assembly = context.ResolveAssembly(new AssemblyName(initAssemblyName));
+                assembliesWithInitalizers.Add(assembly);
+            }
+
+            var libraryInitializers = new LibraryInitializers(context, assembliesWithInitalizers);
+
+            List<MethodDesc> initializerList = new List<MethodDesc>(libraryInitializers.LibraryInitializerMethods);
+
+            // If there are any AppContext switches the user wishes to enable, generate code that sets them.
+            if (_appContextSwitches.Count > 0)
+            {
+                MethodDesc appContextInitMethod = new Internal.IL.Stubs.StartupCode.AppContextInitializerMethod(
+                    context.GeneratedAssembly.GetGlobalModuleType(), _appContextSwitches);
+                initializerList.Add(appContextInitMethod);
+            }
+
+            return initializerList;
+        }
+
         private int Run(string[] args)
         {
             InitializeDefaultOptions();
@@ -179,7 +232,7 @@ namespace ILCompiler
                 Help(syntax.GetHelpText());
                 return 1;
             }
-            
+
             if (_outputFilePath == null)
                 throw new CommandLineException("Output filename must be specified (/out <file>)");
 
@@ -198,6 +251,11 @@ namespace ILCompiler
                     _targetArchitecture = TargetArchitecture.ARMEL;
                 else if (_targetArchitectureStr.Equals("arm64", StringComparison.OrdinalIgnoreCase))
                     _targetArchitecture = TargetArchitecture.ARM64;
+                else if (_targetArchitectureStr.Equals("wasm", StringComparison.OrdinalIgnoreCase))
+                {
+                    _targetArchitecture = TargetArchitecture.Wasm32;
+                    _isWasmCodegen = true;
+                }
                 else
                     throw new CommandLineException("Target architecture is not supported");
             }
@@ -215,6 +273,7 @@ namespace ILCompiler
 
             if (_isWasmCodegen)
                 _targetArchitecture = TargetArchitecture.Wasm32;
+
             //
             // Initialize type system context
             //
@@ -223,8 +282,9 @@ namespace ILCompiler
                 SharedGenericsMode.CanonicalReferenceTypes : SharedGenericsMode.Disabled;
 
             // TODO: compiler switch for SIMD support?
-            var simdVectorLength = (_isCppCodegen || _isWasmCodegen) ? SimdVectorLength.None : SimdVectorLength.Vector128Bit; 
-            var targetDetails = new TargetDetails(_targetArchitecture, _targetOS, TargetAbi.CoreRT, simdVectorLength);
+            var simdVectorLength = (_isCppCodegen || _isWasmCodegen) ? SimdVectorLength.None : SimdVectorLength.Vector128Bit;
+            var targetAbi = _isCppCodegen ? TargetAbi.CppCodegen : TargetAbi.CoreRT;
+            var targetDetails = new TargetDetails(_targetArchitecture, _targetOS, targetAbi, simdVectorLength);
             var typeSystemContext = new CompilerTypeSystemContext(targetDetails, genericsMode);
 
             //
@@ -288,26 +348,13 @@ namespace ILCompiler
                         entrypointModule = module;
                     }
 
-                    // TODO: Wasm fails to compile some of the exported methods due to missing opcodes
-                    if (!_isWasmCodegen)
-                    {
-                        compilationRoots.Add(new ExportedMethodsRootProvider(module));
-                    }
+                    compilationRoots.Add(new ExportedMethodsRootProvider(module));
                 }
 
                 if (entrypointModule != null)
                 {
-                    // TODO: Wasm fails to compile some of the library initializers
-                    if (!_isWasmCodegen)
-                    {
-                        LibraryInitializers libraryInitializers =
-                            new LibraryInitializers(typeSystemContext, _isCppCodegen);
-                        compilationRoots.Add(new MainMethodRootProvider(entrypointModule, libraryInitializers.LibraryInitializerMethods));
-                    }
-                    else
-                    {
-                        compilationRoots.Add(new RawMainMethodRootProvider(entrypointModule));
-                    }
+                    compilationRoots.Add(new MainMethodRootProvider(entrypointModule, CreateInitializerList(typeSystemContext)));
+                    compilationRoots.Add(new RuntimeConfigurationRootProvider(_runtimeOptions));
                 }
 
                 if (_multiFile)
@@ -330,18 +377,23 @@ namespace ILCompiler
                 }
                 else
                 {
-                    if (entrypointModule == null)
+                    if (entrypointModule == null && !_nativeLib)
                         throw new Exception("No entrypoint module");
 
-                    // TODO: Wasm fails to compile some of the xported methods due to missing opcodes
-                    if (!_isWasmCodegen)
-                    {
-                        compilationRoots.Add(new ExportedMethodsRootProvider((EcmaModule)typeSystemContext.SystemModule));
-                    }
-
-                    compilationGroup = new SingleFileCompilationModuleGroup(typeSystemContext);
+                    compilationRoots.Add(new ExportedMethodsRootProvider((EcmaModule)typeSystemContext.SystemModule));
+                    compilationGroup = new SingleFileCompilationModuleGroup();
                 }
 
+                if (_nativeLib)
+                {
+                    // Set owning module of generated native library startup method to compiler generated module,
+                    // to ensure the startup method is included in the object file during multimodule mode build
+                    compilationRoots.Add(new NativeLibraryInitializerRootProvider(typeSystemContext.GeneratedAssembly, CreateInitializerList(typeSystemContext)));
+                    compilationRoots.Add(new RuntimeConfigurationRootProvider(_runtimeOptions));
+                }
+
+                if (_rdXmlFilePaths.Count > 0)
+                    Console.WriteLine("Warning: RD.XML processing will change before release (https://github.com/dotnet/corert/issues/5001)");
                 foreach (var rdXmlFilePath in _rdXmlFilePaths)
                 {
                     compilationRoots.Add(new RdXmlRootProvider(typeSystemContext, rdXmlFilePath));
@@ -360,16 +412,47 @@ namespace ILCompiler
             else
                 builder = new RyuJitCompilationBuilder(typeSystemContext, compilationGroup);
 
+            var stackTracePolicy = _emitStackTraceData ?
+                (StackTraceEmissionPolicy)new EcmaMethodStackTraceEmissionPolicy() : new NoStackTraceEmissionPolicy();
+
+            MetadataBlockingPolicy mdBlockingPolicy = _noMetadataBlocking ?
+                (MetadataBlockingPolicy)new NoMetadataBlockingPolicy() : new BlockedInternalsBlockingPolicy();
+
+            ManifestResourceBlockingPolicy resBlockingPolicy = new NoManifestResourceBlockingPolicy();
+
+            UsageBasedMetadataGenerationOptions metadataGenerationOptions = UsageBasedMetadataGenerationOptions.None;
+            if (_completeTypesMetadata)
+                metadataGenerationOptions |= UsageBasedMetadataGenerationOptions.CompleteTypesOnly;
+
+            UsageBasedMetadataManager metadataManager = new UsageBasedMetadataManager(
+                compilationGroup,
+                typeSystemContext,
+                mdBlockingPolicy,
+                resBlockingPolicy,
+                _metadataLogFileName,
+                stackTracePolicy,
+                metadataGenerationOptions
+                );
+
+            // Unless explicitly opted in at the command line, we enable scanner for retail builds by default.
+            // We don't do this for CppCodegen and Wasm, because those codegens are behind.
+            // We also don't do this for multifile because scanner doesn't simulate inlining (this would be
+            // fixable by using a CompilationGroup for the scanner that has a bigger worldview, but
+            // let's cross that bridge when we get there).
             bool useScanner = _useScanner ||
-                (_optimizationMode != OptimizationMode.None && !_isCppCodegen);
+                (_optimizationMode != OptimizationMode.None && !_isCppCodegen && !_isWasmCodegen && !_multiFile);
 
             useScanner &= !_noScanner;
 
+            bool supportsReflection = !_isWasmCodegen && !_isCppCodegen && _systemModuleName == DefaultSystemModule;
+
+            MetadataManager compilationMetadataManager = supportsReflection ? metadataManager : (MetadataManager)new EmptyMetadataManager(typeSystemContext);
             ILScanResults scanResults = null;
-            if (useScanner && !_isCppCodegen && !_isWasmCodegen)
+            if (useScanner)
             {
                 ILScannerBuilder scannerBuilder = builder.GetILScannerBuilder()
-                    .UseCompilationRoots(compilationRoots);
+                    .UseCompilationRoots(compilationRoots)
+                    .UseMetadataManager(metadataManager);
 
                 if (_scanDgmlLogFileName != null)
                     scannerBuilder.UseDependencyTracking(_generateFullScanDgmlLog ? DependencyTrackingLevel.All : DependencyTrackingLevel.First);
@@ -377,9 +460,11 @@ namespace ILCompiler
                 IILScanner scanner = scannerBuilder.ToILScanner();
 
                 scanResults = scanner.Scan();
+
+                compilationMetadataManager = metadataManager.ToAnalysisBasedMetadataManager();
             }
 
-            var logger = _isVerbose ? new Logger(Console.Out, true) : Logger.Null;
+            var logger = new Logger(Console.Out, _isVerbose);
 
             DebugInformationProvider debugInfoProvider = _enableDebugInfo ?
                 (_ilDump == null ? new DebugInformationProvider() : new ILAssemblyGeneratingMethodDebugInfoProvider(_ilDump, new EcmaOnlyDebugInformationProvider())) :
@@ -388,11 +473,11 @@ namespace ILCompiler
             DependencyTrackingLevel trackingLevel = _dgmlLogFileName == null ?
                 DependencyTrackingLevel.None : (_generateFullDgmlLog ? DependencyTrackingLevel.All : DependencyTrackingLevel.First);
 
-            CompilerGeneratedMetadataManager metadataManager = new CompilerGeneratedMetadataManager(compilationGroup, typeSystemContext, _metadataLogFileName);
+            compilationRoots.Add(compilationMetadataManager);
 
             builder
                 .UseBackendOptions(_codegenOptions)
-                .UseMetadataManager(metadataManager)
+                .UseMetadataManager(compilationMetadataManager)
                 .UseLogger(logger)
                 .UseDependencyTracking(trackingLevel)
                 .UseCompilationRoots(compilationRoots)
@@ -408,6 +493,12 @@ namespace ILCompiler
                 // If we have a scanner, feed the generic dictionary results to the compilation.
                 // This could be a command line switch if we really wanted to.
                 builder.UseGenericDictionaryLayoutProvider(scanResults.GetDictionaryLayoutInfo());
+
+                // If we feed any outputs of the scanner into the compilation, it's essential
+                // we use scanner's devirtualization manager. It prevents optimizing codegens
+                // from accidentally devirtualizing cases that can never happen at runtime
+                // (e.g. devirtualizing a method on a type that never gets allocated).
+                builder.UseDevirtualizationManager(scanResults.GetDevirtualizationManager());
             }
 
             ICompilation compilation = builder.ToCompilation();
@@ -415,6 +506,17 @@ namespace ILCompiler
             ObjectDumper dumper = _mapFileName != null ? new ObjectDumper(_mapFileName) : null;
 
             CompilationResults compilationResults = compilation.Compile(_outputFilePath, dumper);
+            if (_exportsFile != null)
+            {
+                ExportsFileWriter defFileWriter = new ExportsFileWriter(typeSystemContext, _exportsFile);
+                foreach (var compilationRoot in compilationRoots)
+                {
+                    if (compilationRoot is ExportedMethodsRootProvider provider)
+                        defFileWriter.AddExportedMethods(provider.ExportedMethods);
+                }
+
+                defFileWriter.EmitExportedMethods();
+            }
 
             if (_dgmlLogFileName != null)
                 compilationResults.WriteDependencyLog(_dgmlLogFileName);
@@ -450,7 +552,7 @@ namespace ILCompiler
                     // We additionally skip methods in SIMD module because there's just too many intrisics to handle and IL scanner
                     // doesn't expand them. They would show up as noisy diffs.
                     DiffCompilationResults(ref dummy, scanResults.CompiledMethodBodies, compilationResults.CompiledMethodBodies,
-                    "Methods", "scanned", "compiled", method => !(method.GetTypicalMethodDefinition() is EcmaMethod) || simdHelper.IsInSimdModule(method.OwningType));
+                    "Methods", "scanned", "compiled", method => !(method.GetTypicalMethodDefinition() is EcmaMethod) || simdHelper.IsSimdType(method.OwningType));
                     DiffCompilationResults(ref dummy, scanResults.ConstructedEETypes, compilationResults.ConstructedEETypes,
                         "EETypes", "scanned", "compiled", type => !(type.GetTypeDefinition() is EcmaType));
                 }
@@ -545,11 +647,11 @@ namespace ILCompiler
 
             var formatter = new CustomAttributeTypeNameFormatter((IAssemblyDesc)failingMethod.Context.SystemModule);
 
-            Console.Write($"--singlemethodtypename {formatter.FormatName(failingMethod.OwningType)}");
+            Console.Write($"--singlemethodtypename \"{formatter.FormatName(failingMethod.OwningType, true)}\"");
             Console.Write($" --singlemethodname {failingMethod.Name}");
 
             for (int i = 0; i < failingMethod.Instantiation.Length; i++)
-                Console.Write($" --singlemethodgenericarg {formatter.FormatName(failingMethod.Instantiation[i])}");
+                Console.Write($" --singlemethodgenericarg \"{formatter.FormatName(failingMethod.Instantiation[i], true)}\"");
 
             return false;
         }

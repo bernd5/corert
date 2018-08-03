@@ -17,7 +17,6 @@ namespace ILCompiler
         private MethodDesc _method;
 
         public SingleMethodCompilationModuleGroup(MethodDesc method)
-            : base(method.Context)
         {
             _method = method;
         }
@@ -30,7 +29,7 @@ namespace ILCompiler
             }
         }
 
-        public override bool ContainsMethodBody(MethodDesc method)
+        public override bool ContainsMethodBody(MethodDesc method, bool unboxingStub)
         {
             return method == _method;
         }
@@ -38,7 +37,7 @@ namespace ILCompiler
         public sealed override bool ContainsMethodDictionary(MethodDesc method)
         {
             Debug.Assert(method.GetCanonMethodTarget(CanonicalFormKind.Specific) != method);
-            return ContainsMethodBody(method);
+            return ContainsMethodBody(method, false);
         }
 
         public override bool ContainsType(TypeDesc type)
@@ -46,19 +45,29 @@ namespace ILCompiler
             return false;
         }
 
-        public override bool ExportsType(TypeDesc type)
+        public override bool ContainsTypeDictionary(TypeDesc type)
         {
             return false;
         }
 
-        public override bool ExportsMethod(MethodDesc method)
+        public override ExportForm GetExportTypeForm(TypeDesc type)
         {
-            return false;
+            return ExportForm.None;
         }
 
-        public override bool ExportsMethodDictionary(MethodDesc method)
+        public override ExportForm GetExportTypeFormDictionary(TypeDesc type)
         {
-            return false;
+            return ExportForm.None;
+        }
+
+        public override ExportForm GetExportMethodForm(MethodDesc method, bool unboxingStub)
+        {
+            return ExportForm.None;
+        }
+
+        public override ExportForm GetExportMethodDictionaryForm(MethodDesc method)
+        {
+            return ExportForm.None;
         }
 
         public override bool ShouldProduceFullVTable(TypeDesc type)
@@ -67,6 +76,11 @@ namespace ILCompiler
         }
 
         public override bool ShouldPromoteToFullType(TypeDesc type)
+        {
+            return false;
+        }
+
+        public override bool PresenceOfEETypeImpliesAllMethodsOnType(TypeDesc type)
         {
             return false;
         }

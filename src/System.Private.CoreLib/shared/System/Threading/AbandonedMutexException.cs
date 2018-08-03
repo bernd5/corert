@@ -14,6 +14,8 @@ using System.Runtime.Serialization;
 
 namespace System.Threading
 {
+    [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class AbandonedMutexException : SystemException
     {
         private int _mutexIndex = -1;
@@ -25,13 +27,13 @@ namespace System.Threading
             HResult = HResults.COR_E_ABANDONEDMUTEX;
         }
 
-        public AbandonedMutexException(String message)
+        public AbandonedMutexException(string message)
             : base(message)
         {
             HResult = HResults.COR_E_ABANDONEDMUTEX;
         }
 
-        public AbandonedMutexException(String message, Exception inner)
+        public AbandonedMutexException(string message, Exception inner)
             : base(message, inner)
         {
             HResult = HResults.COR_E_ABANDONEDMUTEX;
@@ -44,14 +46,14 @@ namespace System.Threading
             SetupException(location, handle);
         }
 
-        public AbandonedMutexException(String message, int location, WaitHandle handle)
+        public AbandonedMutexException(string message, int location, WaitHandle handle)
             : base(message)
         {
             HResult = HResults.COR_E_ABANDONEDMUTEX;
             SetupException(location, handle);
         }
 
-        public AbandonedMutexException(String message, Exception inner, int location, WaitHandle handle)
+        public AbandonedMutexException(string message, Exception inner, int location, WaitHandle handle)
             : base(message, inner)
         {
             HResult = HResults.COR_E_ABANDONEDMUTEX;
@@ -61,7 +63,6 @@ namespace System.Threading
         protected AbandonedMutexException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
-            throw new PlatformNotSupportedException();
         }
 
         private void SetupException(int location, WaitHandle handle)

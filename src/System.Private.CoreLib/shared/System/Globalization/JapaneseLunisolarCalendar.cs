@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System.Diagnostics.Contracts;
 
 namespace System.Globalization
 {
@@ -205,13 +204,12 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             "year",
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
                                 MIN_LUNISOLAR_YEAR,
                                 MAX_LUNISOLAR_YEAR));
             }
-            Contract.EndContractBlock();
 
             return s_yinfo[lunarYear - MIN_LUNISOLAR_YEAR, index];
         }

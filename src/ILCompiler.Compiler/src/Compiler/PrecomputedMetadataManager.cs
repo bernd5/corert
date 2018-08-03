@@ -4,6 +4,7 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 
@@ -11,12 +12,14 @@ using Internal.Compiler;
 using Internal.IL;
 using Internal.TypeSystem;
 using Internal.TypeSystem.Ecma;
+using Internal.Metadata.NativeFormat.Writer;
 
 using ILCompiler.DependencyAnalysisFramework;
 using ILCompiler.Metadata;
 using ILCompiler.DependencyAnalysis;
 
 using Debug = System.Diagnostics.Debug;
+using ReflectionMapBlob = Internal.Runtime.ReflectionMapBlob;
 
 namespace ILCompiler
 {
@@ -30,6 +33,7 @@ namespace ILCompiler
             public ImmutableArray<ModuleDesc> LocalMetadataModules = ImmutableArray<ModuleDesc>.Empty;
             public ImmutableArray<ModuleDesc> ExternalMetadataModules = ImmutableArray<ModuleDesc>.Empty;
             public List<MetadataType> TypesWithStrongMetadataMappings = new List<MetadataType>();
+            public Dictionary<MetadataType, int> WeakReflectedTypeMappings = new Dictionary<MetadataType, int>();
             public Dictionary<MetadataType, int> AllTypeMappings = new Dictionary<MetadataType, int>();
             public Dictionary<MethodDesc, int> MethodMappings = new Dictionary<MethodDesc, int>();
             public Dictionary<FieldDesc, int> FieldMappings = new Dictionary<FieldDesc, int>();
@@ -44,18 +48,41 @@ namespace ILCompiler
 
         private readonly ModuleDesc _metadataDescribingModule;
         private readonly HashSet<ModuleDesc> _compilationModules;
+        private readonly HashSet<ModuleDesc> _metadataOnlyAssemblies;
         private readonly Lazy<MetadataLoadedInfo> _loadedMetadata;
         private Lazy<Dictionary<MethodDesc, MethodDesc>> _dynamicInvokeStubs;
         private readonly byte[] _metadataBlob;
+        private readonly StackTraceEmissionPolicy _stackTraceEmissionPolicy;
+        private byte[] _stackTraceBlob;
+        private readonly CompilationModuleGroup _compilationModuleGroup;
 
-        public PrecomputedMetadataManager(CompilationModuleGroup group, CompilerTypeSystemContext typeSystemContext, ModuleDesc metadataDescribingModule, IEnumerable<ModuleDesc> compilationModules, byte[] metadataBlob)
-            : base(group, typeSystemContext, new AttributeSpecifiedBlockingPolicy())
+        public PrecomputedMetadataManager(
+            CompilationModuleGroup group, 
+            CompilerTypeSystemContext typeSystemContext, 
+            ModuleDesc metadataDescribingModule,
+            IEnumerable<ModuleDesc> compilationModules,
+            IEnumerable<ModuleDesc> inputMetadataOnlyAssemblies,
+            byte[] metadataBlob,
+            StackTraceEmissionPolicy stackTraceEmissionPolicy,
+            ManifestResourceBlockingPolicy resourceBlockingPolicy)
+            : base(typeSystemContext, new AttributeSpecifiedBlockingPolicy(), resourceBlockingPolicy)
         {
+            _compilationModuleGroup = group;
             _metadataDescribingModule = metadataDescribingModule;
             _compilationModules = new HashSet<ModuleDesc>(compilationModules);
+            _metadataOnlyAssemblies = new HashSet<ModuleDesc>(inputMetadataOnlyAssemblies);
             _loadedMetadata = new Lazy<MetadataLoadedInfo>(LoadMetadata);
             _dynamicInvokeStubs = new Lazy<Dictionary<MethodDesc, MethodDesc>>(LoadDynamicInvokeStubs);
             _metadataBlob = metadataBlob;
+            _stackTraceEmissionPolicy = stackTraceEmissionPolicy;
+        }
+
+        public override void AddToReadyToRunHeader(ReadyToRunHeaderNode header, NodeFactory nodeFactory, ExternalReferencesTableNode commonFixupsTableNode)
+        {
+            base.AddToReadyToRunHeader(header, nodeFactory, commonFixupsTableNode);
+
+            var stackTraceEmbeddedMetadataNode = new StackTraceEmbeddedMetadataNode();
+            header.Add(BlobIdToReadyToRunSection(ReflectionMapBlob.BlobIdStackTraceEmbeddedMetadata), stackTraceEmbeddedMetadataNode, stackTraceEmbeddedMetadataNode, stackTraceEmbeddedMetadataNode.EndSymbol);
         }
 
         /// <summary>
@@ -119,6 +146,9 @@ namespace ILCompiler
         private IEnumerable<TypeSystemEntity> ReadRequiredGenericsEntities(MethodIL method)
         {
             ILStreamReader il = new ILStreamReader(method);
+            bool needSecondPass = false;
+            Dictionary<MethodDesc, long> openMethodToInstantiationCount = new Dictionary<MethodDesc, long>();
+
             // structure is 
             // REPEAT N TIMES    
             //ldtoken generic type/method/field
@@ -126,7 +156,7 @@ namespace ILCompiler
             while (true)
             {
                 if (il.TryReadRet()) // ret
-                    yield break;
+                    break;
 
                 TypeSystemEntity tse;
                 il.TryReadLdtokenAsTypeSystemEntity(out tse);
@@ -160,16 +190,93 @@ namespace ILCompiler
                 {
                     MethodDesc genericMethod = (MethodDesc)tse;
 
-                    if(genericMethod.Instantiation.CheckValidInstantiationArguments() &&
+                    if (genericMethod.Instantiation.CheckValidInstantiationArguments() &&
                        genericMethod.OwningType.Instantiation.CheckValidInstantiationArguments() &&
                        genericMethod.CheckConstraints())
                     {
-                        // TODO: Detect large number of instantiations of the same method and collapse to using dynamic 
-                        // USG instantiations at runtime, to avoid infinite generic expansion and large compilation times.
-                        yield return tse;
+                        // If we encounter a large number of instantiations of the same generic method, add the universal generic form 
+                        // and stop adding further instantiations over the same generic method definition
+                        if (genericMethod.HasInstantiation || genericMethod.OwningType.HasInstantiation)
+                        {
+                            MethodDesc openMethod = genericMethod.GetTypicalMethodDefinition();
+                            long count;
+                            if (openMethodToInstantiationCount.TryGetValue(openMethod, out count))
+                            {
+                                openMethodToInstantiationCount[openMethod] = count + 1;
+                            }
+                            else
+                            {
+                                openMethodToInstantiationCount.Add(openMethod, 1);
+                            }
+
+                            needSecondPass = true;
+                        }   
+                        else
+                        {
+                            yield return tse;
+                        }
                     }
                 }
             }
+
+            if (needSecondPass)
+            {
+                ILStreamReader ilpass2 = new ILStreamReader(method);
+
+                while (true)
+                {
+                    if (ilpass2.TryReadRet()) 
+                        yield break;
+
+                    TypeSystemEntity tse;
+                    ilpass2.TryReadLdtokenAsTypeSystemEntity(out tse);
+                    ilpass2.ReadPop();
+
+                    if (tse == null)
+                        throw new BadImageFormatException();
+
+                    if (tse is MethodDesc)
+                    {
+                        MethodDesc genericMethod = (MethodDesc)tse;
+
+                        if (genericMethod.Instantiation.CheckValidInstantiationArguments() &&
+                           genericMethod.OwningType.Instantiation.CheckValidInstantiationArguments() &&
+                           genericMethod.CheckConstraints())
+                        {
+                            // If we encounter a large number of instantiations of the same generic method, add the universal generic form 
+                            // and stop adding further instantiations over the same generic method definition
+                            if (genericMethod.HasInstantiation || genericMethod.OwningType.HasInstantiation)
+                            {
+                                MethodDesc openMethod = genericMethod.GetTypicalMethodDefinition();
+                                long count;
+                                bool found = openMethodToInstantiationCount.TryGetValue(openMethod, out count);
+                                Debug.Assert(found);
+
+                                // We have 2 heuristics, one for GVMs and one for normal methods that happen to have generics
+                                bool isGVM = genericMethod.IsVirtual && genericMethod.HasInstantiation;
+                                long heuristicCount = isGVM ? _typeSystemContext.GenericsConfig.UniversalCanonGVMReflectionRootHeuristic_InstantiationCount :
+                                                           _typeSystemContext.GenericsConfig.UniversalCanonReflectionMethodRootHeuristic_InstantiationCount;
+
+                                if (count >= heuristicCount)
+                                {
+                                    // We've hit the threshold of instantiations so add the USG form
+                                    tse = genericMethod.GetCanonMethodTarget(CanonicalFormKind.Universal);
+
+                                    // Set the instantiation count to -1 as a sentinel value
+                                    openMethodToInstantiationCount[openMethod] = -1;
+                                }
+                                else if (count == -1)
+                                {
+                                    // Previously we added the USG form to _SpecifiedGenericMethods, now just skip
+                                    continue;
+                                }
+
+                                yield return tse;
+                            }
+                        }
+                    }
+                }
+            }            
         }
 
         private Instantiation GetUniversalCanonicalInstantiation(int numArgs)
@@ -229,7 +336,7 @@ namespace ILCompiler
                     Debug.Assert(method.IsTypicalMethodDefinition);
                     Debug.Assert(method.HasInstantiation || method.OwningType.HasInstantiation);
 
-                    if(containingType.HasInstantiation)
+                    if (containingType.HasInstantiation)
                     {
                         containingType = _typeSystemContext.GetInstantiatedType((MetadataType)containingType, GetUniversalCanonicalInstantiation(containingType.Instantiation.Length));
                         method = containingType.GetMethod(method.Name, method.GetTypicalMethodDefinition().Signature);
@@ -238,7 +345,7 @@ namespace ILCompiler
 
                     if (method.HasInstantiation)
                     {
-                        method =  _typeSystemContext.GetInstantiatedMethod(method, GetUniversalCanonicalInstantiation(method.Instantiation.Length));
+                        method = _typeSystemContext.GetInstantiatedMethod(method, GetUniversalCanonicalInstantiation(method.Instantiation.Length));
                     }
 
                     methodTemplates.Add(method);
@@ -295,7 +402,7 @@ namespace ILCompiler
                 MethodIL weakMethodIL = ilProvider.GetMethodIL(weakMetadataMethod);
                 Dictionary<MethodDesc, int> weakMethodMappings = new Dictionary<MethodDesc, int>();
                 Dictionary<FieldDesc, int> weakFieldMappings = new Dictionary<FieldDesc, int>();
-                ReadMetadataMethod(weakMethodIL, result.AllTypeMappings, weakMethodMappings, weakFieldMappings, metadataModules);
+                ReadMetadataMethod(weakMethodIL, result.WeakReflectedTypeMappings, weakMethodMappings, weakFieldMappings, metadataModules);
                 if ((weakMethodMappings.Count > 0) || (weakFieldMappings.Count > 0))
                 {
                     // the format does not permit weak field/method mappings
@@ -326,9 +433,9 @@ namespace ILCompiler
 
             if (requiredTemplatesMethod != null)
             {
-                ReadRequiredTemplates(ilProvider.GetMethodIL(requiredTemplatesMethod), 
-                    result.RequiredTemplateTypes, 
-                    result.RequiredTemplateMethods, 
+                ReadRequiredTemplates(ilProvider.GetMethodIL(requiredTemplatesMethod),
+                    result.RequiredTemplateTypes,
+                    result.RequiredTemplateMethods,
                     result.RequiredTemplateFields);
             }
 
@@ -379,7 +486,7 @@ namespace ILCompiler
 
         public override IEnumerable<ModuleDesc> GetCompilationModulesWithMetadata()
         {
-            return _loadedMetadata.Value.LocalMetadataModules;
+            return _loadedMetadata.Value.LocalMetadataModules.Union(_metadataOnlyAssemblies);
         }
 
         public override bool WillUseMetadataTokenToReferenceMethod(MethodDesc method)
@@ -410,6 +517,36 @@ namespace ILCompiler
             return MetadataCategory.RuntimeMapping;
         }
 
+        protected override void GetRuntimeMappingDependenciesDueToReflectability(ref DependencyNodeCore<NodeFactory>.DependencyList dependencies, NodeFactory factory, TypeDesc type)
+        {
+            // Backwards compatible behavior with when this code was indiscriminately injected into all EETypes.
+            // We might want to tweak this.
+
+            if (type is MetadataType metadataType && !type.IsGenericDefinition)
+            {
+                Debug.Assert(!type.IsCanonicalSubtype(CanonicalFormKind.Any));
+
+                // For instantiated types, we write the static fields offsets directly into the table, and we do not reference the gc/non-gc statics nodes
+                if (!type.HasInstantiation)
+                {
+                    if (metadataType.GCStaticFieldSize.AsInt > 0)
+                    {
+                        dependencies.Add(factory.TypeGCStaticsSymbol(metadataType), "GC statics for ReflectionFieldMap entry");
+                    }
+
+                    if (metadataType.NonGCStaticFieldSize.AsInt > 0)
+                    {
+                        dependencies.Add(factory.TypeNonGCStaticsSymbol(metadataType), "Non-GC statics for ReflectionFieldMap entry");
+                    }
+                }
+
+                if (metadataType.ThreadStaticFieldSize.AsInt > 0)
+                {
+                    dependencies.Add(((UtcNodeFactory)factory).TypeThreadStaticsOffsetSymbol(metadataType), "Thread statics for ReflectionFieldMap entry");
+                }
+            }
+        }
+
         private bool IsMethodSupportedInPrecomputedReflection(MethodDesc method)
         {
             if (!IsMethodSupportedInReflectionInvoke(method))
@@ -425,6 +562,12 @@ namespace ILCompiler
         {
             MetadataLoadedInfo loadedMetadata = _loadedMetadata.Value;
 
+            // Add all non-generic reflectable types as roots.
+            foreach (var type in loadedMetadata.TypesWithStrongMetadataMappings)
+            {
+                rootProvider.AddCompilationRoot(type, "Required non-generic type");
+            }
+
             // Add all non-generic reflectable methods as roots.
             // Virtual methods need special handling (e.g. with dependency tracking) since they can be abstract.
             foreach (var method in loadedMetadata.MethodMappings.Keys)
@@ -438,7 +581,14 @@ namespace ILCompiler
                 if (method.IsVirtual)
                     rootProvider.RootVirtualMethodForReflection(method, "Reflection root");
                 else
+                {
+                    if (method.IsConstructor)
+                    {
+                        rootProvider.AddCompilationRoot(method.OwningType, "Type for method reflection root");
+                    }
+
                     rootProvider.AddCompilationRoot(method, "Reflection root");
+                }
             }
 
             // Root all the generic type instantiations from the pre-computed metadata
@@ -457,8 +607,16 @@ namespace ILCompiler
 
                 if (method.IsVirtual)
                     rootProvider.RootVirtualMethodForReflection(method, "Required generic method");
-                else
+
+                if (!method.IsAbstract)
+                {
+                    if (method.IsConstructor)
+                    {
+                        rootProvider.AddCompilationRoot(method.OwningType, "Type for method required generic method");
+                    }
+
                     rootProvider.AddCompilationRoot(method, "Required generic method");
+                }
             }
 
             foreach (var field in loadedMetadata.RequiredGenericFields)
@@ -488,12 +646,25 @@ namespace ILCompiler
                 Debug.Assert(method.IsCanonicalMethod(CanonicalFormKind.Any));
                 if (method.IsVirtual)
                     rootProvider.RootVirtualMethodForReflection(method, "Compiler determined template");
-                else
+
+                if (!method.IsAbstract)
+                {
+                    if (method.IsConstructor)
+                    {
+                        rootProvider.AddCompilationRoot(method.OwningType, "Type for method compiler determined template method");
+                    }
+
                     rootProvider.AddCompilationRoot(method, "Compiler determined template");
+                }
             }
         }
 
-        protected override void ComputeMetadata(NodeFactory factory, out byte[] metadataBlob, out List<MetadataMapping<MetadataType>> typeMappings, out List<MetadataMapping<MethodDesc>> methodMappings, out List<MetadataMapping<FieldDesc>> fieldMappings)
+        protected override void ComputeMetadata(NodeFactory factory,
+                                                out byte[] metadataBlob, 
+                                                out List<MetadataMapping<MetadataType>> typeMappings,
+                                                out List<MetadataMapping<MethodDesc>> methodMappings,
+                                                out List<MetadataMapping<FieldDesc>> fieldMappings,
+                                                out List<MetadataMapping<MethodDesc>> stackTraceMapping)
         {
             MetadataLoadedInfo loadedMetadata = _loadedMetadata.Value;
             metadataBlob = _metadataBlob;
@@ -537,7 +708,7 @@ namespace ILCompiler
                     continue;
 
                 int token;
-                if (loadedMetadata.AllTypeMappings.TryGetValue(definition, out token))
+                if (loadedMetadata.AllTypeMappings.TryGetValue(definition, out token) || loadedMetadata.WeakReflectedTypeMappings.TryGetValue(definition, out token))
                 {
                     typeMappings.Add(new MetadataMapping<MetadataType>(definition, token));
                 }
@@ -569,6 +740,16 @@ namespace ILCompiler
                 foreach (FieldDesc field in eetypeGenerated.GetFields())
                     AddFieldMapping(field, canonicalFieldsAddedToMap, fieldMappings);
             }
+
+            foreach (var typeMapping in loadedMetadata.WeakReflectedTypeMappings)
+            {
+                // Imported types that are also declared as weak reflected types need to be added to the TypeMap table, but only if they are also
+                // reachable from static compilation (node marked in the dependency analysis graph)
+                if (factory.CompilationModuleGroup.ShouldReferenceThroughImportTable(typeMapping.Key) && factory.NecessaryTypeSymbol(typeMapping.Key).Marked)
+                    typeMappings.Add(new MetadataMapping<MetadataType>(typeMapping.Key, typeMapping.Value));
+            }
+
+            stackTraceMapping = GenerateStackTraceMetadata(factory);
         }
 
         private void AddFieldMapping(FieldDesc field, HashSet<FieldDesc> canonicalFieldsAddedToMap, List<MetadataMapping<FieldDesc>> fieldMappings)
@@ -632,7 +813,7 @@ namespace ILCompiler
                 if (invokeMapMethod != null)
                     methodMappings.Add(new MetadataMapping<MethodDesc>(invokeMapMethod, token));
             }
-            else if (!WillUseMetadataTokenToReferenceMethod(method) && _compilationModuleGroup.ContainsMethodBody(canonicalMethod))
+            else if (!WillUseMetadataTokenToReferenceMethod(method) && _compilationModuleGroup.ContainsMethodBody(canonicalMethod, false))
             {
                 MethodDesc invokeMapMethod = GetInvokeMapMethodForMethod(canonicalToSpecificMethods, method);
 
@@ -729,8 +910,16 @@ namespace ILCompiler
         {
             Debug.Assert(IsReflectionInvokable(method));
 
-            if (method.IsCanonicalMethod(CanonicalFormKind.Any))
-                return false;
+            if (!ProjectNDependencyBehavior.EnableFullAnalysis)
+            {
+                if (method.IsCanonicalMethod(CanonicalFormKind.Any))
+                    return false;
+            }
+            else
+            {
+                if (method.IsCanonicalMethod(CanonicalFormKind.Universal))
+                    return false;
+            }
 
             MethodDesc reflectionInvokeStub = GetCanonicalReflectionInvokeStub(method);
 
@@ -765,6 +954,70 @@ namespace ILCompiler
             return dynamicInvokeStubCanonicalized;
         }
 
+        private List<MetadataMapping<MethodDesc>> GenerateStackTraceMetadata(NodeFactory factory)
+        {
+            var transformed = MetadataTransform.Run(new NoDefinitionMetadataPolicy(), Array.Empty<ModuleDesc>());
+            MetadataTransform transform = transformed.Transform;
+
+            // Generate metadata blob
+            var writer = new MetadataWriter();
+
+            // Only emit stack trace metadata for those methods which don't have reflection metadata
+            HashSet<MethodDesc> methodInvokeMap = new HashSet<MethodDesc>();
+            foreach (var mappingEntry in GetMethodMapping(factory))
+            {
+                var method = mappingEntry.Entity;
+                if (ShouldMethodBeInInvokeMap(method))
+                    methodInvokeMap.Add(method);
+            }
+
+            // Generate entries in the blob for methods that will be necessary for stack trace purposes.
+            var stackTraceRecords = new List<KeyValuePair<MethodDesc, MetadataRecord>>();
+            foreach (var methodBody in GetCompiledMethodBodies())
+            {
+                NonExternMethodSymbolNode methodNode = methodBody as NonExternMethodSymbolNode;
+                if (methodNode != null && !methodNode.HasCompiledBody)
+                    continue;
+
+                MethodDesc method = methodBody.Method;
+
+                if (methodInvokeMap.Contains(method))
+                    continue;
+
+                if (!_stackTraceEmissionPolicy.ShouldIncludeMethod(method))
+                    continue;
+
+                MetadataRecord record = CreateStackTraceRecord(transform, method);
+
+                stackTraceRecords.Add(new KeyValuePair<MethodDesc, MetadataRecord>(
+                    method,
+                    record));
+
+                writer.AdditionalRootRecords.Add(record);
+            }
+
+            var ms = new MemoryStream();
+            writer.Write(ms);
+
+            _stackTraceBlob = ms.ToArray();
+
+            var result = new List<MetadataMapping<MethodDesc>>();
+
+            // Generate stack trace metadata mapping
+            foreach (var stackTraceRecord in stackTraceRecords)
+            {
+                result.Add(new MetadataMapping<MethodDesc>(stackTraceRecord.Key, writer.GetRecordHandle(stackTraceRecord.Value)));
+            }
+
+            return result;
+        }
+
+        public byte[] GetStackTraceBlob(NodeFactory factory)
+        {
+            EnsureMetadataGenerated(factory);
+            return _stackTraceBlob;
+        }
+
         private sealed class AttributeSpecifiedBlockingPolicy : MetadataBlockingPolicy
         {
             public override bool IsBlocked(MetadataType type)
@@ -786,6 +1039,16 @@ namespace ILCompiler
                 // TODO: we might need to do something here if we keep this policy.
                 return false;
             }
+        }
+
+        private struct NoDefinitionMetadataPolicy : IMetadataPolicy
+        {
+            public bool GeneratesMetadata(FieldDesc fieldDef) => false;
+            public bool GeneratesMetadata(MethodDesc methodDef) => false;
+            public bool GeneratesMetadata(MetadataType typeDef) => false;
+            public bool IsBlocked(MetadataType typeDef) => false;
+            public bool IsBlocked(MethodDesc methodDef) => false;
+            public ModuleDesc GetModuleOfType(MetadataType typeDef) => typeDef.Module;
         }
     }
 }

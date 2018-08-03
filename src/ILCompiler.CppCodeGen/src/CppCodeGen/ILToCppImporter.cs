@@ -82,10 +82,16 @@ namespace Internal.IL
         private class BasicBlock
         {
             // Common fields
+            public enum ImportState : byte
+            {
+                Unmarked,
+                IsPending
+            }
+
             public BasicBlock Next;
 
             public int StartOffset;
-            public int EndOffset;
+            public ImportState State = ImportState.Unmarked;
 
             public EvaluationStack<StackEntry> EntryStack;
 
@@ -312,6 +318,145 @@ namespace Internal.IL
             if (srcType.IsPointer)
             {
                 Append("(intptr_t)");
+            }
+        }
+
+        private void AppendComparison(ILOpcode opcode, StackEntry op1, StackEntry op2)
+        {
+            // StackValueKind is carefully ordered to make this work (assuming the IL is valid)
+            StackValueKind kind = (op1.Kind > op2.Kind) ? op1.Kind : op2.Kind;
+
+            string op = null;
+            bool unsigned = false;
+            bool inverted = false;
+            switch (opcode)
+            {
+                case ILOpcode.beq:
+                case ILOpcode.ceq:
+                    op = "==";
+                    break;
+                case ILOpcode.bge:
+                    op = ">=";
+                    break;
+                case ILOpcode.bgt:
+                case ILOpcode.cgt:
+                    op = ">";
+                    break;
+                case ILOpcode.ble:
+                    op = "<=";
+                    break;
+                case ILOpcode.blt:
+                case ILOpcode.clt:
+                    op = "<";
+                    break;
+                case ILOpcode.bne_un:
+                    op = "!=";
+                    break;
+                case ILOpcode.bge_un:
+                    if (kind == StackValueKind.Float)
+                    {
+                        op = "<";
+                        inverted = true;
+                    }
+                    else
+                    {
+                        op = ">=";
+                        unsigned = true;
+                    }
+                    break;
+                case ILOpcode.bgt_un:
+                case ILOpcode.cgt_un:
+                    if (kind == StackValueKind.Float)
+                    {
+                        op = "<=";
+                        inverted = true;
+                    }
+                    else
+                    if (op1.Kind == StackValueKind.ObjRef && op1.Type == null)
+                    {
+                        // ECMA-335 III.1.5 Operand type table, P. 303:
+                        // cgt.un is commonly used when comparing an ObjectRef with null (there is no "compare - not - equal" instruction)
+                        // Turn into more natural compare not equal.
+                        op = "!=";
+                    }
+                    else
+                    {
+                        op = ">";
+                        unsigned = true;
+                    }
+                    break;
+                case ILOpcode.ble_un:
+                    if (kind == StackValueKind.Float)
+                    {
+                        op = ">";
+                        inverted = true;
+                    }
+                    else
+                    {
+                        op = "<=";
+                        unsigned = true;
+                    }
+                    break;
+                case ILOpcode.blt_un:
+                case ILOpcode.clt_un:
+                    if (kind == StackValueKind.Float)
+                    {
+                        op = ">=";
+                        inverted = true;
+                    }
+                    else
+                    {
+                        op = "<";
+                        unsigned = true;
+                    }
+                    break;
+                default:
+                    Debug.Fail("Unexpected opcode");
+                    break;
+            }
+
+            if (inverted)
+            {
+                Append("!(");
+            }
+            if (unsigned)
+            {
+                if (kind < StackValueKind.ByRef)
+                {
+                    Append("(u");
+                    Append(GetStackValueKindCPPTypeName(kind));
+                    Append(")");
+                }
+                else
+                {
+                    if (op2.Kind < StackValueKind.ByRef
+                            || (op2.Kind == StackValueKind.ObjRef && op2.Type == null))
+                        Append("(void*)");
+                }
+            }
+            Append(op2);
+            Append(" ");
+            Append(op);
+            Append(" ");
+            if (unsigned)
+            {
+                if (kind < StackValueKind.ByRef)
+                {
+                    Append("(u");
+                    Append(GetStackValueKindCPPTypeName(kind));
+                    Append(")");
+                }
+                else
+                {
+                    if (op1.Kind < StackValueKind.ByRef
+                            || (op1.Kind == StackValueKind.ObjRef && op1.Type == null))
+                        Append("(void*)");
+                }
+            }
+            Append(op1);
+            if (inverted)
+            {
+                Append(")");
             }
         }
 
@@ -672,7 +817,9 @@ namespace Internal.IL
 
         private void ImportBreak()
         {
-            throw new NotImplementedException("Opcode: break");
+            AppendLine();
+            Append("__debug_break()");
+            AppendSemicolon();
         }
 
         private void ImportLoadVar(int index, bool argument)
@@ -856,8 +1003,9 @@ namespace Internal.IL
                     if (IsTypeName(method, "System", "ByReference`1"))
                     {
                         var thisRef = _stack.Pop();
-
-                        PushExpression(StackValueKind.ValueType, ((ExpressionEntry)thisRef).Name + "->_value", method.Signature.ReturnType);
+                        PushExpression(StackValueKind.ByRef,
+                            String.Concat("(", GetSignatureTypeNameAndAddReference(method.Signature.ReturnType), ")", ((ExpressionEntry)thisRef).Name, "->_value"),
+                            method.Signature.ReturnType);
                         return true;
                     }
                     break;
@@ -935,9 +1083,9 @@ namespace Internal.IL
                 {
                     _pendingPrefix &= ~Prefix.Constrained;
                     constrained = _constrained;
-
                     bool forceUseRuntimeLookup;
-                    MethodDesc directMethod = constrained.GetClosestDefType().TryResolveConstraintMethodApprox(method.OwningType, method, out forceUseRuntimeLookup);
+                    var constrainedType = constrained.GetClosestDefType();
+                    MethodDesc directMethod = constrainedType.TryResolveConstraintMethodApprox(method.OwningType, method, out forceUseRuntimeLookup);
 
                     if (forceUseRuntimeLookup)
                         throw new NotImplementedException();
@@ -947,22 +1095,16 @@ namespace Internal.IL
                         method = directMethod;
                         opcode = ILOpcode.call;
                     }
+                    //If constrainedType is a value type and constrainedType does not implement method (directMethod == null) then ptr is 
+                    //dereferenced, boxed, and passed as the 'this' pointer to the callvirt  method instruction. 
+                    else if (constrainedType.IsValueType)
+                    {
+                        int thisPosition = _stack.Top - (method.Signature.Length + 1);
+                        _stack[thisPosition] = BoxValue(constrainedType, DereferenceThisPtr(method, constrainedType));
+                    }
                     else
                     {
-                        // Dereference "this"
-                        int thisPosition = _stack.Top - (method.Signature.Length + 1);
-                        string tempName = NewTempName();
-
-                        Append(GetStackValueKindCPPTypeName(StackValueKind.ObjRef));
-                        Append(" ");
-                        Append(tempName);
-                        Append(" = *(");
-                        Append(GetStackValueKindCPPTypeName(StackValueKind.ObjRef));
-                        Append("*)");
-                        Append(_stack[thisPosition]);
-                        AppendSemicolon();
-
-                        _stack[thisPosition] = new ExpressionEntry(StackValueKind.ObjRef, tempName);
+                        DereferenceThisPtr(method);
                     }
                 }
             }
@@ -1010,7 +1152,7 @@ namespace Internal.IL
             {
                 // TODO: Null checks
 
-                if (method.IsVirtual)
+                if (method.IsVirtual && !method.IsFinal && !method.OwningType.IsSealed())
                 {
                     // TODO: Full resolution of virtual methods
                     if (!method.IsNewSlot)
@@ -1046,44 +1188,15 @@ namespace Internal.IL
                 ExpressionEntry v = (ExpressionEntry)_stack[_stack.Top - (methodSignature.Length + 1)];
 
                 string typeDefName = _writer.GetCppMethodName(method);
-                _writer.AppendSignatureTypeDef(_builder,  typeDefName, method.Signature, method.OwningType);
+                _writer.AppendSignatureTypeDef(_builder, typeDefName, method.Signature, method.OwningType);
 
                 string functionPtr = NewTempName();
                 AppendEmptyLine();
 
                 Append("void*");
                 Append(functionPtr);
-                Append(" = (void*) ((");
-                Append(typeDefName);
-                // Call method to find implementation address
-                Append(") System_Private_CoreLib::System::Runtime::DispatchResolve::FindInterfaceMethodImplementationTarget(");
-
-                // Get EEType of current object (interface implementation)
-                Append("::System_Private_CoreLib::System::Object::get_EEType((::System_Private_CoreLib::System::Object*)");
-                Append(v.Name);
-                Append(")");
-
-                Append(", ");
-
-                // Get EEType of interface
-                Append("((::System_Private_CoreLib::Internal::Runtime::EEType *)(");
-                Append(_writer.GetCppTypeName(method.OwningType));
-                Append("::__getMethodTable()))");
-
-                Append(", ");
-
-                // Get slot of implementation
-                Append("(uint16_t)");
-                Append("(");
-                Append(_writer.GetCppTypeName(method.OwningType));
-                Append("::");
-                Append("__getslot__");
-                Append(_writer.GetCppMethodName(method));
-                Append("(");
-                Append(v.Name);
-                Append("))");
-
-                Append("));");
+                Append(" = (void*) ");
+                GetFunctionPointerForInterfaceMethod(method, v, typeDefName);
 
                 PushExpression(StackValueKind.ByRef, functionPtr);
             }
@@ -1236,6 +1349,64 @@ namespace Internal.IL
             }
         }
 
+        private ExpressionEntry DereferenceThisPtr(MethodDesc method, TypeDesc type = null)
+        {
+            // Dereference "this"
+            int thisPosition = _stack.Top - (method.Signature.Length + 1);
+            string tempName = NewTempName();
+
+            StackValueKind valueKind = StackValueKind.ObjRef;
+            if (type != null && type.IsValueType)
+                valueKind = StackValueKind.ValueType;
+
+            Append(GetStackValueKindCPPTypeName(valueKind, type));
+            Append(" ");
+            Append(tempName);
+            Append(" = *(");
+            Append(GetStackValueKindCPPTypeName(valueKind, type));
+            Append("*)");
+            Append(_stack[thisPosition]);
+            AppendSemicolon();
+            var result = new ExpressionEntry(valueKind, tempName, type);
+            _stack[thisPosition] = result;
+            return result;
+        }
+
+        private void GetFunctionPointerForInterfaceMethod(MethodDesc method, ExpressionEntry v, string typeDefName)
+        {
+            Append("((");
+            Append(typeDefName);
+            // Call method to find implementation address
+            Append(") System_Private_CoreLib::System::Runtime::DispatchResolve::FindInterfaceMethodImplementationTarget(");
+
+            // Get EEType of current object (interface implementation)
+            Append("::System_Private_CoreLib::System::Object::get_EEType((::System_Private_CoreLib::System::Object*)");
+            Append(v.Name);
+            Append(")");
+
+            Append(", ");
+
+            // Get EEType of interface
+            Append("((::System_Private_CoreLib::Internal::Runtime::EEType *)(");
+            Append(_writer.GetCppTypeName(method.OwningType));
+            Append("::__getMethodTable()))");
+
+            Append(", ");
+
+            // Get slot of implementation
+            Append("(uint16_t)");
+            Append("(");
+            Append(_writer.GetCppTypeName(method.OwningType));
+            Append("::");
+            Append("__getslot__");
+            Append(_writer.GetCppMethodName(method));
+            Append("(");
+            Append(v.Name);
+            Append("))");
+
+            Append("));");
+        }
+
         private void PassCallArguments(MethodSignature methodSignature, TypeDesc thisArgument)
         {
             int signatureLength = methodSignature.Length;
@@ -1325,22 +1496,51 @@ namespace Internal.IL
         {
             MethodDesc method = (MethodDesc)_methodIL.GetObject(token);
 
-            if (opCode == ILOpcode.ldvirtftn)
+            if (opCode == ILOpcode.ldvirtftn && method.IsVirtual && method.OwningType.IsInterface)
             {
-                if (method.IsVirtual)
-                    throw new NotImplementedException();
+                AddVirtualMethodReference(method);
+                var entry = new LdTokenEntry<MethodDesc>(StackValueKind.NativeInt, NewTempName(), method);
+                ExpressionEntry v = (ExpressionEntry)_stack.Pop();
+                string typeDefName = _writer.GetCppMethodName(method);
+                _writer.AppendSignatureTypeDef(_builder, typeDefName, method.Signature, method.OwningType);
+
+                AppendEmptyLine();
+
+                PushTemp(entry);
+                Append("(intptr_t) ");
+                GetFunctionPointerForInterfaceMethod(method, v, typeDefName);
             }
+            else
+            {
+                AddMethodReference(method);
+                var entry = new LdTokenEntry<MethodDesc>(StackValueKind.NativeInt, NewTempName(), method);
+                
+                if (opCode == ILOpcode.ldvirtftn && method.IsVirtual)
+                {
+                    //ldvirtftn requires an object instance, we have to pop one off the stack
+                    //then call the associated getslot method passing in the object instance to get the real function pointer
+                    ExpressionEntry v = (ExpressionEntry)_stack.Pop();
+                    PushTemp(entry);
+                    Append("(intptr_t)");
+                    Append(_writer.GetCppTypeName(method.OwningType));
+                    Append("::__getslot__");
+                    Append(_writer.GetCppMethodName(method));
+                    Append("(");
+                    Append(v.Name);
+                    Append(")");
+                    AppendSemicolon();
+                }
+                else
+                {
+                    PushTemp(entry);
+                    Append("(intptr_t)&");
+                    Append(_writer.GetCppTypeName(method.OwningType));
+                    Append("::");
+                    Append(_writer.GetCppMethodName(method));
 
-            AddMethodReference(method);
-
-            var entry = new LdTokenEntry<MethodDesc>(StackValueKind.NativeInt, NewTempName(), method);
-            PushTemp(entry);
-            Append("(intptr_t)&");
-            Append(_writer.GetCppTypeName(method.OwningType));
-            Append("::");
-            Append(_writer.GetCppMethodName(method));
-
-            AppendSemicolon();
+                    AppendSemicolon();
+                }
+            }
         }
 
         private void ImportLoadInt(long value, StackValueKind kind)
@@ -1493,107 +1693,7 @@ namespace Internal.IL
                     var op1 = _stack.Pop();
                     var op2 = _stack.Pop();
 
-                    // StackValueKind is carefully ordered to make this work (assuming the IL is valid)
-                    StackValueKind kind;
-
-                    if (op1.Kind > op2.Kind)
-                    {
-                        kind = op1.Kind;
-                    }
-                    else
-                    {
-                        kind = op2.Kind;
-                    }
-
-                    string op = null;
-                    bool unsigned = false;
-                    bool inverted = false;
-                    switch (opcode)
-                    {
-                        case ILOpcode.beq: op = "=="; break;
-                        case ILOpcode.bge: op = ">="; break;
-                        case ILOpcode.bgt: op = ">"; break;
-                        case ILOpcode.ble: op = "<="; break;
-                        case ILOpcode.blt: op = "<"; break;
-                        case ILOpcode.bne_un: op = "!="; break;
-                        case ILOpcode.bge_un:
-                            if (kind == StackValueKind.Float)
-                            {
-                                op = "<"; inverted = true;
-                            }
-                            else
-                            {
-                                op = ">=";
-                            }
-                            if (kind == StackValueKind.Int32 || kind == StackValueKind.Int64)
-                                unsigned = true;
-                            break;
-                        case ILOpcode.bgt_un:
-                            if (kind == StackValueKind.Float)
-                            {
-                                op = "<="; inverted = true;
-                            }
-                            else
-                            {
-                                op = ">";
-                            }
-                            if (kind == StackValueKind.Int32 || kind == StackValueKind.Int64)
-                                unsigned = true;
-                            break;
-                        case ILOpcode.ble_un:
-                            if (kind == StackValueKind.Float)
-                            {
-                                op = ">"; inverted = true;
-                            }
-                            else
-                            {
-                                op = "<=";
-                            }
-                            if (kind == StackValueKind.Int32 || kind == StackValueKind.Int64)
-                                unsigned = true;
-                            break;
-                        case ILOpcode.blt_un:
-                            if (kind == StackValueKind.Float)
-                            {
-                                op = ">="; inverted = true;
-                            }
-                            else
-                            {
-                                op = "<";
-                            }
-                            if (kind == StackValueKind.Int32 || kind == StackValueKind.Int64)
-                                unsigned = true;
-                            break;
-                    }
-
-                    if (kind == StackValueKind.ByRef)
-                        unsigned = false;
-
-                    if (inverted)
-                    {
-                        Append("!(");
-                    }
-                    if (unsigned)
-                    {
-                        Append("(u");
-                        Append(GetStackValueKindCPPTypeName(kind));
-                        Append(")");
-                    }
-                    Append(op2);
-                    Append(" ");
-                    Append(op);
-                    Append(" ");
-                    if (unsigned)
-                    {
-                        Append("(u");
-                        Append(GetStackValueKindCPPTypeName(kind));
-                        Append(")");
-                    }
-                    Append(op1);
-                    if (inverted)
-                    {
-                        Append(")");
-                    }
+                    AppendComparison(opcode, op1, op2);
                 }
                 Append(") ");
             }
@@ -1665,7 +1765,7 @@ namespace Internal.IL
                 case ILOpcode.mul_ovf: op = "*"; break;
                 case ILOpcode.mul_ovf_un: op = "*"; unsigned = true; break;
 
-                default: Debug.Assert(false, "Unexpected opcode"); break;
+                default: Debug.Fail("Unexpected opcode"); break;
             }
 
             if (kind == StackValueKind.ByRef)
@@ -1741,82 +1841,9 @@ namespace Internal.IL
             var op1 = _stack.Pop();
             var op2 = _stack.Pop();
 
-            // StackValueKind is carefully ordered to make this work (assuming the IL is valid)
-            StackValueKind kind;
-
-            if (op1.Kind > op2.Kind)
-            {
-                kind = op1.Kind;
-            }
-            else
-            {
-                kind = op2.Kind;
-            }
-
             PushTemp(StackValueKind.Int32);
 
-            string op = null;
-            bool unsigned = false;
-            bool inverted = false;
-            switch (opcode)
-            {
-                case ILOpcode.ceq: op = "=="; break;
-                case ILOpcode.cgt: op = ">"; break;
-                case ILOpcode.clt: op = "<"; break;
-                case ILOpcode.cgt_un:
-                    if (kind == StackValueKind.Float)
-                    {
-                        op = "<="; inverted = true;
-                    }
-                    else
-                    {
-                        op = ">";
-                        if (kind == StackValueKind.Int32 || kind == StackValueKind.Int64)
-                            unsigned = true;
-                    }
-                    break;
-                case ILOpcode.clt_un:
-                    if (kind == StackValueKind.Float)
-                    {
-                        op = ">="; inverted = true;
-                    }
-                    else
-                    {
-                        op = "<";
-                        if (kind == StackValueKind.Int32 || kind == StackValueKind.Int64)
-                            unsigned = true;
-                    }
-                    break;
-            }
-
-            if (kind == StackValueKind.ByRef)
-                unsigned = false;
-
-            if (inverted)
-            {
-                Append("!(");
-            }
-            if (unsigned)
-            {
-                Append("(u");
-                Append(GetStackValueKindCPPTypeName(kind));
-                Append(")");
-            }
-            Append(op2);
-            Append(" ");
-            Append(op);
-            Append(" ");
-            if (unsigned)
-            {
-                Append("(u");
-                Append(GetStackValueKindCPPTypeName(kind));
-                Append(")");
-            }
-            Append(op1);
-            if (inverted)
-            {
-                Append(")");
-            }
+            AppendComparison(opcode, op1, op2);
             AppendSemicolon();
         }
 
@@ -2121,26 +2148,33 @@ namespace Internal.IL
                     throw new NotImplementedException();
 
                 var value = _stack.Pop();
-
-                PushTemp(StackValueKind.ObjRef, type);
-
-                AddTypeReference(type, true);
-
-                Append("__allocate_object(");
-                Append(_writer.GetCppTypeName(type));
-                Append("::__getMethodTable())");
-                AppendSemicolon();
-
-                string typeName = GetStackValueKindCPPTypeName(GetStackValueKind(type), type);
-
-                // TODO: Write barrier as necessary
-                AppendLine();
-                Append("*(" + typeName + " *)((void **)");
-                Append(_stack.Peek());
-                Append(" + 1) = ");
-                Append(value);
-                AppendSemicolon();
+                _stack.Push(BoxValue(type, value));
             }
+        }
+
+        private ExpressionEntry BoxValue(TypeDesc type, StackEntry value)
+        {
+            string tempName = NewTempName();
+
+            AddTypeReference(type, true);
+            Append(GetStackValueKindCPPTypeName(StackValueKind.ObjRef, type));
+            Append(" ");
+            Append(tempName);
+            Append(" = __allocate_object(");
+            Append(_writer.GetCppTypeName(type));
+            Append("::__getMethodTable())");
+            AppendSemicolon();
+
+            string typeName = GetStackValueKindCPPTypeName(GetStackValueKind(type), type);
+
+            // TODO: Write barrier as necessary
+            AppendLine();
+            Append("*(" + typeName + " *)((void **)");
+            Append(tempName);
+            Append(" + 1) = ");
+            Append(value);
+            AppendSemicolon();
+            return new ExpressionEntry(StackValueKind.ObjRef, tempName, type);
         }
 
         private static bool IsOffsetContained(int offset, int start, int length)
@@ -2350,6 +2384,8 @@ namespace Internal.IL
             TypeDesc elementType = (TypeDesc)_methodIL.GetObject(token);
             var index = _stack.Pop();
             var arrayPtr = _stack.Pop();
+
+            // TODO: type check, unless readonly prefix was applied
 
             // Range check
             AppendLine();
@@ -2578,7 +2614,8 @@ namespace Internal.IL
 
         private void ImportUnalignedPrefix(byte alignment)
         {
-            throw new NotImplementedException();
+            // TODO:
+            // throw new NotImplementedException();
         }
 
         private void ImportVolatilePrefix()
@@ -2606,7 +2643,7 @@ namespace Internal.IL
 
         private void ImportReadOnlyPrefix()
         {
-            throw new NotImplementedException();
+            _pendingPrefix |= Prefix.ReadOnly;
         }
 
         private void TriggerCctor(TypeDesc type)
@@ -2675,6 +2712,11 @@ namespace Internal.IL
             _dependencies.Add(_nodeFactory.MethodEntrypoint(method));
         }
 
+        private void AddVirtualMethodReference(MethodDesc method)
+        {
+            _dependencies.Add(_nodeFactory.VirtualMethodUse(method));
+        }
+
         private void AddFieldReference(FieldDesc field)
         {
             if (field.IsStatic)
@@ -2713,6 +2755,11 @@ namespace Internal.IL
         }
 
         private void ReportFallthroughAtEndOfMethod()
+        {
+            ThrowHelper.ThrowInvalidProgramException();
+        }
+
+        private void ReportMethodEndInsideInstruction()
         {
             ThrowHelper.ThrowInvalidProgramException();
         }

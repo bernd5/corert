@@ -16,6 +16,8 @@ using System.Runtime.Serialization;
 
 namespace System
 {
+    [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class RankException : SystemException
     {
         public RankException()
@@ -24,13 +26,13 @@ namespace System
             HResult = HResults.COR_E_RANK;
         }
 
-        public RankException(String message)
+        public RankException(string message)
             : base(message)
         {
             HResult = HResults.COR_E_RANK;
         }
 
-        public RankException(String message, Exception innerException)
+        public RankException(string message, Exception innerException)
             : base(message, innerException)
         {
             HResult = HResults.COR_E_RANK;
@@ -38,7 +40,6 @@ namespace System
 
         protected RankException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
-            throw new PlatformNotSupportedException();
         }
     }
 }

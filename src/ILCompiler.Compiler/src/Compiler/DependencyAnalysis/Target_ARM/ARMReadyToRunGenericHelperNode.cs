@@ -35,7 +35,7 @@ namespace ILCompiler.DependencyAnalysis
             }
 
             // Load the generic dictionary cell
-            encoder.EmitLDR(result, context, ((short)(dictionarySlot * factory.Target.PointerSize)));
+            encoder.EmitLDR(result, context, dictionarySlot * factory.Target.PointerSize);
 
             switch (lookup.LookupResultReferenceType(factory))
             {
@@ -67,39 +67,27 @@ namespace ILCompiler.DependencyAnalysis
             {
                 case ReadyToRunHelperId.GetNonGCStaticBase:
                     {
-                        ARMDebug.EmitNYIAssert(factory, ref encoder, "GetNonGCStaticBase EmitCode is not implemented");
-
-                        /*
-                       ***
-                       NOT TESTED!!!
-                       ***
                         Debug.Assert(contextRegister == encoder.TargetRegister.Arg0);
 
-                        MetadataType target = (MetadataType)_target;
+                        EmitDictionaryLookup(factory, ref encoder, encoder.TargetRegister.Arg0, encoder.TargetRegister.Result, _lookupSignature, relocsOnly);
 
+                        MetadataType target = (MetadataType)_target;
                         if (!factory.TypeSystemContext.HasLazyStaticConstructor(target))
                         {
-                            EmitDictionaryLookup(factory, ref encoder, encoder.TargetRegister.Arg0, encoder.TargetRegister.Result, _lookupSignature, relocsOnly);
                             encoder.EmitRET();
                         }
                         else
                         {
-                            EmitDictionaryLookup(factory, ref encoder, encoder.TargetRegister.Arg0, encoder.TargetRegister.Arg0, _lookupSignature, relocsOnly);
-                            encoder.EmitMOV(encoder.TargetRegister.Result, encoder.TargetRegister.Arg0);
-
                             // We need to trigger the cctor before returning the base. It is stored at the beginning of the non-GC statics region.
                             int cctorContextSize = NonGCStaticsNode.GetClassConstructorContextStorageSize(factory.Target, target);
-                            encoder.EmitSUB(encoder.TargetRegister.Arg0, ((byte)(cctorContextSize)));
-                            // cmp [r0 + ptrSize], 1
-                            encoder.EmitLDR(encoder.TargetRegister.Arg2, encoder.TargetRegister.Arg0, ((short)factory.Target.PointerSize));
-                            encoder.EmitCMP(encoder.TargetRegister.Arg2, ((byte)1));
+                            encoder.EmitLDR(encoder.TargetRegister.Arg1, encoder.TargetRegister.Arg0, ((short)(factory.Target.PointerSize - cctorContextSize)));
+                            encoder.EmitCMP(encoder.TargetRegister.Arg1, ((byte)1));
                             encoder.EmitRETIfEqual();
 
-                            encoder.EmitLDR(encoder.TargetRegister.Arg0, encoder.TargetRegister.Arg0);
                             encoder.EmitMOV(encoder.TargetRegister.Arg1, encoder.TargetRegister.Result);
+                            encoder.EmitSUB(encoder.TargetRegister.Arg0, ((byte)(cctorContextSize)));
                             encoder.EmitJMP(factory.HelperEntrypoint(HelperEntrypoint.EnsureClassConstructorRunAndReturnNonGCStaticBase));
                         }
-                        */
                     }
                     break;
 
@@ -107,13 +95,12 @@ namespace ILCompiler.DependencyAnalysis
                     {
                         Debug.Assert(contextRegister == encoder.TargetRegister.Arg0);
 
-                        MetadataType target = (MetadataType)_target;
-
+                        encoder.EmitMOV(encoder.TargetRegister.Arg1, encoder.TargetRegister.Arg0);
                         EmitDictionaryLookup(factory, ref encoder, encoder.TargetRegister.Arg0, encoder.TargetRegister.Result, _lookupSignature, relocsOnly);
-
                         encoder.EmitLDR(encoder.TargetRegister.Result, encoder.TargetRegister.Result);
                         encoder.EmitLDR(encoder.TargetRegister.Result, encoder.TargetRegister.Result);
 
+                        MetadataType target = (MetadataType)_target;
                         if (!factory.TypeSystemContext.HasLazyStaticConstructor(target))
                         {
                             encoder.EmitRET();
@@ -122,17 +109,16 @@ namespace ILCompiler.DependencyAnalysis
                         {
                             // We need to trigger the cctor before returning the base. It is stored at the beginning of the non-GC statics region.
                             GenericLookupResult nonGcRegionLookup = factory.GenericLookup.TypeNonGCStaticBase(target);
-                            EmitDictionaryLookup(factory, ref encoder, encoder.TargetRegister.Arg0, encoder.TargetRegister.Arg0, nonGcRegionLookup, relocsOnly);
+                            EmitDictionaryLookup(factory, ref encoder, encoder.TargetRegister.Arg1, encoder.TargetRegister.Arg2, nonGcRegionLookup, relocsOnly);
 
                             int cctorContextSize = NonGCStaticsNode.GetClassConstructorContextStorageSize(factory.Target, target);
-                            encoder.EmitSUB(encoder.TargetRegister.Arg0, ((byte)(cctorContextSize)));
-                            // cmp [r0 + ptrSize], 1
-                            encoder.EmitLDR(encoder.TargetRegister.Arg2, encoder.TargetRegister.Arg0, ((short)factory.Target.PointerSize));
-                            encoder.EmitCMP(encoder.TargetRegister.Arg2, ((byte)1));
+                            encoder.EmitLDR(encoder.TargetRegister.Arg3, encoder.TargetRegister.Arg2, ((short)(factory.Target.PointerSize - cctorContextSize)));
+                            encoder.EmitCMP(encoder.TargetRegister.Arg3, 1);
                             encoder.EmitRETIfEqual();
 
                             encoder.EmitMOV(encoder.TargetRegister.Arg1, encoder.TargetRegister.Result);
-                            encoder.EmitLDR(encoder.TargetRegister.Arg0, encoder.TargetRegister.Arg0);
+                            encoder.EmitMOV(encoder.TargetRegister.Arg0, encoder.TargetRegister.Arg2);
+                            encoder.EmitSUB(encoder.TargetRegister.Arg0, cctorContextSize);
                             encoder.EmitJMP(factory.HelperEntrypoint(HelperEntrypoint.EnsureClassConstructorRunAndReturnGCStaticBase));
                         }
                     }
@@ -155,8 +141,7 @@ namespace ILCompiler.DependencyAnalysis
                             GenericLookupResult nonGcRegionLookup = factory.GenericLookup.TypeNonGCStaticBase(target);
                             EmitDictionaryLookup(factory, ref encoder, encoder.TargetRegister.Arg0, encoder.TargetRegister.Arg2, nonGcRegionLookup, relocsOnly);
                             int cctorContextSize = NonGCStaticsNode.GetClassConstructorContextStorageSize(factory.Target, target);
-                            encoder.EmitSUB(encoder.TargetRegister.Arg2, ((byte)(cctorContextSize)));
-                            encoder.EmitLDR(encoder.TargetRegister.Arg2, encoder.TargetRegister.Arg2);
+                            encoder.EmitSUB(encoder.TargetRegister.Arg2, cctorContextSize);
 
                             helperEntrypoint = factory.HelperEntrypoint(HelperEntrypoint.EnsureClassConstructorRunAndReturnThreadStaticBase);
                         }
@@ -171,7 +156,7 @@ namespace ILCompiler.DependencyAnalysis
                         encoder.EmitLDR(encoder.TargetRegister.Arg0, encoder.TargetRegister.Arg1);
 
                         // Second arg: index of the type in the ThreadStatic section of the modules
-                        encoder.EmitLDR(encoder.TargetRegister.Arg1, encoder.TargetRegister.Arg1, ((short)(factory.Target.PointerSize)));
+                        encoder.EmitLDR(encoder.TargetRegister.Arg1, encoder.TargetRegister.Arg1, factory.Target.PointerSize);
 
                         encoder.EmitJMP(helperEntrypoint);
                     }
@@ -253,7 +238,7 @@ namespace ILCompiler.DependencyAnalysis
             int slotOffset = EETypeNode.GetVTableOffset(pointerSize) + (vtableSlot * pointerSize);
 
             // Load the dictionary pointer from the VTable
-            encoder.EmitLDR(contextRegister, contextRegister, ((short)(slotOffset)));
+            encoder.EmitLDR(contextRegister, contextRegister, slotOffset);
         }
     }
 }

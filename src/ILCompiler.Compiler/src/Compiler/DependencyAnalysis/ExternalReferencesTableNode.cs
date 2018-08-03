@@ -122,6 +122,13 @@ namespace ILCompiler.DependencyAnalysis
             return builder.ToObjectData();
         }
 
+        protected internal override int Phase => (int)ObjectNodePhase.Ordered;
+        public override int ClassCode => (int)ObjectNodeOrder.ExternalReferencesTableNode;
+        public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
+        {
+            return string.Compare(_blobName, ((ExternalReferencesTableNode)other)._blobName);
+        }
+
         struct SymbolAndDelta : IEquatable<SymbolAndDelta>
         {
             public readonly ISymbolNode Symbol;

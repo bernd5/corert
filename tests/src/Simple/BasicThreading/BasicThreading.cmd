@@ -1,5 +1,6 @@
 @echo off
 setlocal
+
 "%1\%2"
 set ErrorCode=%ERRORLEVEL%
 IF "%ErrorCode%"=="100" (

@@ -36,7 +36,6 @@ namespace System.Diagnostics.Tracing
         {
             if (eventSource == null)
                 throw new ArgumentNullException(nameof(eventSource));
-            Contract.EndContractBlock();
 
             this.eventSource = eventSource;
         }
@@ -315,7 +314,7 @@ namespace System.Diagnostics.Tracing
         private State state;
         private string eventName;
 
-        static internal Guid s_empty;
+        internal static Guid s_empty;
         #endregion
     }
 }

@@ -15,8 +15,8 @@ using System.Reflection.Runtime.MethodInfos;
 
 using Internal.LowLevelLinq;
 using Internal.Runtime.Augments;
+using Internal.Reflection.Augments;
 using Internal.Reflection.Core.Execution;
-using Internal.Reflection.Core.NonPortable;
 using Internal.Reflection.Extensions.NonPortable;
 
 namespace System.Reflection.Runtime.General
@@ -97,8 +97,7 @@ namespace System.Reflection.Runtime.General
 
         public static Type GetTypeCore(this Assembly assembly, string name, bool ignoreCase)
         {
-            RuntimeAssembly runtimeAssembly = assembly as RuntimeAssembly;
-            if (runtimeAssembly != null)
+            if (assembly is RuntimeAssembly runtimeAssembly)
             {
                 // Not a recursion - this one goes to the actual instance method on RuntimeAssembly.
                 return runtimeAssembly.GetTypeCore(name, ignoreCase: ignoreCase);
@@ -124,7 +123,7 @@ namespace System.Reflection.Runtime.General
         public static TypeLoadException CreateTypeLoadException(string typeName, string assemblyName)
         {
             string message = SR.Format(SR.TypeLoad_TypeNotFoundInAssembly, typeName, assemblyName);
-            return ReflectionCoreNonPortable.CreateTypeLoadException(message, typeName);
+            return ReflectionAugments.CreateTypeLoadException(message, typeName);
         }
 
         // Escape identifiers as described in "Specifying Fully Qualified Type Names" on msdn.
@@ -190,8 +189,14 @@ namespace System.Reflection.Runtime.General
                 object instantiatedAttribute = cad.Instantiate();
                 attributes.Add(instantiatedAttribute);
             }
+
+            // This is here for desktop compatibility. ICustomAttribute.GetCustomAttributes() normally returns an array of the 
+            // exact attribute type requested except in two cases: when the passed in type is an open type and when 
+            // it is a value type. In these two cases, it returns an array of type Object[].
+            bool useObjectArray = actualElementType.ContainsGenericParameters || actualElementType.IsValueType;
             int count = attributes.Count;
-            object[] result = (object[])Array.CreateInstance(actualElementType, count);
+            object[] result = useObjectArray ? new object[count] : (object[])Array.CreateInstance(actualElementType, count);
+
             attributes.CopyTo(result, 0);
             return result;
         }
@@ -208,7 +213,7 @@ namespace System.Reflection.Runtime.General
                     {
                         foreach (CustomAttributeNamedArgument namedArgument in cad.NamedArguments)
                         {
-                            if (namedArgument.MemberInfo.Name.Equals("Value"))
+                            if (namedArgument.MemberName.Equals("Value"))
                             {
                                 defaultValue = namedArgument.TypedValue.Value;
                                 return true;

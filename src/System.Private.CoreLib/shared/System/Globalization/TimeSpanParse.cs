@@ -49,7 +49,6 @@
 ////////////////////////////////////////////////////////////////////////////
 
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace System.Globalization
@@ -62,15 +61,6 @@ namespace System.Globalization
         private const int MaxMinutes = 59;
         private const int MaxSeconds = 59;
         private const int MaxFraction = 9999999;
-
-        private enum ParseFailureKind : byte
-        {
-            None = 0,
-            ArgumentNull = 1,
-            Format = 2,
-            FormatWithParameter = 3,
-            Overflow = 4,
-        }
 
         [Flags]
         private enum TimeSpanStandardStyles : byte
@@ -93,19 +83,18 @@ namespace System.Globalization
             NumOverflow = 4,  // Number that overflowed
         }
 
-        [IsByRefLike]
-        private struct TimeSpanToken
+        private ref struct TimeSpanToken
         {
             internal TTT _ttt;
             internal int _num;                // Store the number that we are parsing (if any)
             internal int _zeroes;             // Store the number of leading zeroes (if any)
             internal ReadOnlySpan<char> _sep; // Store the literal that we are parsing (if any)
 
-            public TimeSpanToken(TTT type) : this(type, 0, 0, default(ReadOnlySpan<char>)) { }
+            public TimeSpanToken(TTT type) : this(type, 0, 0, default) { }
 
-            public TimeSpanToken(int number) : this(TTT.Num, number, 0, default(ReadOnlySpan<char>)) { }
+            public TimeSpanToken(int number) : this(TTT.Num, number, 0, default) { }
 
-            public TimeSpanToken(int number, int leadingZeroes) : this(TTT.Num, number, leadingZeroes, default(ReadOnlySpan<char>)) { }
+            public TimeSpanToken(int number, int leadingZeroes) : this(TTT.Num, number, leadingZeroes, default) { }
 
             public TimeSpanToken(TTT type, int number, int leadingZeroes, ReadOnlySpan<char> separator)
             {
@@ -131,8 +120,7 @@ namespace System.Globalization
             }
         }
 
-        [IsByRefLike]
-        private struct TimeSpanTokenizer
+        private ref struct TimeSpanTokenizer
         {
             private ReadOnlySpan<char> _value;
             private int _pos;
@@ -172,7 +160,7 @@ namespace System.Globalization
                             int digit;
                             if (++_pos >= _value.Length || (uint)(digit = _value[_pos] - '0') > 9)
                             {
-                                return new TimeSpanToken(TTT.Num, 0, zeroes, default(ReadOnlySpan<char>));
+                                return new TimeSpanToken(TTT.Num, 0, zeroes, default);
                             }
 
                             if (digit == 0)
@@ -202,7 +190,7 @@ namespace System.Globalization
                         }
                     }
 
-                    return new TimeSpanToken(TTT.Num, num, zeroes, default(ReadOnlySpan<char>));
+                    return new TimeSpanToken(TTT.Num, num, zeroes, default);
                 }
 
                 // Otherwise, we're processing a separator, and we've already processed the first
@@ -241,8 +229,7 @@ namespace System.Globalization
         }
 
         /// <summary>Stores intermediary parsing state for the standard formats.</summary>
-        [IsByRefLike]
-        private struct TimeSpanRawInfo
+        private ref struct TimeSpanRawInfo
         {
             internal TimeSpanFormat.FormatLiterals PositiveInvariant => TimeSpanFormat.PositiveInvariantFormatLiterals;
             internal TimeSpanFormat.FormatLiterals NegativeInvariant => TimeSpanFormat.NegativeInvariantFormatLiterals;
@@ -278,83 +265,83 @@ namespace System.Globalization
             internal bool FullAppCompatMatch(TimeSpanFormat.FormatLiterals pattern) =>
                 _sepCount == 5
                 && _numCount == 4
-                && StringSpanHelpers.Equals(_literals0, pattern.Start)
-                && StringSpanHelpers.Equals(_literals1, pattern.DayHourSep)
-                && StringSpanHelpers.Equals(_literals2, pattern.HourMinuteSep)
-                && StringSpanHelpers.Equals(_literals3, pattern.AppCompatLiteral)
-                && StringSpanHelpers.Equals(_literals4, pattern.End);
+                && _literals0.EqualsOrdinal(pattern.Start)
+                && _literals1.EqualsOrdinal(pattern.DayHourSep)
+                && _literals2.EqualsOrdinal(pattern.HourMinuteSep)
+                && _literals3.EqualsOrdinal(pattern.AppCompatLiteral)
+                && _literals4.EqualsOrdinal(pattern.End);
 
             internal bool PartialAppCompatMatch(TimeSpanFormat.FormatLiterals pattern) =>
                 _sepCount == 4
                 && _numCount == 3
-                && StringSpanHelpers.Equals(_literals0, pattern.Start)
-                && StringSpanHelpers.Equals(_literals1, pattern.HourMinuteSep)
-                && StringSpanHelpers.Equals(_literals2, pattern.AppCompatLiteral)
-                && StringSpanHelpers.Equals(_literals3, pattern.End);
+                && _literals0.EqualsOrdinal(pattern.Start)
+                && _literals1.EqualsOrdinal(pattern.HourMinuteSep)
+                && _literals2.EqualsOrdinal(pattern.AppCompatLiteral)
+                && _literals3.EqualsOrdinal(pattern.End);
 
             /// <summary>DHMSF (all values matched)</summary>
             internal bool FullMatch(TimeSpanFormat.FormatLiterals pattern) =>
                 _sepCount == MaxLiteralTokens
                 && _numCount == MaxNumericTokens
-                && StringSpanHelpers.Equals(_literals0, pattern.Start)
-                && StringSpanHelpers.Equals(_literals1, pattern.DayHourSep)
-                && StringSpanHelpers.Equals(_literals2, pattern.HourMinuteSep)
-                && StringSpanHelpers.Equals(_literals3, pattern.MinuteSecondSep)
-                && StringSpanHelpers.Equals(_literals4, pattern.SecondFractionSep)
-                && StringSpanHelpers.Equals(_literals5, pattern.End);
+                && _literals0.EqualsOrdinal(pattern.Start)
+                && _literals1.EqualsOrdinal(pattern.DayHourSep)
+                && _literals2.EqualsOrdinal(pattern.HourMinuteSep)
+                && _literals3.EqualsOrdinal(pattern.MinuteSecondSep)
+                && _literals4.EqualsOrdinal(pattern.SecondFractionSep)
+                && _literals5.EqualsOrdinal(pattern.End);
 
             /// <summary>D (no hours, minutes, seconds, or fractions)</summary>
             internal bool FullDMatch(TimeSpanFormat.FormatLiterals pattern) =>
                 _sepCount == 2
                 && _numCount == 1
-                && StringSpanHelpers.Equals(_literals0, pattern.Start)
-                && StringSpanHelpers.Equals(_literals1, pattern.End);
+                && _literals0.EqualsOrdinal(pattern.Start)
+                && _literals1.EqualsOrdinal(pattern.End);
 
             /// <summary>HM (no days, seconds, or fractions)</summary>
             internal bool FullHMMatch(TimeSpanFormat.FormatLiterals pattern) =>
                 _sepCount == 3
                 && _numCount == 2
-                && StringSpanHelpers.Equals(_literals0, pattern.Start)
-                && StringSpanHelpers.Equals(_literals1, pattern.HourMinuteSep)
-                && StringSpanHelpers.Equals(_literals2, pattern.End);
+                && _literals0.EqualsOrdinal(pattern.Start)
+                && _literals1.EqualsOrdinal(pattern.HourMinuteSep)
+                && _literals2.EqualsOrdinal(pattern.End);
 
             /// <summary>DHM (no seconds or fraction)</summary>
             internal bool FullDHMMatch(TimeSpanFormat.FormatLiterals pattern) =>
                 _sepCount == 4
                 && _numCount == 3
-                && StringSpanHelpers.Equals(_literals0, pattern.Start)
-                && StringSpanHelpers.Equals(_literals1, pattern.DayHourSep)
-                && StringSpanHelpers.Equals(_literals2, pattern.HourMinuteSep)
-                && StringSpanHelpers.Equals(_literals3, pattern.End);
+                && _literals0.EqualsOrdinal(pattern.Start)
+                && _literals1.EqualsOrdinal(pattern.DayHourSep)
+                && _literals2.EqualsOrdinal(pattern.HourMinuteSep)
+                && _literals3.EqualsOrdinal(pattern.End);
 
             /// <summary>HMS (no days or fraction)</summary>
             internal bool FullHMSMatch(TimeSpanFormat.FormatLiterals pattern) =>
                 _sepCount == 4
                 && _numCount == 3
-                && StringSpanHelpers.Equals(_literals0, pattern.Start)
-                && StringSpanHelpers.Equals(_literals1, pattern.HourMinuteSep)
-                && StringSpanHelpers.Equals(_literals2, pattern.MinuteSecondSep)
-                && StringSpanHelpers.Equals(_literals3, pattern.End);
+                && _literals0.EqualsOrdinal(pattern.Start)
+                && _literals1.EqualsOrdinal(pattern.HourMinuteSep)
+                && _literals2.EqualsOrdinal(pattern.MinuteSecondSep)
+                && _literals3.EqualsOrdinal(pattern.End);
 
             /// <summary>DHMS (no fraction)</summary>
             internal bool FullDHMSMatch(TimeSpanFormat.FormatLiterals pattern) =>
                 _sepCount == 5
                 && _numCount == 4
-                && StringSpanHelpers.Equals(_literals0, pattern.Start)
-                && StringSpanHelpers.Equals(_literals1, pattern.DayHourSep)
-                && StringSpanHelpers.Equals(_literals2, pattern.HourMinuteSep)
-                && StringSpanHelpers.Equals(_literals3, pattern.MinuteSecondSep)
-                && StringSpanHelpers.Equals(_literals4, pattern.End);
+                && _literals0.EqualsOrdinal(pattern.Start)
+                && _literals1.EqualsOrdinal(pattern.DayHourSep)
+                && _literals2.EqualsOrdinal(pattern.HourMinuteSep)
+                && _literals3.EqualsOrdinal(pattern.MinuteSecondSep)
+                && _literals4.EqualsOrdinal(pattern.End);
 
             /// <summary>HMSF (no days)</summary>
             internal bool FullHMSFMatch(TimeSpanFormat.FormatLiterals pattern) =>
                 _sepCount == 5
                 && _numCount == 4
-                && StringSpanHelpers.Equals(_literals0, pattern.Start)
-                && StringSpanHelpers.Equals(_literals1, pattern.HourMinuteSep)
-                && StringSpanHelpers.Equals(_literals2, pattern.MinuteSecondSep)
-                && StringSpanHelpers.Equals(_literals3, pattern.SecondFractionSep)
-                && StringSpanHelpers.Equals(_literals4, pattern.End);
+                && _literals0.EqualsOrdinal(pattern.Start)
+                && _literals1.EqualsOrdinal(pattern.HourMinuteSep)
+                && _literals2.EqualsOrdinal(pattern.MinuteSecondSep)
+                && _literals3.EqualsOrdinal(pattern.SecondFractionSep)
+                && _literals4.EqualsOrdinal(pattern.End);
 
             internal TTT _lastSeenTTT;
             internal int _tokenCount;
@@ -395,7 +382,7 @@ namespace System.Globalization
                 switch (tok._ttt)
                 {
                     case TTT.Num:
-                        if ((_tokenCount == 0 && !AddSep(default(ReadOnlySpan<char>), ref result)) || !AddNum(tok, ref result))
+                        if ((_tokenCount == 0 && !AddSep(default, ref result)) || !AddNum(tok, ref result))
                         {
                             return false;
                         }
@@ -409,11 +396,11 @@ namespace System.Globalization
                         break;
 
                     case TTT.NumOverflow:
-                        return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                        return result.SetOverflowFailure();
 
                     default:
                         // Some unknown token or a repeat token type in the input
-                        return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                        return result.SetBadTimeSpanFailure();
                 }
 
                 _lastSeenTTT = tok._ttt;
@@ -425,7 +412,7 @@ namespace System.Globalization
             {
                 if (_sepCount >= MaxLiteralTokens || _tokenCount >= MaxTokens)
                 {
-                    return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                    return result.SetBadTimeSpanFailure();
                 }
 
                 switch (_sepCount++)
@@ -445,7 +432,7 @@ namespace System.Globalization
             {
                 if (_numCount >= MaxNumericTokens || _tokenCount >= MaxTokens)
                 {
-                    return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                    return result.SetBadTimeSpanFailure();
                 }
 
                 switch (_numCount++)
@@ -463,41 +450,88 @@ namespace System.Globalization
         }
 
         /// <summary>Store the result of the parsing.</summary>
-        private struct TimeSpanResult
+        private ref struct TimeSpanResult
         {
             internal TimeSpan parsedTimeSpan;
             private readonly bool _throwOnFailure;
+            private readonly ReadOnlySpan<char> _originalTimeSpanString;
 
-            internal TimeSpanResult(bool throwOnFailure)
+            internal TimeSpanResult(bool throwOnFailure, ReadOnlySpan<char> originalTimeSpanString)
             {
-                parsedTimeSpan = default(TimeSpan);
+                parsedTimeSpan = default;
                 _throwOnFailure = throwOnFailure;
+                _originalTimeSpanString = originalTimeSpanString;
             }
 
-            internal bool SetFailure(ParseFailureKind kind, string resourceKey, object messageArgument = null, string argumentName = null)
+            internal bool SetNoFormatSpecifierFailure()
             {
                 if (!_throwOnFailure)
                 {
                     return false;
                 }
 
-                string message = SR.GetResourceString(resourceKey);
-                switch (kind)
+                throw new FormatException(SR.Format_NoFormatSpecifier);
+            }
+
+            internal bool SetBadQuoteFailure(char failingCharacter)
+            {
+                if (!_throwOnFailure)
                 {
-                    case ParseFailureKind.ArgumentNull:
-                        Debug.Assert(argumentName != null);
-                        throw new ArgumentNullException(argumentName, message);
-
-                    case ParseFailureKind.FormatWithParameter:
-                        throw new FormatException(SR.Format(message, messageArgument));
-
-                    case ParseFailureKind.Overflow:
-                        throw new OverflowException(message);
-
-                    default:
-                        Debug.Assert(kind == ParseFailureKind.Format, $"Unexpected failure {kind}");
-                        throw new FormatException(message);
+                    return false;
                 }
+
+                throw new FormatException(SR.Format(SR.Format_BadQuote, failingCharacter));
+            }
+
+            internal bool SetInvalidStringFailure()
+            {
+                if (!_throwOnFailure)
+                {
+                    return false;
+                }
+
+                throw new FormatException(SR.Format_InvalidString);
+            }
+
+            internal bool SetArgumentNullFailure(string argumentName)
+            {
+                if (!_throwOnFailure)
+                {
+                    return false;
+                }
+
+                Debug.Assert(argumentName != null);
+                throw new ArgumentNullException(argumentName, SR.ArgumentNull_String);
+            }
+
+            internal bool SetOverflowFailure()
+            {
+                if (!_throwOnFailure)
+                {
+                    return false;
+                }
+
+                throw new OverflowException(SR.Format(SR.Overflow_TimeSpanElementTooLarge, new string(_originalTimeSpanString)));
+            }
+
+            internal bool SetBadTimeSpanFailure()
+            {
+                if (!_throwOnFailure)
+                {
+                    return false;
+                }
+
+                throw new FormatException(SR.Format(SR.Format_BadTimeSpan, new string(_originalTimeSpanString)));
+            }
+
+            internal bool SetBadFormatSpecifierFailure(char? formatSpecifierCharacter = null)
+            {
+                if (!_throwOnFailure)
+                {
+                    return false;
+                }
+
+                throw new FormatException(SR.Format(SR.Format_BadFormatSpecifier, formatSpecifierCharacter));
             }
         }
 
@@ -572,7 +606,7 @@ namespace System.Globalization
 
         internal static TimeSpan Parse(ReadOnlySpan<char> input, IFormatProvider formatProvider)
         {
-            var parseResult = new TimeSpanResult(throwOnFailure: true);
+            var parseResult = new TimeSpanResult(throwOnFailure: true, originalTimeSpanString: input);
             bool success = TryParseTimeSpan(input, TimeSpanStandardStyles.Any, formatProvider, ref parseResult);
             Debug.Assert(success, "Should have thrown on failure");
             return parseResult.parsedTimeSpan;
@@ -580,7 +614,7 @@ namespace System.Globalization
 
         internal static bool TryParse(ReadOnlySpan<char> input, IFormatProvider formatProvider, out TimeSpan result)
         {
-            var parseResult = new TimeSpanResult(throwOnFailure: false);
+            var parseResult = new TimeSpanResult(throwOnFailure: false, originalTimeSpanString: input);
 
             if (TryParseTimeSpan(input, TimeSpanStandardStyles.Any, formatProvider, ref parseResult))
             {
@@ -588,21 +622,21 @@ namespace System.Globalization
                 return true;
             }
 
-            result = default(TimeSpan);
+            result = default;
             return false;
         }
 
-        internal static TimeSpan ParseExact(ReadOnlySpan<char> input, string format, IFormatProvider formatProvider, TimeSpanStyles styles)
+        internal static TimeSpan ParseExact(ReadOnlySpan<char> input, ReadOnlySpan<char> format, IFormatProvider formatProvider, TimeSpanStyles styles)
         {
-            var parseResult = new TimeSpanResult(throwOnFailure: true);
+            var parseResult = new TimeSpanResult(throwOnFailure: true, originalTimeSpanString: input);
             bool success = TryParseExactTimeSpan(input, format, formatProvider, styles, ref parseResult);
             Debug.Assert(success, "Should have thrown on failure");
             return parseResult.parsedTimeSpan;
         }
 
-        internal static bool TryParseExact(ReadOnlySpan<char> input, string format, IFormatProvider formatProvider, TimeSpanStyles styles, out TimeSpan result)
+        internal static bool TryParseExact(ReadOnlySpan<char> input, ReadOnlySpan<char> format, IFormatProvider formatProvider, TimeSpanStyles styles, out TimeSpan result)
         {
-            var parseResult = new TimeSpanResult(throwOnFailure: false);
+            var parseResult = new TimeSpanResult(throwOnFailure: false, originalTimeSpanString: input);
 
             if (TryParseExactTimeSpan(input, format, formatProvider, styles, ref parseResult))
             {
@@ -610,13 +644,13 @@ namespace System.Globalization
                 return true;
             }
 
-            result = default(TimeSpan);
+            result = default;
             return false;
         }
 
         internal static TimeSpan ParseExactMultiple(ReadOnlySpan<char> input, string[] formats, IFormatProvider formatProvider, TimeSpanStyles styles)
         {
-            var parseResult = new TimeSpanResult(throwOnFailure: true);
+            var parseResult = new TimeSpanResult(throwOnFailure: true, originalTimeSpanString: input);
             bool success = TryParseExactMultipleTimeSpan(input, formats, formatProvider, styles, ref parseResult);
             Debug.Assert(success, "Should have thrown on failure");
             return parseResult.parsedTimeSpan;
@@ -624,7 +658,7 @@ namespace System.Globalization
 
         internal static bool TryParseExactMultiple(ReadOnlySpan<char> input, string[] formats, IFormatProvider formatProvider, TimeSpanStyles styles, out TimeSpan result)
         {
-            var parseResult = new TimeSpanResult(throwOnFailure: false);
+            var parseResult = new TimeSpanResult(throwOnFailure: false, originalTimeSpanString: input);
 
             if (TryParseExactMultipleTimeSpan(input, formats, formatProvider, styles, ref parseResult))
             {
@@ -632,7 +666,7 @@ namespace System.Globalization
                 return true;
             }
 
-            result = default(TimeSpan);
+            result = default;
             return false;
         }
 
@@ -642,7 +676,7 @@ namespace System.Globalization
             input = input.Trim();
             if (input.IsEmpty)
             {
-                return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                return result.SetBadTimeSpanFailure();
             }
 
             var tokenizer = new TimeSpanTokenizer(input);
@@ -658,7 +692,7 @@ namespace System.Globalization
             {
                 if (!raw.ProcessToken(ref tok, ref result))
                 {
-                    return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                    return result.SetBadTimeSpanFailure();
                 }
                 tok = tokenizer.GetNextToken();
             }
@@ -666,7 +700,7 @@ namespace System.Globalization
 
             if (!ProcessTerminalState(ref raw, style, ref result))
             {
-                return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                return result.SetBadTimeSpanFailure();
             }
 
             return true;
@@ -695,7 +729,7 @@ namespace System.Globalization
                 tok._ttt = TTT.Sep;
                 if (!raw.ProcessToken(ref tok, ref result))
                 {
-                    return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                    return result.SetBadTimeSpanFailure();
                 }
             }
 
@@ -706,7 +740,7 @@ namespace System.Globalization
                 case 3: return ProcessTerminal_HM_S_D(ref raw, style, ref result);
                 case 4: return ProcessTerminal_HMS_F_D(ref raw, style, ref result);
                 case 5: return ProcessTerminal_DHMSF(ref raw, style, ref result);
-                default: return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                default: return result.SetBadTimeSpanFailure();
             }
         }
 
@@ -715,7 +749,7 @@ namespace System.Globalization
         {
             if (raw._sepCount != 6)
             {
-                return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                return result.SetBadTimeSpanFailure();
             }
             Debug.Assert(raw._numCount == 5);
 
@@ -758,7 +792,7 @@ namespace System.Globalization
 
                 if (!TryTimeToTicks(positive, raw._numbers0, raw._numbers1, raw._numbers2, raw._numbers3, raw._numbers4, out ticks))
                 {
-                    return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                    return result.SetOverflowFailure();
                 }
 
                 if (!positive)
@@ -766,7 +800,7 @@ namespace System.Globalization
                     ticks = -ticks;
                     if (ticks > 0)
                     {
-                        return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                        return result.SetOverflowFailure();
                     }
                 }
 
@@ -774,7 +808,7 @@ namespace System.Globalization
                 return true;
             }
 
-            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+            return result.SetBadTimeSpanFailure();
         }
 
 
@@ -786,7 +820,7 @@ namespace System.Globalization
         {
             if (raw._sepCount != 5 || (style & TimeSpanStandardStyles.RequireFull) != 0)
             {
-                return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                return result.SetBadTimeSpanFailure();
             }
             Debug.Assert(raw._numCount == 4);
 
@@ -894,7 +928,7 @@ namespace System.Globalization
                     ticks = -ticks;
                     if (ticks > 0)
                     {
-                        return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                        return result.SetOverflowFailure();
                     }
                 }
 
@@ -903,8 +937,8 @@ namespace System.Globalization
             }
 
             return overflow ?
-                result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge)) : // we found at least one literal pattern match but the numbers just didn't fit
-                result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan)); // we couldn't find a thing
+                result.SetOverflowFailure() : // we found at least one literal pattern match but the numbers just didn't fit
+                result.SetBadTimeSpanFailure(); // we couldn't find a thing
         }
 
         /// <summary>Validate the ambiguous 3-number "Hours:Minutes:Seconds", "Days.Hours:Minutes", or "Hours:Minutes:.Fraction" terminal case.</summary>
@@ -912,7 +946,7 @@ namespace System.Globalization
         {
             if (raw._sepCount != 4 || (style & TimeSpanStandardStyles.RequireFull) != 0)
             {
-                return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                return result.SetBadTimeSpanFailure();
             }
             Debug.Assert(raw._numCount == 3);
 
@@ -1020,7 +1054,7 @@ namespace System.Globalization
                     ticks = -ticks;
                     if (ticks > 0)
                     {
-                        return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                        return result.SetOverflowFailure();
                     }
                 }
 
@@ -1029,8 +1063,8 @@ namespace System.Globalization
             }
 
             return overflow ?
-                result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge)) : // we found at least one literal pattern match but the numbers just didn't fit
-                result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan)); // we couldn't find a thing
+                result.SetOverflowFailure() : // we found at least one literal pattern match but the numbers just didn't fit
+                result.SetBadTimeSpanFailure(); // we couldn't find a thing
         }
 
         /// <summary>Validate the 2-number "Hours:Minutes" terminal case.</summary>
@@ -1038,7 +1072,7 @@ namespace System.Globalization
         {
             if (raw._sepCount != 3 || (style & TimeSpanStandardStyles.RequireFull) != 0)
             {
-                return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                return result.SetBadTimeSpanFailure();
             }
             Debug.Assert(raw._numCount == 2);
 
@@ -1084,7 +1118,7 @@ namespace System.Globalization
 
                 if (!TryTimeToTicks(positive, zero, raw._numbers0, raw._numbers1, zero, zero, out ticks))
                 {
-                    return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                    return result.SetOverflowFailure();
                 }
 
                 if (!positive)
@@ -1092,7 +1126,7 @@ namespace System.Globalization
                     ticks = -ticks;
                     if (ticks > 0)
                     {
-                        return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                        return result.SetOverflowFailure();
                     }
                 }
 
@@ -1100,7 +1134,7 @@ namespace System.Globalization
                 return true;
             }
 
-            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+            return result.SetBadTimeSpanFailure();
         }
 
         /// <summary>Validate the 1-number "Days" terminal case.</summary>
@@ -1108,7 +1142,7 @@ namespace System.Globalization
         {
             if (raw._sepCount != 2 || (style & TimeSpanStandardStyles.RequireFull) != 0)
             {
-                return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                return result.SetBadTimeSpanFailure();
             }
             Debug.Assert(raw._numCount == 1);
 
@@ -1154,7 +1188,7 @@ namespace System.Globalization
 
                 if (!TryTimeToTicks(positive, raw._numbers0, zero, zero, zero, zero, out ticks))
                 {
-                    return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                    return result.SetOverflowFailure();
                 }
 
                 if (!positive)
@@ -1162,7 +1196,7 @@ namespace System.Globalization
                     ticks = -ticks;
                     if (ticks > 0)
                     {
-                        return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                        return result.SetOverflowFailure();
                     }
                 }
 
@@ -1170,20 +1204,15 @@ namespace System.Globalization
                 return true;
             }
 
-            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+            return result.SetBadTimeSpanFailure();
         }
 
         /// <summary>Common private ParseExact method called by both ParseExact and TryParseExact.</summary>
-        private static bool TryParseExactTimeSpan(ReadOnlySpan<char> input, string format, IFormatProvider formatProvider, TimeSpanStyles styles, ref TimeSpanResult result)
+        private static bool TryParseExactTimeSpan(ReadOnlySpan<char> input, ReadOnlySpan<char> format, IFormatProvider formatProvider, TimeSpanStyles styles, ref TimeSpanResult result)
         {
-            if (format == null)
-            {
-                return result.SetFailure(ParseFailureKind.ArgumentNull, nameof(SR.ArgumentNull_String), argumentName: nameof(format));
-            }
-
             if (format.Length == 0)
             {
-                return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadFormatSpecifier));
+                return result.SetBadFormatSpecifierFailure();
             }
 
             if (format.Length == 1)
@@ -1202,7 +1231,7 @@ namespace System.Globalization
                         return TryParseTimeSpan(input, TimeSpanStandardStyles.Localized | TimeSpanStandardStyles.RequireFull, formatProvider, ref result);
 
                     default:
-                        return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadFormatSpecifier));
+                        return result.SetBadFormatSpecifierFailure(format[0]);
                 }
             }
 
@@ -1210,10 +1239,8 @@ namespace System.Globalization
         }
 
         /// <summary>Parse the TimeSpan instance using the specified format.  Used by TryParseExactTimeSpan.</summary>
-        private static bool TryParseByFormat(ReadOnlySpan<char> input, string format, TimeSpanStyles styles, ref TimeSpanResult result)
+        private static bool TryParseByFormat(ReadOnlySpan<char> input, ReadOnlySpan<char> format, TimeSpanStyles styles, ref TimeSpanResult result)
         {
-            Debug.Assert(format != null, "format != null");
-
             bool seenDD = false;      // already processed days?
             bool seenHH = false;      // already processed hours?
             bool seenMM = false;      // already processed minutes?
@@ -1241,7 +1268,7 @@ namespace System.Globalization
                         tokenLen = DateTimeFormat.ParseRepeatPattern(format, i, ch);
                         if (tokenLen > 2 || seenHH || !ParseExactDigits(ref tokenizer, tokenLen, out hh))
                         {
-                            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_InvalidString));
+                            return result.SetInvalidStringFailure();
                         }
                         seenHH = true;
                         break;
@@ -1250,7 +1277,7 @@ namespace System.Globalization
                         tokenLen = DateTimeFormat.ParseRepeatPattern(format, i, ch);
                         if (tokenLen > 2 || seenMM || !ParseExactDigits(ref tokenizer, tokenLen, out mm))
                         {
-                            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_InvalidString));
+                            return result.SetInvalidStringFailure();
                         }
                         seenMM = true;
                         break;
@@ -1259,7 +1286,7 @@ namespace System.Globalization
                         tokenLen = DateTimeFormat.ParseRepeatPattern(format, i, ch);
                         if (tokenLen > 2 || seenSS || !ParseExactDigits(ref tokenizer, tokenLen, out ss))
                         {
-                            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_InvalidString));
+                            return result.SetInvalidStringFailure();
                         }
                         seenSS = true;
                         break;
@@ -1268,7 +1295,7 @@ namespace System.Globalization
                         tokenLen = DateTimeFormat.ParseRepeatPattern(format, i, ch);
                         if (tokenLen > DateTimeFormat.MaxSecondsFractionDigits || seenFF || !ParseExactDigits(ref tokenizer, tokenLen, tokenLen, out leadingZeroes, out ff))
                         {
-                            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_InvalidString));
+                            return result.SetInvalidStringFailure();
                         }
                         seenFF = true;
                         break;
@@ -1277,7 +1304,7 @@ namespace System.Globalization
                         tokenLen = DateTimeFormat.ParseRepeatPattern(format, i, ch);
                         if (tokenLen > DateTimeFormat.MaxSecondsFractionDigits || seenFF)
                         {
-                            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_InvalidString));
+                            return result.SetInvalidStringFailure();
                         }
                         ParseExactDigits(ref tokenizer, tokenLen, tokenLen, out leadingZeroes, out ff);
                         seenFF = true;
@@ -1288,22 +1315,25 @@ namespace System.Globalization
                         int tmp = 0;
                         if (tokenLen > 8 || seenDD || !ParseExactDigits(ref tokenizer, (tokenLen < 2) ? 1 : tokenLen, (tokenLen < 2) ? 8 : tokenLen, out tmp, out dd))
                         {
-                            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_InvalidString));
+                            return result.SetInvalidStringFailure();
                         }
                         seenDD = true;
                         break;
 
                     case '\'':
                     case '\"':
-                        StringBuilder enquotedString = new StringBuilder();
+                        StringBuilder enquotedString = StringBuilderCache.Acquire();
                         if (!DateTimeParse.TryParseQuoteString(format, i, enquotedString, out tokenLen))
                         {
-                            return result.SetFailure(ParseFailureKind.FormatWithParameter, nameof(SR.Format_BadQuote), ch);
+                            StringBuilderCache.Release(enquotedString);
+                            return result.SetBadQuoteFailure(ch);
                         }
                         if (!ParseExactLiteral(ref tokenizer, enquotedString))
                         {
-                            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_InvalidString));
+                            StringBuilderCache.Release(enquotedString);
+                            return result.SetInvalidStringFailure();
                         }
+                        StringBuilderCache.Release(enquotedString);
                         break;
 
                     case '%':
@@ -1323,7 +1353,7 @@ namespace System.Globalization
                         {
                             // This means that '%' is at the end of the format string or
                             // "%%" appears in the format string.
-                            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_InvalidString));
+                            return result.SetInvalidStringFailure();
                         }
 
                     case '\\':
@@ -1338,12 +1368,12 @@ namespace System.Globalization
                         else
                         {
                             // This means that '\' is at the end of the format string or the literal match failed.
-                            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_InvalidString));
+                            return result.SetInvalidStringFailure();
                         }
                         break;
 
                     default:
-                        return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_InvalidString));
+                        return result.SetInvalidStringFailure();
                 }
 
                 i += tokenLen;
@@ -1353,7 +1383,7 @@ namespace System.Globalization
             if (!tokenizer.EOL)
             {
                 // the custom format didn't consume the entire input
-                return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                return result.SetBadTimeSpanFailure();
             }
 
             bool positive = (styles & TimeSpanStyles.AssumeNegative) == 0;
@@ -1374,7 +1404,7 @@ namespace System.Globalization
             }
             else
             {
-                return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                return result.SetOverflowFailure();
             }
         }
 
@@ -1430,8 +1460,7 @@ namespace System.Globalization
         private static bool TryParseTimeSpanConstant(ReadOnlySpan<char> input, ref TimeSpanResult result) =>
             new StringParser().TryParse(input, ref result);
 
-        [IsByRefLike]
-        private struct StringParser
+        private ref struct StringParser
         {
             private ReadOnlySpan<char> _str;
             private char _ch;
@@ -1516,14 +1545,14 @@ namespace System.Globalization
                     // Allow -0 as well
                     if (time > 0)
                     {
-                        return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                        return result.SetOverflowFailure();
                     }
                 }
                 else
                 {
                     if (time < 0)
                     {
-                        return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                        return result.SetOverflowFailure();
                     }
                 }
 
@@ -1531,7 +1560,7 @@ namespace System.Globalization
 
                 if (_pos < _len)
                 {
-                    return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                    return result.SetBadTimeSpanFailure();
                 }
 
                 result.parsedTimeSpan._ticks = time;
@@ -1546,13 +1575,13 @@ namespace System.Globalization
                 {
                     if ((i & 0xF0000000) != 0)
                     {
-                        return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                        return result.SetOverflowFailure();
                     }
 
                     i = i * 10 + _ch - '0';
                     if (i < 0)
                     {
-                        return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                        return result.SetOverflowFailure();
                     }
 
                     NextChar();
@@ -1560,12 +1589,12 @@ namespace System.Globalization
 
                 if (p == _pos)
                 {
-                    return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                    return result.SetBadTimeSpanFailure();
                 }
 
                 if (i > max)
                 {
-                    return result.SetFailure(ParseFailureKind.Overflow, nameof(SR.Overflow_TimeSpanElementTooLarge));
+                    return result.SetOverflowFailure();
                 }
 
                 return true;
@@ -1584,7 +1613,7 @@ namespace System.Globalization
                 time = unit * TimeSpan.TicksPerHour;
                 if (_ch != ':')
                 {
-                    return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                    return result.SetBadTimeSpanFailure();
                 }
 
                 NextChar();
@@ -1637,17 +1666,17 @@ namespace System.Globalization
         {
             if (formats == null)
             {
-                return result.SetFailure(ParseFailureKind.ArgumentNull, nameof(SR.ArgumentNull_String), argumentName: nameof(formats));
+                return result.SetArgumentNullFailure(nameof(formats));
             }
 
             if (input.Length == 0)
             {
-                return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+                return result.SetBadTimeSpanFailure();
             }
 
             if (formats.Length == 0)
             {
-                return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadFormatSpecifier));
+                return result.SetNoFormatSpecifierFailure();
             }
 
             // Do a loop through the provided formats and see if we can parse succesfully in
@@ -1656,11 +1685,11 @@ namespace System.Globalization
             {
                 if (formats[i] == null || formats[i].Length == 0)
                 {
-                    return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadFormatSpecifier));
+                    return result.SetBadFormatSpecifierFailure();
                 }
 
                 // Create a new non-throwing result each time to ensure the runs are independent.
-                TimeSpanResult innerResult = new TimeSpanResult(throwOnFailure: false);
+                TimeSpanResult innerResult = new TimeSpanResult(throwOnFailure: false, originalTimeSpanString: input);
 
                 if (TryParseExactTimeSpan(input, formats[i], formatProvider, styles, ref innerResult))
                 {
@@ -1669,7 +1698,7 @@ namespace System.Globalization
                 }
             }
 
-            return result.SetFailure(ParseFailureKind.Format, nameof(SR.Format_BadTimeSpan));
+            return result.SetBadTimeSpanFailure();
         }
     }
 }

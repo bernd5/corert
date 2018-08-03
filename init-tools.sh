@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
 __scriptpath=$(cd "$(dirname "$0")"; pwd -P)
+
+if [ "$BUILDVARS_DONE" != 1 ]; then
+    . $__scriptpath/buildscripts/hostvars-setup.sh
+fi
+
 __init_tools_log=$__scriptpath/init-tools.log
 __PACKAGES_DIR=$__scriptpath/packages
 __TOOLRUNTIME_DIR=$__scriptpath/Tools
@@ -16,14 +21,11 @@ __INIT_TOOLS_DONE_MARKER_DIR=$__TOOLRUNTIME_DIR/$__BUILD_TOOLS_PACKAGE_VERSION
 __INIT_TOOLS_DONE_MARKER=$__INIT_TOOLS_DONE_MARKER_DIR/done
 
 if [ -z "$__DOTNET_PKG" ]; then
-    if [ "$(uname -m | grep "i[3456]86")" = "i686" ]; then
-        echo "Warning: build not supported on 32 bit Unix"
-    fi
     OSName=$(uname -s)
     case $OSName in
         Darwin)
             OS=OSX
-            __DOTNET_PKG=dotnet-dev-osx-x64
+            __PKG_RID=osx
             ulimit -n 2048
             # Format x.y.z as single integer with three digits for each part
             VERSION=`sw_vers -productVersion| sed -e 's/\./ /g' | xargs printf "%03d%03d%03d"`
@@ -34,16 +36,32 @@ if [ -z "$__DOTNET_PKG" ]; then
             ;;
 
         Linux)
-            __DOTNET_PKG=dotnet-dev-linux-x64
             OS=Linux
+            __PKG_RID=linux
+
+            if [ -e /etc/os-release ]; then
+                source /etc/os-release
+                if [[ $ID == "alpine" ]]; then
+                    __PKG_RID="linux-musl"
+                fi
+
+            elif [ -e /etc/redhat-release ]; then
+                redhatRelease=$(</etc/redhat-release)
+                if [[ $redhatRelease == "CentOS release 6."* || $redhatRelease == "Red Hat Enterprise Linux Server release 6."* ]]; then
+                    __PKG_RID=rhel.6
+                fi
+            fi
+
             ;;
 
         *)
-            echo "Unsupported OS '$OSName' detected. Downloading linux-x64 tools."
+            echo "Unsupported OS '$OSName' detected. Downloading linux-$__HostArch tools."
             OS=Linux
-            __DOTNET_PKG=dotnet-dev-linux-x64
+            __PKG_RID=linux
             ;;
   esac
+  __PKG_RID=$__PKG_RID-$__HostArch
+  __DOTNET_PKG=dotnet-sdk-${__DOTNET_TOOLS_VERSION}-$__PKG_RID
 fi
 
 display_error_message()
@@ -70,7 +88,7 @@ if [ ! -e $__INIT_TOOLS_DONE_MARKER ]; then
             cp -r $DOTNET_TOOL_DIR/* $__DOTNET_PATH
         else
             echo "Installing dotnet cli..."
-            __DOTNET_LOCATION="https://dotnetcli.azureedge.net/dotnet/Sdk/${__DOTNET_TOOLS_VERSION}/${__DOTNET_PKG}.${__DOTNET_TOOLS_VERSION}.tar.gz"
+            __DOTNET_LOCATION="https://dotnetcli.azureedge.net/dotnet/Sdk/${__DOTNET_TOOLS_VERSION}/${__DOTNET_PKG}.tar.gz"
             # curl has HTTPS CA trust-issues less often than wget, so lets try that first.
             echo "Installing '${__DOTNET_LOCATION}' to '$__DOTNET_PATH/dotnet.tar'" >> $__init_tools_log
             if command -v curl > /dev/null; then
@@ -80,6 +98,11 @@ if [ ! -e $__INIT_TOOLS_DONE_MARKER ]; then
             fi
             cd $__DOTNET_PATH
             tar -xf $__DOTNET_PATH/dotnet.tar
+            if [ "$?" != "0" ]; then
+                echo "ERROR: Could not download dotnet cli." 1>&2
+                display_error_message
+                exit 1
+            fi
 
             cd $__scriptpath
 
@@ -106,11 +129,11 @@ if [ ! -e $__INIT_TOOLS_DONE_MARKER ]; then
         fi
 
         echo "Initializing BuildTools..."
-        echo "Running: $__BUILD_TOOLS_PATH/init-tools.sh $__scriptpath $__DOTNET_CMD $__TOOLRUNTIME_DIR" >> $__init_tools_log
+        echo "Running: $__BUILD_TOOLS_PATH/init-tools.sh $__scriptpath $__DOTNET_CMD $__TOOLRUNTIME_DIR $__PACKAGES_DIR" >> $__init_tools_log
 
         # Executables restored with .NET Core 2.0 do not have executable permission flags. https://github.com/NuGet/Home/issues/4424
         chmod +x $__BUILD_TOOLS_PATH/init-tools.sh
-        $__BUILD_TOOLS_PATH/init-tools.sh $__scriptpath $__DOTNET_CMD $__TOOLRUNTIME_DIR >> $__init_tools_log
+        $__BUILD_TOOLS_PATH/init-tools.sh $__scriptpath $__DOTNET_CMD $__TOOLRUNTIME_DIR $__PACKAGES_DIR >> $__init_tools_log
         if [ "$?" != "0" ]; then
             echo "ERROR: An error occurred when trying to initialize the tools." 1>&2
             display_error_message
@@ -123,7 +146,7 @@ if [ ! -e $__INIT_TOOLS_DONE_MARKER ]; then
     ls $__scriptpath/Tools/*.sh | xargs chmod +x
     ls $__scriptpath/Tools/scripts/docker/*.sh | xargs chmod +x
 
-    Tools/crossgen.sh $__scriptpath/Tools
+    Tools/crossgen.sh $__scriptpath/Tools $__PKG_RID
 
     # CoreRT does not use special copy of the shared runtime for testing
     cp $__TOOLRUNTIME_DIR/csc.runtimeconfig.json $__TOOLRUNTIME_DIR/xunit.console.netcore.runtimeconfig.json

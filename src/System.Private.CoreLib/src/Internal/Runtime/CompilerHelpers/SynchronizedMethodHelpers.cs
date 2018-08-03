@@ -54,9 +54,9 @@ namespace Internal.Runtime.CompilerHelpers
             lockTaken = false;
         }
 
-        private static Object GetStaticLockObject(IntPtr pEEType)
+        private static object GetStaticLockObject(IntPtr pEEType)
         {
-            return Internal.Reflection.Core.NonPortable.ReflectionCoreNonPortable.GetRuntimeTypeForEEType(new System.EETypePtr(pEEType));
+            return Internal.Reflection.Core.NonPortable.RuntimeTypeUnifier.GetRuntimeTypeForEEType(new System.EETypePtr(pEEType));
         }
     }
 }

@@ -34,5 +34,7 @@ namespace ILCompiler.DependencyAnalysis
             //
             objData.EmitPointerReloc(factory.NecessaryTypeSymbol(_type));
         }
+
+        public override int ClassCode => -288888778;
     }
 }

@@ -19,7 +19,7 @@ namespace ILCompiler
         WebAssemblyCodegenConfigProvider _config = new WebAssemblyCodegenConfigProvider(Array.Empty<string>());
 
         public WebAssemblyCodegenCompilationBuilder(CompilerTypeSystemContext context, CompilationModuleGroup group)
-            : base(context, group, new CoreRTNameMangler(new WebAssemblyNodeMangler(), true))
+            : base(context, group, new CoreRTNameMangler(new WebAssemblyNodeMangler(), false))
         {
         }
 
@@ -31,9 +31,9 @@ namespace ILCompiler
 
         public override ICompilation ToCompilation()
         {
-            var interopStubManager = new CompilerGeneratedInteropStubManager(_compilationGroup, _context, new InteropStateManager(_compilationGroup.GeneratedAssembly));
+            var interopStubManager = new CompilerGeneratedInteropStubManager(_compilationGroup, _context, new InteropStateManager(_context.GeneratedAssembly));
             WebAssemblyCodegenNodeFactory factory = new WebAssemblyCodegenNodeFactory(_context, _compilationGroup, _metadataManager, interopStubManager, _nameMangler, _vtableSliceProvider, _dictionaryLayoutProvider);
-            DependencyAnalyzerBase<NodeFactory> graph = CreateDependencyGraph(factory);
+            DependencyAnalyzerBase<NodeFactory> graph = CreateDependencyGraph(factory, new ObjectNode.ObjectNodeComparer(new CompilerComparer()));
 
             return new WebAssemblyCodegenCompilation(graph, factory, _compilationRoots, _logger, _config);
         }

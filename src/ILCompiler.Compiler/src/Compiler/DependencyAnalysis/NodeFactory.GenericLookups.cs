@@ -217,14 +217,14 @@ namespace ILCompiler.DependencyAnalysis
 
             private NodeCache<TypeDesc, GenericLookupResult> _objectAllocators;
 
-            public GenericLookupResult ObjectAlloctor(TypeDesc type)
+            public GenericLookupResult ObjectAllocator(TypeDesc type)
             {
                 return _objectAllocators.GetOrAdd(type);
             }
 
             private NodeCache<TypeDesc, GenericLookupResult> _arrayAllocators;
 
-            public GenericLookupResult ArrayAlloctor(TypeDesc type)
+            public GenericLookupResult ArrayAllocator(TypeDesc type)
             {
                 return _arrayAllocators.GetOrAdd(type);
             }
@@ -296,6 +296,26 @@ namespace ILCompiler.DependencyAnalysis
             public GenericLookupResult ConstrainedMethodUse(MethodDesc constrainedMethod, TypeDesc constraintType, bool directCall)
             {
                 return _constrainedMethodUses.GetOrAdd(new ConstrainedMethodUseKey(constrainedMethod, constraintType, directCall));
+            }
+
+            private static NodeCache<int, GenericLookupResult> s_integers = new NodeCache<int, GenericLookupResult>(slotIndex =>
+            {
+                return new IntegerLookupResult(slotIndex);
+            });
+
+            public static GenericLookupResult Integer(int integer)
+            {
+                return s_integers.GetOrAdd(integer);
+            }
+
+            private static NodeCache<int, GenericLookupResult> s_pointersToSlots = new NodeCache<int, GenericLookupResult>(slotIndex =>
+            {
+                return new PointerToSlotLookupResult(slotIndex);
+            });
+
+            public static GenericLookupResult PointerToSlot(int slotIndex)
+            {
+                return s_pointersToSlots.GetOrAdd(slotIndex);
             }
         }
 

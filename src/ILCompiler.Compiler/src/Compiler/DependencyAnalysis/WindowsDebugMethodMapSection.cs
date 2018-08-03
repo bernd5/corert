@@ -30,6 +30,9 @@ namespace ILCompiler.DependencyAnalysis
 
         public int Offset => 0;
 
+        protected internal override int Phase => (int)ObjectNodePhase.Ordered;
+        public override int ClassCode => (int)ObjectNodeOrder.WindowsDebugMethodSignatureMapSectionNode;
+
         public void AppendMangledName(NameMangler nameMangler, Utf8StringBuilder sb)
         {
             sb.Append(GetName(null));
@@ -48,9 +51,9 @@ namespace ILCompiler.DependencyAnalysis
 
             int IComparable<EmittedMethodWithILToken>.CompareTo(EmittedMethodWithILToken other)
             {
-                if (other.IlTokenRid == IlTokenRid)
+                if (IlTokenRid == other.IlTokenRid)
                     return 0;
-                if (other.IlTokenRid < IlTokenRid)
+                if (IlTokenRid < other.IlTokenRid)
                     return -1;
                 return 1;
             }
@@ -91,12 +94,18 @@ namespace ILCompiler.DependencyAnalysis
 
             foreach (IMethodBodyNode emitted in emittedMethods)
             {
-                if (!(emitted.Method.GetMethodDefinition() is Internal.TypeSystem.Ecma.EcmaMethod))
+                NonExternMethodSymbolNode methodNode = emitted as NonExternMethodSymbolNode;
+                if (methodNode != null && !methodNode.HasCompiledBody)
                 {
                     continue;
                 }
 
-                EntityHandle methodHandle = pseudoAssembly.EmitMetadataHandleForTypeSystemEntity(emitted.Method.GetMethodDefinition());
+                if (!(emitted.Method.GetTypicalMethodDefinition() is Internal.TypeSystem.Ecma.EcmaMethod))
+                {
+                    continue;
+                }
+
+                EntityHandle methodHandle = pseudoAssembly.EmitMetadataHandleForTypeSystemEntity(emitted.Method.GetTypicalMethodDefinition());
                 Debug.Assert(methodHandle.Kind == HandleKind.MemberReference);
                 uint methodToken = (uint)MetadataTokens.GetToken(methodHandle);
                 uint methodTokenRid = methodToken & 0xFFFFFF;
@@ -169,9 +178,6 @@ namespace ILCompiler.DependencyAnalysis
             // This node does not trigger generation of other nodes.
             if (relocsOnly)
                 return new ObjectData(Array.Empty<byte>(), Array.Empty<Relocation>(), 1, new ISymbolDefinitionNode[] { this });
-
-            if (factory.WindowsDebugData.DebugTypeRecordsSection != null)
-                factory.WindowsDebugData.DebugTypeRecordsSection.Neuter();
 
             List<Relocation> relocations = new List<Relocation>();
             DebugInfoBlob debugData = GetDebugMethodRVAToTokenMap(factory.WindowsDebugData.DebugPseudoAssemblySection.PseudoAssembly, factory.MetadataManager.GetCompiledMethodBodies(), out relocations);

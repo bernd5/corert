@@ -13,6 +13,8 @@ using System.Runtime.Serialization;
 
 namespace System
 {
+    [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class MethodAccessException : MemberAccessException
     {
         public MethodAccessException()
@@ -21,13 +23,13 @@ namespace System
             HResult = HResults.COR_E_METHODACCESS;
         }
 
-        public MethodAccessException(String message)
+        public MethodAccessException(string message)
             : base(message)
         {
             HResult = HResults.COR_E_METHODACCESS;
         }
 
-        public MethodAccessException(String message, Exception inner)
+        public MethodAccessException(string message, Exception inner)
             : base(message, inner)
         {
             HResult = HResults.COR_E_METHODACCESS;
@@ -35,7 +37,6 @@ namespace System
 
         protected MethodAccessException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
-            throw new PlatformNotSupportedException();
         }
     }
 }

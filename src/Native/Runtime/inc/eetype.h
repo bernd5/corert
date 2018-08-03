@@ -474,12 +474,16 @@ public:
 
     DynamicModule* get_DynamicModule();
 
-#if defined(EETYPE_TYPE_MANAGER)
     TypeManagerHandle* GetTypeManagerPtr()
-         { return m_ppTypeManager; }
-#endif
-
+    { 
 #if defined(EETYPE_TYPE_MANAGER)
+        return m_ppTypeManager;
+#else
+        return NULL;
+#endif
+    }
+
+#ifdef PROJECTN
     //
     // PROJX-TODO
     // Needed while we exist in a world where some things are built using CoreRT and some built using 
@@ -487,9 +491,13 @@ public:
     //
     bool HasTypeManager()
     {
+#if defined(EETYPE_TYPE_MANAGER)
         return m_ppTypeManager != nullptr;
-    }
+#else
+        return false;
 #endif
+    }
+#endif // PROJECTN
 
 #ifndef BINDER
     DispatchMap *GetDispatchMap();
@@ -560,23 +568,7 @@ public:
     bool HasDynamicallyAllocatedDispatchMap()
         { return (get_RareFlags() & HasDynamicallyAllocatedDispatchMapFlag) != 0; }
 
-    // Retrieve the generic type definition EEType for this generic instance
-    void set_GenericDefinition(EEType *pTypeDef);
-
-    // Retrieve the generic type definition EEType for this generic instance
-    EETypeRef & get_GenericDefinition();
-
     inline void set_GenericComposition(GenericComposition *);
-    inline GenericComposition *get_GenericComposition();
-
-    // Retrieve the number of generic arguments for this generic type instance
-    UInt32 get_GenericArity();
-
-    // Retrieve the generic arguments to this type
-    EETypeRef * get_GenericArguments();
-
-    // Retrieve the generic variance associated with this type
-    GenericVarianceType* get_GenericVariance();
 
     // Retrieve template used to create the dynamic type
     EEType * get_DynamicTemplateType();

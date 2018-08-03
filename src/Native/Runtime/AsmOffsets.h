@@ -50,8 +50,11 @@ ASM_OFFSET(   2c,    40, Thread, m_pTransitionFrame)
 ASM_OFFSET(   30,    48, Thread, m_pHackPInvokeTunnel)
 ASM_OFFSET(   40,    68, Thread, m_ppvHijackedReturnAddressLocation)
 ASM_OFFSET(   44,    70, Thread, m_pvHijackedReturnAddress)
-ASM_OFFSET(   48,    78, Thread, m_pExInfoStackHead)
-ASM_OFFSET(   4c,    80, Thread, m_threadAbortException)
+#ifdef BIT64
+ASM_OFFSET(    0,    78, Thread, m_uHijackedReturnValueFlags)
+#endif
+ASM_OFFSET(   48,    80, Thread, m_pExInfoStackHead)
+ASM_OFFSET(   4c,    88, Thread, m_threadAbortException)
 
 ASM_SIZEOF(   14,    20, EHEnum)
 
@@ -113,6 +116,10 @@ private:
 void BogusFunction()
 {
     // Sample usage to generate the error
-    FindCompileTimeConstant<offsetof(ExInfo, m_passNumber)> bogus_variable;
+    FindCompileTimeConstant<sizeof(ExInfo)> bogus_variable;
+    FindCompileTimeConstant<offsetof(ExInfo, m_notifyDebuggerSP)> bogus_variable2;
+    FindCompileTimeConstant<sizeof(StackFrameIterator)> bogus_variable3;
+    FindCompileTimeConstant<sizeof(PAL_LIMITED_CONTEXT)> bogus_variable4;
+    FindCompileTimeConstant<offsetof(PAL_LIMITED_CONTEXT, IP)> bogus_variable5;
 }
 #endif // defined(__cplusplus) && defined(USE_COMPILE_TIME_CONSTANT_FINDER)

@@ -10,9 +10,11 @@ using System.Diagnostics;
 
 using Internal.Reflection.Core.NonPortable;
 using Internal.Runtime.Augments;
+using Internal.Runtime.CompilerServices;
 
 namespace System
 {
+    [System.Runtime.CompilerServices.ReflectionBlocked]
     [System.Runtime.CompilerServices.DependencyReductionRoot]
     public static class InvokeUtils
     {
@@ -31,13 +33,13 @@ namespace System
         //
         //    null converted to default(T) (this is important when T is a valuetype.)
         //
-        // There is also another transform of T -> Nullable<T>. This method acknowleges that rule but does not actually transform the T.
+        // There is also another transform of T -> Nullable<T>. This method acknowledges that rule but does not actually transform the T.
         // Rather, the transformation happens naturally when the caller unboxes the value to its final destination.
         //
         // This method is targeted by the Delegate ILTransformer.
         //    
         //
-        public static Object CheckArgument(Object srcObject, RuntimeTypeHandle dstType, BinderBundle binderBundle)
+        public static object CheckArgument(object srcObject, RuntimeTypeHandle dstType, BinderBundle binderBundle)
         {
             EETypePtr dstEEType = dstType.ToEETypePtr();
             return CheckArgument(srcObject, dstEEType, CheckArgumentSemantics.DynamicInvoke, binderBundle, getExactTypeForCustomBinder: null);
@@ -51,12 +53,16 @@ namespace System
             SetFieldDirect,      // Throws ArgumentException - other than that, like DynamicInvoke except that enums and integers cannot be intermingled, and null cannot substitute for default(valuetype).
         }
 
-        internal static Object CheckArgument(Object srcObject, EETypePtr dstEEType, CheckArgumentSemantics semantics, BinderBundle binderBundle, Func<Type> getExactTypeForCustomBinder = null)
+        internal static object CheckArgument(object srcObject, EETypePtr dstEEType, CheckArgumentSemantics semantics, BinderBundle binderBundle, Func<Type> getExactTypeForCustomBinder = null)
         {
             if (srcObject == null)
             {
                 // null -> default(T) 
-                if (dstEEType.IsValueType && !dstEEType.IsNullable)
+                if (dstEEType.IsPointer)
+                {
+                    return default(IntPtr);
+                }
+                else if (dstEEType.IsValueType && !dstEEType.IsNullable)
                 {
                     if (semantics == CheckArgumentSemantics.SetFieldDirect)
                         throw CreateChangeTypeException(CommonRuntimeTypes.Object.TypeHandle.ToEETypePtr(), dstEEType, semantics);
@@ -151,43 +157,53 @@ namespace System
             switch (dstCorElementType)
             {
                 case RuntimeImports.RhCorElementType.ELEMENT_TYPE_BOOLEAN:
-                    dstObject = Convert.ToBoolean(srcObject);
+                    bool boolValue = Convert.ToBoolean(srcObject);
+                    dstObject = dstEEType.IsEnum ? Enum.ToObject(dstEEType, boolValue ? 1 : 0) : boolValue;
                     break;
 
                 case RuntimeImports.RhCorElementType.ELEMENT_TYPE_CHAR:
-                    dstObject = Convert.ToChar(srcObject);
+                    char charValue = Convert.ToChar(srcObject);
+                    dstObject = dstEEType.IsEnum ? Enum.ToObject(dstEEType, charValue) : charValue;
                     break;
 
                 case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I1:
-                    dstObject = Convert.ToSByte(srcObject);
+                    sbyte sbyteValue = Convert.ToSByte(srcObject);
+                    dstObject = dstEEType.IsEnum ? Enum.ToObject(dstEEType, sbyteValue) : sbyteValue;
                     break;
 
                 case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I2:
-                    dstObject = Convert.ToInt16(srcObject);
+                    short shortValue = Convert.ToInt16(srcObject);
+                    dstObject = dstEEType.IsEnum ? Enum.ToObject(dstEEType, shortValue) : shortValue;
                     break;
 
                 case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I4:
-                    dstObject = Convert.ToInt32(srcObject);
+                    int intValue = Convert.ToInt32(srcObject);
+                    dstObject = dstEEType.IsEnum ? Enum.ToObject(dstEEType, intValue) : intValue;
                     break;
 
                 case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I8:
-                    dstObject = Convert.ToInt64(srcObject);
+                    long longValue = Convert.ToInt64(srcObject);
+                    dstObject = dstEEType.IsEnum ? Enum.ToObject(dstEEType, longValue) : longValue;
                     break;
 
                 case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U1:
-                    dstObject = Convert.ToByte(srcObject);
+                    byte byteValue = Convert.ToByte(srcObject);
+                    dstObject = dstEEType.IsEnum ? Enum.ToObject(dstEEType, byteValue) : byteValue;
                     break;
 
                 case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U2:
-                    dstObject = Convert.ToUInt16(srcObject);
+                    ushort ushortValue = Convert.ToUInt16(srcObject);
+                    dstObject = dstEEType.IsEnum ? Enum.ToObject(dstEEType, ushortValue) : ushortValue;
                     break;
 
                 case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U4:
-                    dstObject = Convert.ToUInt32(srcObject);
+                    uint uintValue = Convert.ToUInt32(srcObject);
+                    dstObject = dstEEType.IsEnum ? Enum.ToObject(dstEEType, uintValue) : uintValue;
                     break;
 
                 case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U8:
-                    dstObject = Convert.ToUInt64(srcObject);
+                    ulong ulongValue = Convert.ToUInt64(srcObject);
+                    dstObject = dstEEType.IsEnum ? Enum.ToObject(dstEEType, (long)ulongValue) : ulongValue;
                     break;
 
                 case RuntimeImports.RhCorElementType.ELEMENT_TYPE_R4:
@@ -213,15 +229,9 @@ namespace System
                     break;
 
                 default:
-                    Debug.Assert(false, "Unexpected CorElementType: " + dstCorElementType + ": Not a valid widening target.");
+                    Debug.Fail("Unexpected CorElementType: " + dstCorElementType + ": Not a valid widening target.");
                     dstObject = null;
                     return CreateChangeTypeException(srcEEType, dstEEType, semantics);
-            }
-
-            if (dstEEType.IsEnum)
-            {
-                Type dstType = ReflectionCoreNonPortable.GetRuntimeTypeForEEType(dstEEType);
-                dstObject = Enum.ToObject(dstType, dstObject);
             }
 
             Debug.Assert(dstObject.EETypePtr == dstEEType);
@@ -259,7 +269,7 @@ namespace System
                 case CheckArgumentSemantics.ArraySet:
                     return CreateChangeTypeInvalidCastException(srcEEType, dstEEType);
                 default:
-                    Debug.Assert(false, "Unexpected CheckArgumentSemantics value: " + semantics);
+                    Debug.Fail("Unexpected CheckArgumentSemantics value: " + semantics);
                     throw new InvalidOperationException();
             }
         }
@@ -724,6 +734,15 @@ namespace System
             return finalObjectToReturn;
         }
 
+        internal static object DynamicInvokeUnmanagedPointerReturn(out DynamicInvokeParamLookupType paramLookupType, object boxedPointerType, int index, RuntimeTypeHandle type, DynamicInvokeParamType paramType)
+        {
+            object finalObjectToReturn = boxedPointerType;
+
+            Debug.Assert(finalObjectToReturn is IntPtr);
+            paramLookupType = DynamicInvokeParamLookupType.ValuetypeObjectReturned;
+            return finalObjectToReturn;
+        }
+
         public static object DynamicInvokeParamHelperCore(RuntimeTypeHandle type, out DynamicInvokeParamLookupType paramLookupType, out int index, DynamicInvokeParamType paramType)
         {
             index = s_curIndex++;
@@ -784,9 +803,14 @@ namespace System
                 incomingParam = InvokeUtils.CheckArgument(incomingParam, type.ToEETypePtr(), InvokeUtils.CheckArgumentSemantics.DynamicInvoke, s_binderBundle, s_getExactTypeForCustomBinder);
                 if (s_binderBundle == null)
                 {
-                    System.Diagnostics.Debug.Assert(s_parameters[index] == null || Object.ReferenceEquals(incomingParam, s_parameters[index]));
+                    System.Diagnostics.Debug.Assert(s_parameters[index] == null || object.ReferenceEquals(incomingParam, s_parameters[index]));
                 }
                 return DynamicInvokeBoxedValuetypeReturn(out paramLookupType, incomingParam, index, type, paramType);
+            }
+            else if (type.ToEETypePtr().IsPointer)
+            {
+                incomingParam = InvokeUtils.CheckArgument(incomingParam, type.ToEETypePtr(), InvokeUtils.CheckArgumentSemantics.DynamicInvoke, s_binderBundle, s_getExactTypeForCustomBinder);
+                return DynamicInvokeUnmanagedPointerReturn(out paramLookupType, incomingParam, index, type, paramType);
             }
             else
             {
@@ -794,7 +818,7 @@ namespace System
                 paramLookupType = DynamicInvokeParamLookupType.IndexIntoObjectArrayReturned;
                 if (s_binderBundle == null)
                 {
-                    System.Diagnostics.Debug.Assert(Object.ReferenceEquals(incomingParam, s_parameters[index]));
+                    System.Diagnostics.Debug.Assert(object.ReferenceEquals(incomingParam, s_parameters[index]));
                     return s_parameters;
                 }
                 else

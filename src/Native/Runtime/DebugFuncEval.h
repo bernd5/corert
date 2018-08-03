@@ -15,24 +15,11 @@
 
 #ifndef DACCESS_COMPILE
 
-typedef void(*HighLevelDebugFuncEvalAbortHelperType)(UInt64);
+typedef void(*DebugFuncEvalAbortHelperFunctionType)(UInt64);
 
 class DebugFuncEval
 {
 public:
-    /// <summary>
-    /// Retrieve the global FuncEval target address
-    /// </summary>
-    /// <remarks>
-    /// During debugging, if a FuncEval is requested, 
-    /// The func eval infrastructure needs to know which function to call, and
-    /// It will call this API to obtain the target address.
-    /// By the time, the value should have been set through the UpdateFuncEvalTarget() method 
-    /// on the ISosRedhawk7 interface.
-    /// </remarks>
-    static void* GetFuncEvalTarget();
-
-
     /// <summary>
     /// Retrieve the global FuncEval parameter buffer size.
     /// </summary>
@@ -64,18 +51,6 @@ public:
     /// It is used for the stack walker to understand the hijack frame
     /// </remarks>
     static UInt64 GetMostRecentFuncEvalHijackInstructionPointer();
-
-    /// <summary>
-    /// Retrieve the high level debug func eval abort helper
-    /// </summary>
-    static HighLevelDebugFuncEvalAbortHelperType GetHighLevelDebugFuncEvalAbortHelper();
-
-
-    /// <summary>
-    /// Set the high level debug func eval abort helper
-    /// </summary>
-    static void SetHighLevelDebugFuncEvalAbortHelper(HighLevelDebugFuncEvalAbortHelperType highLevelDebugFuncEvalAbortHelper);
-
 };
 
 #else

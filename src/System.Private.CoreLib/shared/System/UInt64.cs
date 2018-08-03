@@ -2,16 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-/*============================================================
-**
-**
-** Purpose: This class will encapsulate an unsigned long and 
-**          provide an Object representation of it.
-**
-** 
-===========================================================*/
-
-using System.Diagnostics.Contracts;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -23,9 +13,9 @@ namespace System
     [CLSCompliant(false)]
     [StructLayout(LayoutKind.Sequential)]
     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public struct UInt64 : IComparable, IConvertible, IFormattable, IComparable<UInt64>, IEquatable<UInt64>
+    public readonly struct UInt64 : IComparable, IConvertible, IFormattable, IComparable<ulong>, IEquatable<ulong>, ISpanFormattable
     {
-        private ulong m_value; // Do not rename (binary serialization)
+        private readonly ulong m_value; // Do not rename (binary serialization)
 
         public const ulong MaxValue = (ulong)0xffffffffffffffffL;
         public const ulong MinValue = 0x0;
@@ -36,13 +26,13 @@ namespace System
         // null is considered to be less than any instance.
         // If object is not of type UInt64, this method throws an ArgumentException.
         // 
-        public int CompareTo(Object value)
+        public int CompareTo(object value)
         {
             if (value == null)
             {
                 return 1;
             }
-            if (value is UInt64)
+            if (value is ulong)
             {
                 // Need to use compare because subtraction will wrap
                 // to positive for very large neg numbers, etc.
@@ -54,7 +44,7 @@ namespace System
             throw new ArgumentException(SR.Arg_MustBeUInt64);
         }
 
-        public int CompareTo(UInt64 value)
+        public int CompareTo(ulong value)
         {
             // Need to use compare because subtraction will wrap
             // to positive for very large neg numbers, etc.
@@ -63,17 +53,17 @@ namespace System
             return 0;
         }
 
-        public override bool Equals(Object obj)
+        public override bool Equals(object obj)
         {
-            if (!(obj is UInt64))
+            if (!(obj is ulong))
             {
                 return false;
             }
-            return m_value == ((UInt64)obj).m_value;
+            return m_value == ((ulong)obj).m_value;
         }
 
         [NonVersionable]
-        public bool Equals(UInt64 obj)
+        public bool Equals(ulong obj)
         {
             return m_value == obj;
         }
@@ -84,58 +74,59 @@ namespace System
             return ((int)m_value) ^ (int)(m_value >> 32);
         }
 
-        public override String ToString()
+        public override string ToString()
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatUInt64(m_value, null, NumberFormatInfo.CurrentInfo);
+            return Number.FormatUInt64(m_value, null, null);
         }
 
-        public String ToString(IFormatProvider provider)
+        public string ToString(IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatUInt64(m_value, null, NumberFormatInfo.GetInstance(provider));
+            return Number.FormatUInt64(m_value, null, provider);
         }
 
-        public String ToString(String format)
+        public string ToString(string format)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatUInt64(m_value, format, NumberFormatInfo.CurrentInfo);
+            return Number.FormatUInt64(m_value, format, null);
         }
 
-        public String ToString(String format, IFormatProvider provider)
+        public string ToString(string format, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatUInt64(m_value, format, NumberFormatInfo.GetInstance(provider));
+            return Number.FormatUInt64(m_value, format, provider);
+        }
+
+        public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null)
+        {
+            return Number.TryFormatUInt64(m_value, format, provider, destination, out charsWritten);
         }
 
         [CLSCompliant(false)]
-        public static ulong Parse(String s)
+        public static ulong Parse(string s)
         {
             if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
-            return Number.ParseUInt64(s.AsReadOnlySpan(), NumberStyles.Integer, NumberFormatInfo.CurrentInfo);
+            return Number.ParseUInt64(s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo);
         }
 
         [CLSCompliant(false)]
-        public static ulong Parse(String s, NumberStyles style)
+        public static ulong Parse(string s, NumberStyles style)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
             if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
-            return Number.ParseUInt64(s.AsReadOnlySpan(), style, NumberFormatInfo.CurrentInfo);
+            return Number.ParseUInt64(s, style, NumberFormatInfo.CurrentInfo);
         }
 
         [CLSCompliant(false)]
         public static ulong Parse(string s, IFormatProvider provider)
         {
             if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
-            return Number.ParseUInt64(s.AsReadOnlySpan(), NumberStyles.Integer, NumberFormatInfo.GetInstance(provider));
+            return Number.ParseUInt64(s, NumberStyles.Integer, NumberFormatInfo.GetInstance(provider));
         }
 
         [CLSCompliant(false)]
-        public static ulong Parse(String s, NumberStyles style, IFormatProvider provider)
+        public static ulong Parse(string s, NumberStyles style, IFormatProvider provider)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
             if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
-            return Number.ParseUInt64(s.AsReadOnlySpan(), style, NumberFormatInfo.GetInstance(provider));
+            return Number.ParseUInt64(s, style, NumberFormatInfo.GetInstance(provider));
         }
 
         [CLSCompliant(false)]
@@ -146,7 +137,7 @@ namespace System
         }
 
         [CLSCompliant(false)]
-        public static Boolean TryParse(String s, out UInt64 result)
+        public static bool TryParse(string s, out ulong result)
         {
             if (s == null)
             {
@@ -154,11 +145,17 @@ namespace System
                 return false;
             }
 
-            return Number.TryParseUInt64(s.AsReadOnlySpan(), NumberStyles.Integer, NumberFormatInfo.CurrentInfo, out result);
+            return Number.TryParseUInt64(s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo, out result);
         }
 
         [CLSCompliant(false)]
-        public static Boolean TryParse(String s, NumberStyles style, IFormatProvider provider, out UInt64 result)
+        public static bool TryParse(ReadOnlySpan<char> s, out ulong result)
+        {
+            return Number.TryParseUInt64(s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo, out result);
+        }
+
+        [CLSCompliant(false)]
+        public static bool TryParse(string s, NumberStyles style, IFormatProvider provider, out ulong result)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
 
@@ -168,11 +165,11 @@ namespace System
                 return false;
             }
 
-            return Number.TryParseUInt64(s.AsReadOnlySpan(), style, NumberFormatInfo.GetInstance(provider), out result);
+            return Number.TryParseUInt64(s, style, NumberFormatInfo.GetInstance(provider), out result);
         }
 
         [CLSCompliant(false)]
-        public static Boolean TryParse(ReadOnlySpan<char> s, out UInt64 result, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null)
+        public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out ulong result)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
             return Number.TryParseUInt64(s, style, NumberFormatInfo.GetInstance(provider), out result);
@@ -247,7 +244,7 @@ namespace System
             return Convert.ToDouble(m_value);
         }
 
-        Decimal IConvertible.ToDecimal(IFormatProvider provider)
+        decimal IConvertible.ToDecimal(IFormatProvider provider)
         {
             return Convert.ToDecimal(m_value);
         }
@@ -257,7 +254,7 @@ namespace System
             throw new InvalidCastException(SR.Format(SR.InvalidCast_FromTo, "UInt64", "DateTime"));
         }
 
-        Object IConvertible.ToType(Type type, IFormatProvider provider)
+        object IConvertible.ToType(Type type, IFormatProvider provider)
         {
             return Convert.DefaultToType((IConvertible)this, type, provider);
         }

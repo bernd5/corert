@@ -4,7 +4,6 @@
 
 using System;
 using System.Runtime.Serialization;
-using System.Diagnostics.Contracts;
 
 namespace System.Text
 {
@@ -29,7 +28,7 @@ namespace System.Text
             }
         }
 
-        public override bool Equals(Object value)
+        public override bool Equals(object value)
         {
             EncoderExceptionFallback that = value as EncoderExceptionFallback;
             if (that != null)
@@ -58,19 +57,18 @@ namespace System.Text
 
         public override bool Fallback(char charUnknownHigh, char charUnknownLow, int index)
         {
-            if (!Char.IsHighSurrogate(charUnknownHigh))
+            if (!char.IsHighSurrogate(charUnknownHigh))
             {
                 throw new ArgumentOutOfRangeException(nameof(charUnknownHigh),
                     SR.Format(SR.ArgumentOutOfRange_Range, 0xD800, 0xDBFF));
             }
-            if (!Char.IsLowSurrogate(charUnknownLow))
+            if (!char.IsLowSurrogate(charUnknownLow))
             {
                 throw new ArgumentOutOfRangeException(nameof(charUnknownLow),
                     SR.Format(SR.ArgumentOutOfRange_Range, 0xDC00, 0xDFFF));
             }
-            Contract.EndContractBlock();
 
-            int iTemp = Char.ConvertToUtf32(charUnknownHigh, charUnknownLow);
+            int iTemp = char.ConvertToUtf32(charUnknownHigh, charUnknownLow);
 
             // Fall back our char
             throw new EncoderFallbackException(
@@ -98,6 +96,8 @@ namespace System.Text
         }
     }
 
+    [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public sealed class EncoderFallbackException : ArgumentException
     {
         private char _charUnknown;
@@ -111,43 +111,47 @@ namespace System.Text
             HResult = HResults.COR_E_ARGUMENT;
         }
 
-        public EncoderFallbackException(String message)
+        public EncoderFallbackException(string message)
             : base(message)
         {
             HResult = HResults.COR_E_ARGUMENT;
         }
 
-        public EncoderFallbackException(String message, Exception innerException)
+        public EncoderFallbackException(string message, Exception innerException)
             : base(message, innerException)
         {
             HResult = HResults.COR_E_ARGUMENT;
         }
 
         internal EncoderFallbackException(
-            String message, char charUnknown, int index) : base(message)
+            string message, char charUnknown, int index) : base(message)
         {
             _charUnknown = charUnknown;
             _index = index;
         }
 
         internal EncoderFallbackException(
-            String message, char charUnknownHigh, char charUnknownLow, int index) : base(message)
+            string message, char charUnknownHigh, char charUnknownLow, int index) : base(message)
         {
-            if (!Char.IsHighSurrogate(charUnknownHigh))
+            if (!char.IsHighSurrogate(charUnknownHigh))
             {
                 throw new ArgumentOutOfRangeException(nameof(charUnknownHigh),
                     SR.Format(SR.ArgumentOutOfRange_Range, 0xD800, 0xDBFF));
             }
-            if (!Char.IsLowSurrogate(charUnknownLow))
+            if (!char.IsLowSurrogate(charUnknownLow))
             {
                 throw new ArgumentOutOfRangeException(nameof(CharUnknownLow),
                     SR.Format(SR.ArgumentOutOfRange_Range, 0xDC00, 0xDFFF));
             }
-            Contract.EndContractBlock();
 
             _charUnknownHigh = charUnknownHigh;
             _charUnknownLow = charUnknownLow;
             _index = index;
+        }
+
+        private EncoderFallbackException(SerializationInfo serializationInfo, StreamingContext streamingContext)
+            : base(serializationInfo, streamingContext)
+        {
         }
 
         public char CharUnknown

@@ -319,7 +319,7 @@ static int LookupUnwindInfoForMethod(UInt32 RelativePc,
                                      int Low,
                                      int High)
 {
-#ifdef TARGET_ARM
+#ifdef _TARGET_ARM_
     RelativePc |= THUMB_CODE;
 #endif 
 
@@ -714,6 +714,13 @@ UIntNative JITCodeManager::GetConservativeUpperBoundForOutgoingArgs(MethodInfo *
     // @TODO: CORERT: GetConservativeUpperBoundForOutgoingArgs
     assert(false);
     return false;
+}
+
+PTR_VOID JITCodeManager::GetOsModuleHandle()
+{
+    // Should not be called
+    assert(false);
+    return nullptr;
 }
 
 PTR_VOID JITCodeManager::GetMethodStartAddress(MethodInfo * pMethodInfo)

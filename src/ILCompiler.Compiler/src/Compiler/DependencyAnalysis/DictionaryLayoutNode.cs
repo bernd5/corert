@@ -69,12 +69,33 @@ namespace ILCompiler.DependencyAnalysis
             }
         }
 
+        /// <summary>
+        /// Ensure that a generic lookup result can be resolved. Used to add new lookups to a dictionary which HasUnfixedSlots
+        /// Must not be used after any calls to GetSlotForEntry
+        /// </summary>
+        public abstract void EnsureEntry(GenericLookupResult entry);
+
+        /// <summary>
+        /// Get a slot index for a given entry. Slot indices are never expected to change once given out.
+        /// </summary>
         public abstract int GetSlotForEntry(GenericLookupResult entry);
+
+        /// <summary>
+        /// Get the slot for an entry which is fixed already. Otherwise return -1
+        /// </summary>
+        /// <param name="entry"></param>
+        /// <returns></returns>
+        public virtual int GetSlotForFixedEntry(GenericLookupResult entry)
+        {
+            return GetSlotForEntry(entry);
+        }
         
         public abstract IEnumerable<GenericLookupResult> Entries
         {
             get;
         }
+
+        public virtual IEnumerable<GenericLookupResult> FixedEntries => Entries;
 
         public TypeSystemEntity OwningMethodOrType => _owningMethodOrType;
 
@@ -85,6 +106,11 @@ namespace ILCompiler.DependencyAnalysis
         {
             get;
         }
+
+        /// <summary>
+        /// Gets a value indicating if this dictionary may have non fixed slots
+        /// </summary>
+        public virtual bool HasUnfixedSlots => !HasFixedSlots;
 
         public virtual ICollection<NativeLayoutVertexNode> GetTemplateEntries(NodeFactory factory)
         {
@@ -97,17 +123,19 @@ namespace ILCompiler.DependencyAnalysis
             return templateEntries.ToArray();
         }
 
-        public virtual void EmitDictionaryData(ref ObjectDataBuilder builder, NodeFactory factory, GenericDictionaryNode dictionary)
+        public virtual void EmitDictionaryData(ref ObjectDataBuilder builder, NodeFactory factory, GenericDictionaryNode dictionary, bool fixedLayoutOnly)
         {
             var context = new GenericLookupResultContext(dictionary.OwningEntity, dictionary.TypeInstantiation, dictionary.MethodInstantiation);
 
-            foreach (GenericLookupResult lookupResult in Entries)
+            IEnumerable<GenericLookupResult> entriesToEmit = fixedLayoutOnly ? FixedEntries : Entries;
+
+            foreach (GenericLookupResult lookupResult in entriesToEmit)
             {
 #if DEBUG
                 int offsetBefore = builder.CountBytes;
 #endif
 
-                lookupResult.EmitDictionaryEntry(ref builder, factory, context);
+                lookupResult.EmitDictionaryEntry(ref builder, factory, context, dictionary);
 
 #if DEBUG
                 Debug.Assert(builder.CountBytes - offsetBefore == factory.Target.PointerSize);
@@ -117,19 +145,22 @@ namespace ILCompiler.DependencyAnalysis
 
         public override IEnumerable<DependencyListEntry> GetStaticDependencies(NodeFactory factory)
         {
-            // Root the template for the type. In the future, we may want to control this via type reflectability instead.
-            if (_owningMethodOrType is MethodDesc)
+            if (factory.MetadataManager.SupportsReflection)
             {
-                yield return new DependencyListEntry(factory.NativeLayout.TemplateMethodLayout((MethodDesc)_owningMethodOrType), "Type loader template");
-            }
-            else
-            {
-                yield return new DependencyListEntry(factory.NativeLayout.TemplateTypeLayout((TypeDesc) _owningMethodOrType), "Type loader template");
+                // Root the template for the type. In the future, we may want to control this via type reflectability instead.
+                if (_owningMethodOrType is MethodDesc)
+                {
+                    yield return new DependencyListEntry(factory.NativeLayout.TemplateMethodLayout((MethodDesc)_owningMethodOrType), "Type loader template");
+                }
+                else
+                {
+                    yield return new DependencyListEntry(factory.NativeLayout.TemplateTypeLayout((TypeDesc)_owningMethodOrType), "Type loader template");
+                }
             }
 
             if (HasFixedSlots)
             {
-                foreach (GenericLookupResult lookupResult in Entries)
+                foreach (GenericLookupResult lookupResult in FixedEntries)
                 {
                     foreach (DependencyNodeCore<NodeFactory> dependency in lookupResult.NonRelocDependenciesFromUsage(factory))
                     {
@@ -155,7 +186,7 @@ namespace ILCompiler.DependencyAnalysis
 
             List<CombinedDependencyListEntry> conditionalDependencies = new List<CombinedDependencyListEntry>();
 
-            foreach (var lookupSignature in Entries)
+            foreach (var lookupSignature in FixedEntries)
             {
                 conditionalDependencies.Add(new CombinedDependencyListEntry(lookupSignature.TemplateDictionaryNode(factory),
                                                                 templateLayout,
@@ -175,7 +206,7 @@ namespace ILCompiler.DependencyAnalysis
         public override IEnumerable<CombinedDependencyListEntry> SearchDynamicDependencies(List<DependencyNodeCore<NodeFactory>> markedNodes, int firstNode, NodeFactory factory) => null;
     }
 
-    public sealed class PrecomputedDictionaryLayoutNode : DictionaryLayoutNode
+    public class PrecomputedDictionaryLayoutNode : DictionaryLayoutNode
     {
         private readonly GenericLookupResult[] _layout;
 
@@ -189,6 +220,17 @@ namespace ILCompiler.DependencyAnalysis
                 l.Add(entry);
 
             _layout = l.ToArray();
+        }
+
+        public override void EnsureEntry(GenericLookupResult entry)
+        {
+            int index = Array.IndexOf(_layout, entry);
+
+            if (index == -1)
+            {
+                // Using EnsureEntry to add a slot to a PrecomputedDictionaryLayoutNode is not supported
+                throw new NotSupportedException();
+            }
         }
 
         public override int GetSlotForEntry(GenericLookupResult entry)
@@ -228,7 +270,7 @@ namespace ILCompiler.DependencyAnalysis
         {
         }
 
-        public void EnsureEntry(GenericLookupResult entry)
+        public override void EnsureEntry(GenericLookupResult entry)
         {
             Debug.Assert(_layout == null, "Trying to add entry but layout already computed");
             _entries.AddOrGetExisting(entry);

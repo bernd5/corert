@@ -12,7 +12,15 @@ namespace ILCompiler.DependencyAnalysis
     {
         public CppCodegenNodeFactory(CompilerTypeSystemContext context, CompilationModuleGroup compilationModuleGroup, MetadataManager metadataManager,
             InteropStubManager interopStubManager, NameMangler nameMangler, VTableSliceProvider vtableSliceProvider, DictionaryLayoutProvider dictionaryLayoutProvider)
-            : base(context, compilationModuleGroup, metadataManager, interopStubManager, nameMangler, new LazyGenericsDisabledPolicy(), vtableSliceProvider, dictionaryLayoutProvider)
+            : base(context, 
+                  compilationModuleGroup, 
+                  metadataManager, 
+                  interopStubManager, 
+                  nameMangler, 
+                  new LazyGenericsDisabledPolicy(), 
+                  vtableSliceProvider, 
+                  dictionaryLayoutProvider, 
+                  new ImportedNodeProviderThrowing())
         {
         }
 
@@ -20,7 +28,7 @@ namespace ILCompiler.DependencyAnalysis
 
         protected override IMethodNode CreateMethodEntrypointNode(MethodDesc method)
         {
-            if (CompilationModuleGroup.ContainsMethodBody(method))
+            if (CompilationModuleGroup.ContainsMethodBody(method, false))
             {
                 return new CppMethodCodeNode(method);
             }
@@ -32,8 +40,7 @@ namespace ILCompiler.DependencyAnalysis
 
         protected override IMethodNode CreateUnboxingStubNode(MethodDesc method)
         {
-            // TODO: this is wrong: this returns an assembly stub node
-            return new UnboxingStubNode(method, Target);
+            return new CppUnboxingStubNode(method);
         }
 
         protected override ISymbolNode CreateReadyToRunHelperNode(ReadyToRunHelperKey helperCall)

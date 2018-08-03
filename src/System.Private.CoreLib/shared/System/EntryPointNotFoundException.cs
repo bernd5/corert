@@ -16,6 +16,8 @@ using System.Runtime.Serialization;
 
 namespace System
 {
+    [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class EntryPointNotFoundException : TypeLoadException
     {
         public EntryPointNotFoundException()
@@ -24,13 +26,13 @@ namespace System
             HResult = HResults.COR_E_ENTRYPOINTNOTFOUND;
         }
 
-        public EntryPointNotFoundException(String message)
+        public EntryPointNotFoundException(string message)
             : base(message)
         {
             HResult = HResults.COR_E_ENTRYPOINTNOTFOUND;
         }
 
-        public EntryPointNotFoundException(String message, Exception inner)
+        public EntryPointNotFoundException(string message, Exception inner)
             : base(message, inner)
         {
             HResult = HResults.COR_E_ENTRYPOINTNOTFOUND;
@@ -38,7 +40,6 @@ namespace System
 
         protected EntryPointNotFoundException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
-            throw new PlatformNotSupportedException();
         }
     }
 }

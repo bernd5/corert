@@ -12,6 +12,8 @@ using System.Runtime.Serialization;
 
 namespace System
 {
+    [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class InvalidCastException : SystemException
     {
         public InvalidCastException()
@@ -20,19 +22,19 @@ namespace System
             HResult = HResults.COR_E_INVALIDCAST;
         }
 
-        public InvalidCastException(String message)
+        public InvalidCastException(string message)
             : base(message)
         {
             HResult = HResults.COR_E_INVALIDCAST;
         }
 
-        public InvalidCastException(String message, Exception innerException)
+        public InvalidCastException(string message, Exception innerException)
             : base(message, innerException)
         {
             HResult = HResults.COR_E_INVALIDCAST;
         }
 
-        public InvalidCastException(String message, int errorCode)
+        public InvalidCastException(string message, int errorCode)
             : base(message)
         {
             HResult = errorCode;
@@ -40,7 +42,6 @@ namespace System
 
         protected InvalidCastException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
-            throw new PlatformNotSupportedException();
         }
     }
 }

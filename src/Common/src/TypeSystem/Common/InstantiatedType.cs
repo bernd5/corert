@@ -79,6 +79,10 @@ namespace Internal.TypeSystem
             }
         }
 
+        // Type system implementations that support the notion of intrinsic types
+        // will provide an implementation that adds the flag if necessary.
+        partial void AddComputedIntrinsicFlag(ref TypeFlags flags);
+
         protected override TypeFlags ComputeTypeFlags(TypeFlags mask)
         {
             TypeFlags flags = 0;
@@ -104,12 +108,14 @@ namespace Internal.TypeSystem
                     flags |= TypeFlags.HasFinalizer;
             }
 
-            if ((mask & TypeFlags.IsByRefLikeComputed) != 0)
+            if ((mask & TypeFlags.AttributeCacheComputed) != 0)
             {
-                flags |= TypeFlags.IsByRefLikeComputed;
+                flags |= TypeFlags.AttributeCacheComputed;
 
                 if (_typeDef.IsByRefLike)
                     flags |= TypeFlags.IsByRefLike;
+
+                AddComputedIntrinsicFlag(ref flags);
             }
 
             return flags;
@@ -267,15 +273,6 @@ namespace Internal.TypeSystem
         public override TypeDesc GetTypeDefinition()
         {
             return _typeDef;
-        }
-
-        public override string ToString()
-        {
-            var sb = new StringBuilder(_typeDef.ToString());
-            sb.Append('<');
-            sb.Append(_instantiation.ToString());
-            sb.Append('>');
-            return sb.ToString();
         }
 
         // Properties that are passed through from the type definition

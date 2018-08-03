@@ -2,17 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-/*============================================================
-**
-**
-**
-** Purpose: This class will encapsulate a byte and provide an
-**          Object representation of it.
-**
-** 
-===========================================================*/
-
-using System.Diagnostics.Contracts;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -23,9 +12,9 @@ namespace System
     [Serializable]
     [StructLayout(LayoutKind.Sequential)]
     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public struct Byte : IComparable, IConvertible, IFormattable, IComparable<Byte>, IEquatable<Byte>
+    public readonly struct Byte : IComparable, IConvertible, IFormattable, IComparable<byte>, IEquatable<byte>, ISpanFormattable
     {
-        private byte m_value; // Do not rename (binary serialization)
+        private readonly byte m_value; // Do not rename (binary serialization)
 
         // The maximum value that a Byte may represent: 255.
         public const byte MaxValue = (byte)0xFF;
@@ -40,37 +29,37 @@ namespace System
         // null is considered to be less than any instance.
         // If object is not of type byte, this method throws an ArgumentException.
         // 
-        public int CompareTo(Object value)
+        public int CompareTo(object value)
         {
             if (value == null)
             {
                 return 1;
             }
-            if (!(value is Byte))
+            if (!(value is byte))
             {
                 throw new ArgumentException(SR.Arg_MustBeByte);
             }
 
-            return m_value - (((Byte)value).m_value);
+            return m_value - (((byte)value).m_value);
         }
 
-        public int CompareTo(Byte value)
+        public int CompareTo(byte value)
         {
             return m_value - value;
         }
 
         // Determines whether two Byte objects are equal.
-        public override bool Equals(Object obj)
+        public override bool Equals(object obj)
         {
-            if (!(obj is Byte))
+            if (!(obj is byte))
             {
                 return false;
             }
-            return m_value == ((Byte)obj).m_value;
+            return m_value == ((byte)obj).m_value;
         }
 
         [NonVersionable]
-        public bool Equals(Byte obj)
+        public bool Equals(byte obj)
         {
             return m_value == obj;
         }
@@ -81,37 +70,33 @@ namespace System
             return m_value;
         }
 
-        [Pure]
-        public static byte Parse(String s)
+        public static byte Parse(string s)
         {
             if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
-            return Parse(s.AsReadOnlySpan(), NumberStyles.Integer, NumberFormatInfo.CurrentInfo);
+            return Parse((ReadOnlySpan<char>)s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo);
         }
 
-        [Pure]
-        public static byte Parse(String s, NumberStyles style)
+        public static byte Parse(string s, NumberStyles style)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
             if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
-            return Parse(s.AsReadOnlySpan(), style, NumberFormatInfo.CurrentInfo);
+            return Parse((ReadOnlySpan<char>)s, style, NumberFormatInfo.CurrentInfo);
         }
 
-        [Pure]
-        public static byte Parse(String s, IFormatProvider provider)
+        public static byte Parse(string s, IFormatProvider provider)
         {
             if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
-            return Parse(s.AsReadOnlySpan(), NumberStyles.Integer, NumberFormatInfo.GetInstance(provider));
+            return Parse((ReadOnlySpan<char>)s, NumberStyles.Integer, NumberFormatInfo.GetInstance(provider));
         }
 
         // Parses an unsigned byte from a String in the given style.  If
         // a NumberFormatInfo isn't specified, the current culture's 
         // NumberFormatInfo is assumed.
-        [Pure]
-        public static byte Parse(String s, NumberStyles style, IFormatProvider provider)
+        public static byte Parse(string s, NumberStyles style, IFormatProvider provider)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
             if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
-            return Parse(s.AsReadOnlySpan(), style, NumberFormatInfo.GetInstance(provider));
+            return Parse((ReadOnlySpan<char>)s, style, NumberFormatInfo.GetInstance(provider));
         }
 
         public static byte Parse(ReadOnlySpan<char> s, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null)
@@ -136,7 +121,7 @@ namespace System
             return (byte)i;
         }
 
-        public static bool TryParse(String s, out Byte result)
+        public static bool TryParse(string s, out byte result)
         {
             if (s == null)
             {
@@ -144,10 +129,15 @@ namespace System
                 return false;
             }
 
-            return TryParse(s.AsReadOnlySpan(), NumberStyles.Integer, NumberFormatInfo.CurrentInfo, out result);
+            return TryParse((ReadOnlySpan<char>)s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo, out result);
         }
 
-        public static bool TryParse(String s, NumberStyles style, IFormatProvider provider, out Byte result)
+        public static bool TryParse(ReadOnlySpan<char> s, out byte result)
+        {
+            return TryParse(s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo, out result);
+        }
+
+        public static bool TryParse(string s, NumberStyles style, IFormatProvider provider, out byte result)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
 
@@ -157,16 +147,16 @@ namespace System
                 return false;
             }
 
-            return TryParse(s.AsReadOnlySpan(), style, NumberFormatInfo.GetInstance(provider), out result);
+            return TryParse((ReadOnlySpan<char>)s, style, NumberFormatInfo.GetInstance(provider), out result);
         }
 
-        public static bool TryParse(ReadOnlySpan<char> s, out byte result, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null)
+        public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out byte result)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
             return TryParse(s, style, NumberFormatInfo.GetInstance(provider), out result);
         }
 
-        private static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, NumberFormatInfo info, out Byte result)
+        private static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, NumberFormatInfo info, out byte result)
         {
             result = 0;
             int i;
@@ -182,38 +172,34 @@ namespace System
             return true;
         }
 
-        [Pure]
-        public override String ToString()
+        public override string ToString()
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatInt32(m_value, null, NumberFormatInfo.CurrentInfo);
+            return Number.FormatInt32(m_value, null, null);
         }
 
-        [Pure]
-        public String ToString(String format)
+        public string ToString(string format)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatInt32(m_value, format, NumberFormatInfo.CurrentInfo);
+            return Number.FormatInt32(m_value, format, null);
         }
 
-        [Pure]
-        public String ToString(IFormatProvider provider)
+        public string ToString(IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatInt32(m_value, null, NumberFormatInfo.GetInstance(provider));
+            return Number.FormatInt32(m_value, null, provider);
         }
 
-        [Pure]
-        public String ToString(String format, IFormatProvider provider)
+        public string ToString(string format, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatInt32(m_value, format, NumberFormatInfo.GetInstance(provider));
+            return Number.FormatInt32(m_value, format, provider);
+        }
+
+        public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null)
+        {
+            return Number.TryFormatInt32(m_value, format, provider, destination, out charsWritten);
         }
 
         //
         // IConvertible implementation
         // 
-        [Pure]
         public TypeCode GetTypeCode()
         {
             return TypeCode.Byte;
@@ -280,7 +266,7 @@ namespace System
             return Convert.ToDouble(m_value);
         }
 
-        Decimal IConvertible.ToDecimal(IFormatProvider provider)
+        decimal IConvertible.ToDecimal(IFormatProvider provider)
         {
             return Convert.ToDecimal(m_value);
         }
@@ -290,7 +276,7 @@ namespace System
             throw new InvalidCastException(SR.Format(SR.InvalidCast_FromTo, "Byte", "DateTime"));
         }
 
-        Object IConvertible.ToType(Type type, IFormatProvider provider)
+        object IConvertible.ToType(Type type, IFormatProvider provider)
         {
             return Convert.DefaultToType((IConvertible)this, type, provider);
         }

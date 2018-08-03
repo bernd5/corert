@@ -4,7 +4,7 @@
 
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics.Contracts;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using HashHelpers = System.Numerics.Hashing.HashHelpers;
@@ -632,7 +632,7 @@ namespace System
         /// The string returned by this method takes the form <c>(Item1, Item2)</c>,
         /// where <c>Item1</c> and <c>Item2</c> represent the values of the <see cref="Item1"/>
         /// and <see cref="Item2"/> fields. If either field value is <see langword="null"/>,
-        /// it is represented as <see cref="String.Empty"/>.
+        /// it is represented as <see cref="string.Empty"/>.
         /// </remarks>
         public override string ToString()
         {
@@ -838,7 +838,7 @@ namespace System
         /// <returns>The string representation of this <see cref="ValueTuple{T1, T2, T3}"/> instance.</returns>
         /// <remarks>
         /// The string returned by this method takes the form <c>(Item1, Item2, Item3)</c>.
-        /// If any field value is <see langword="null"/>, it is represented as <see cref="String.Empty"/>.
+        /// If any field value is <see langword="null"/>, it is represented as <see cref="string.Empty"/>.
         /// </remarks>
         public override string ToString()
         {
@@ -1063,7 +1063,7 @@ namespace System
         /// <returns>The string representation of this <see cref="ValueTuple{T1, T2, T3, T4}"/> instance.</returns>
         /// <remarks>
         /// The string returned by this method takes the form <c>(Item1, Item2, Item3, Item4)</c>.
-        /// If any field value is <see langword="null"/>, it is represented as <see cref="String.Empty"/>.
+        /// If any field value is <see langword="null"/>, it is represented as <see cref="string.Empty"/>.
         /// </remarks>
         public override string ToString()
         {
@@ -1307,7 +1307,7 @@ namespace System
         /// <returns>The string representation of this <see cref="ValueTuple{T1, T2, T3, T4, T5}"/> instance.</returns>
         /// <remarks>
         /// The string returned by this method takes the form <c>(Item1, Item2, Item3, Item4, Item5)</c>.
-        /// If any field value is <see langword="null"/>, it is represented as <see cref="String.Empty"/>.
+        /// If any field value is <see langword="null"/>, it is represented as <see cref="string.Empty"/>.
         /// </remarks>
         public override string ToString()
         {
@@ -1570,7 +1570,7 @@ namespace System
         /// <returns>The string representation of this <see cref="ValueTuple{T1, T2, T3, T4, T5, T6}"/> instance.</returns>
         /// <remarks>
         /// The string returned by this method takes the form <c>(Item1, Item2, Item3, Item4, Item5, Item6)</c>.
-        /// If any field value is <see langword="null"/>, it is represented as <see cref="String.Empty"/>.
+        /// If any field value is <see langword="null"/>, it is represented as <see cref="string.Empty"/>.
         /// </remarks>
         public override string ToString()
         {
@@ -1852,7 +1852,7 @@ namespace System
         /// <returns>The string representation of this <see cref="ValueTuple{T1, T2, T3, T4, T5, T6, T7}"/> instance.</returns>
         /// <remarks>
         /// The string returned by this method takes the form <c>(Item1, Item2, Item3, Item4, Item5, Item6, Item7)</c>.
-        /// If any field value is <see langword="null"/>, it is represented as <see cref="String.Empty"/>.
+        /// If any field value is <see langword="null"/>, it is represented as <see cref="string.Empty"/>.
         /// </remarks>
         public override string ToString()
         {
@@ -2186,7 +2186,7 @@ namespace System
                                                        rest.GetHashCode());
             }
 
-            Contract.Assert(false, "Missed all cases for computing ValueTuple hash code");
+            Debug.Fail("Missed all cases for computing ValueTuple hash code");
             return -1;
         }
 
@@ -2237,7 +2237,7 @@ namespace System
                                                        comparer.GetHashCode(Item7), rest.GetHashCode(comparer));
             }
 
-            Contract.Assert(false, "Missed all cases for computing ValueTuple hash code");
+            Debug.Fail("Missed all cases for computing ValueTuple hash code");
             return -1;
         }
 
@@ -2252,7 +2252,7 @@ namespace System
         /// <returns>The string representation of this <see cref="ValueTuple{T1, T2, T3, T4, T5, T6, T7, TRest}"/> instance.</returns>
         /// <remarks>
         /// The string returned by this method takes the form <c>(Item1, Item2, Item3, Item4, Item5, Item6, Item7, Rest)</c>.
-        /// If any field value is <see langword="null"/>, it is represented as <see cref="String.Empty"/>.
+        /// If any field value is <see langword="null"/>, it is represented as <see cref="string.Empty"/>.
         /// </remarks>
         public override string ToString()
         {

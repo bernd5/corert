@@ -147,12 +147,13 @@ DLL_EXPORT int __stdcall VerifyAnsiString(char *val)
     return CompareAnsiString(val, "Hello World");
 }
 
-void CopyAnsiString(char *dst, char *src)
+void CopyAnsiString(char *dst, const char *src)
 {
     if (src == NULL || dst == NULL)
         return;
 
-    char *p = dst, *q = src;
+    const char *q = src;
+    char *p = dst;
     while (*q)
     {
         *p++ = *q++;
@@ -312,10 +313,14 @@ DLL_EXPORT bool __stdcall SafeHandleTest(HANDLE sh, long shValue)
 
 DLL_EXPORT long __stdcall SafeHandleOutTest(HANDLE **sh)
 {
-    if (sh == NULL) 
-        return -1;
-
     *sh = (HANDLE *)malloc(100);
+    return (long)((size_t)(*sh));
+}
+
+DLL_EXPORT long __stdcall SafeHandleRefTest(HANDLE **sh, bool alloc)
+{
+    if (alloc)
+        *sh = (HANDLE *)malloc(100);
     return (long)((size_t)(*sh));
 }
 
@@ -470,7 +475,7 @@ DLL_EXPORT void __stdcall StructTest_ByRef(NativeSequentialStruct *nss)
     nss->b++;
 
     char *p = nss->str;
-    while (*p != NULL)
+    while (*p != '\0')
     {
         *p = *p + 1;
         p++;
@@ -638,6 +643,17 @@ DLL_EXPORT  bool __stdcall InlineStringTest(inlineString* p)
 {
     CopyAnsiString(p->inlineString, "Hello World!");
     return true;
+}
+struct Callbacks
+{
+    int(__stdcall *callback0) (void);
+    int(__stdcall *callback1) (void);
+    int(__stdcall *callback2) (void);
+};
+
+DLL_EXPORT bool __stdcall RegisterCallbacks(Callbacks *callbacks)
+{
+    return callbacks->callback0() == 0 && callbacks->callback1() == 1 && callbacks->callback2() == 2;
 }
 
 #if (_MSC_VER >= 1400)         // Check MSC version

@@ -16,16 +16,16 @@ namespace ILCompiler
     {
         internal WebAssemblyCodegenConfigProvider Options { get; }
         internal LLVMModuleRef Module { get; }
-
+        public new WebAssemblyCodegenNodeFactory NodeFactory { get; }
         internal WebAssemblyCodegenCompilation(
             DependencyAnalyzerBase<NodeFactory> dependencyGraph,
-            NodeFactory nodeFactory,
+            WebAssemblyCodegenNodeFactory nodeFactory,
             IEnumerable<ICompilationRootProvider> roots,
             Logger logger,
             WebAssemblyCodegenConfigProvider options)
-            : base(dependencyGraph, nodeFactory, GetCompilationRoots(roots, nodeFactory), null, logger)
+            : base(dependencyGraph, nodeFactory, GetCompilationRoots(roots, nodeFactory), null, null, logger)
         {
-            LLVM.LoadLibrary_libLLVM("./libLLVM-x64.dll");
+            NodeFactory = nodeFactory;
             Module = LLVM.ModuleCreateWithName("netscripten");
             LLVM.SetTarget(Module, "asmjs-unknown-emscripten");
             Options = options;

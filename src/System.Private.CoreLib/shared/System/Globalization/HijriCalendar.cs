@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System.Diagnostics.Contracts;
 
 namespace System.Globalization
 {
@@ -56,7 +55,7 @@ namespace System.Globalization
 
         internal static readonly int[] HijriMonthDays = { 0, 30, 59, 89, 118, 148, 177, 207, 236, 266, 295, 325, 355 };
 
-        private int _hijriAdvance = Int32.MinValue;
+        private int _hijriAdvance = int.MinValue;
 
         // DateTime.MaxValue = Hijri calendar (year:9666, month: 4, day: 3).
         internal const int MaxCalendarYear = 9666;
@@ -177,7 +176,7 @@ namespace System.Globalization
         {
             get
             {
-                if (_hijriAdvance == Int32.MinValue)
+                if (_hijriAdvance == int.MinValue)
                 {
                     // Never been set before.  Use the system value from registry.
                     _hijriAdvance = GetHijriDateAdjustment();
@@ -192,13 +191,12 @@ namespace System.Globalization
                 {
                     throw new ArgumentOutOfRangeException(
                                 "HijriAdjustment",
-                                String.Format(
+                                string.Format(
                                     CultureInfo.CurrentCulture,
                                     SR.ArgumentOutOfRange_Bounds_Lower_Upper,
                                     MinAdvancedHijri,
                                     MaxAdvancedHijri));
                 }
-                Contract.EndContractBlock();
                 VerifyWritable();
 
                 _hijriAdvance = value;
@@ -211,7 +209,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             "time",
-                            String.Format(
+                            string.Format(
                                 CultureInfo.InvariantCulture,
                                 SR.ArgumentOutOfRange_CalendarRange,
                                 calendarMinValue,
@@ -234,7 +232,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(year),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
                                 1,
@@ -251,7 +249,7 @@ namespace System.Globalization
                 {
                     throw new ArgumentOutOfRangeException(
                                 nameof(month),
-                                String.Format(
+                                string.Format(
                                     CultureInfo.CurrentCulture,
                                     SR.ArgumentOutOfRange_Range,
                                     1,
@@ -389,13 +387,12 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(months),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
                                 -120000,
                                 120000));
             }
-            Contract.EndContractBlock();
             // Get the date in Hijri calendar.
             int y = GetDatePart(time.Ticks, DatePartYear);
             int m = GetDatePart(time.Ticks, DatePartMonth);
@@ -467,7 +464,6 @@ namespace System.Globalization
         // Returns the number of days in the month given by the year and
         // month arguments.
         //
-        [Pure]
         public override int GetDaysInMonth(int year, int month, int era)
         {
             CheckYearMonthRange(year, month, era);
@@ -545,7 +541,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(day),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Day,
                                 daysInMonth,
@@ -595,7 +591,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(day),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Day,
                                 daysInMonth,
@@ -635,7 +631,7 @@ namespace System.Globalization
                 {
                     throw new ArgumentOutOfRangeException(
                                 nameof(value),
-                                String.Format(
+                                string.Format(
                                     CultureInfo.CurrentCulture,
                                     SR.ArgumentOutOfRange_Range,
                                     99,
@@ -653,7 +649,6 @@ namespace System.Globalization
                 throw new ArgumentOutOfRangeException(nameof(year),
                     SR.ArgumentOutOfRange_NeedNonNegNum);
             }
-            Contract.EndContractBlock();
 
             if (year < 100)
             {
@@ -664,7 +659,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(year),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
                                 1,

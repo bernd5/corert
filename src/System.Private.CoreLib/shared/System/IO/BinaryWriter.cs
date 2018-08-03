@@ -166,7 +166,7 @@ namespace System.IO
         // 
         public unsafe virtual void Write(char ch)
         {
-            if (Char.IsSurrogate(ch))
+            if (char.IsSurrogate(ch))
                 throw new ArgumentException(SR.Arg_SurrogatesNotAllowedAsSingleChar);
 
             Debug.Assert(_encoding.GetMaxByteCount(1) <= 16, "_encoding.GetMaxByteCount(1) <= 16)");
@@ -223,7 +223,7 @@ namespace System.IO
 
         public virtual void Write(decimal value)
         {
-            Decimal.GetBytes(value, _buffer);
+            decimal.GetBytes(value, _buffer);
             OutStream.Write(_buffer, 0, 16);
         }
 
@@ -325,7 +325,7 @@ namespace System.IO
         // a four-byte unsigned integer, and then writes that many characters 
         // to the stream.
         // 
-        public unsafe virtual void Write(String value)
+        public unsafe virtual void Write(string value)
         {
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
@@ -390,33 +390,33 @@ namespace System.IO
             }
         }
 
-        public virtual void Write(ReadOnlySpan<byte> value)
+        public virtual void Write(ReadOnlySpan<byte> buffer)
         {
             if (GetType() == typeof(BinaryWriter))
             {
-                OutStream.Write(value);
+                OutStream.Write(buffer);
             }
             else
             {
-                byte[] buffer = ArrayPool<byte>.Shared.Rent(value.Length);
+                byte[] array = ArrayPool<byte>.Shared.Rent(buffer.Length);
                 try
                 {
-                    value.CopyTo(buffer);
-                    Write(buffer, 0, value.Length);
+                    buffer.CopyTo(array);
+                    Write(array, 0, buffer.Length);
                 }
                 finally
                 {
-                    ArrayPool<byte>.Shared.Return(buffer);
+                    ArrayPool<byte>.Shared.Return(array);
                 }
             }
         }
 
-        public virtual void Write(ReadOnlySpan<char> value)
+        public virtual void Write(ReadOnlySpan<char> chars)
         {
-            byte[] bytes = ArrayPool<byte>.Shared.Rent(_encoding.GetMaxByteCount(value.Length));
+            byte[] bytes = ArrayPool<byte>.Shared.Rent(_encoding.GetMaxByteCount(chars.Length));
             try
             {
-                int bytesWritten = _encoding.GetBytes(value, bytes);
+                int bytesWritten = _encoding.GetBytes(chars, bytes);
                 Write(bytes, 0, bytesWritten);
             }
             finally

@@ -12,7 +12,7 @@ using GCStaticRegionConstants = Internal.Runtime.GCStaticRegionConstants;
 
 namespace ILCompiler.DependencyAnalysis
 {
-    public class GCStaticsNode : ObjectNode, IExportableSymbolNode
+    public class GCStaticsNode : ObjectNode, IExportableSymbolNode, ISortableSymbolNode, ISymbolNodeWithDebugInfo
     {
         private MetadataType _type;
         private List<PreInitFieldInfo> _preInitFieldInfos;
@@ -34,12 +34,14 @@ namespace ILCompiler.DependencyAnalysis
         public int Offset => 0;
         public MetadataType Type => _type;
 
+        public IDebugInfo DebugInfo => NullTypeIndexDebugInfo.Instance;
+
         public static string GetMangledName(TypeDesc type, NameMangler nameMangler)
         {
             return nameMangler.NodeMangler.GCStatics(type);
         }
 
-        public virtual bool IsExported(NodeFactory factory) => factory.CompilationModuleGroup.ExportsType(Type);
+        public virtual ExportForm GetExportForm(NodeFactory factory) => factory.CompilationModuleGroup.GetExportTypeForm(Type);
 
         private ISymbolNode GetGCStaticEETypeNode(NodeFactory factory)
         {
@@ -63,14 +65,20 @@ namespace ILCompiler.DependencyAnalysis
             }
 
             dependencyList.Add(factory.GCStaticsRegion, "GCStatics Region");
-            if (factory.Target.Abi == TargetAbi.CoreRT)
+            if (factory.Target.Abi != TargetAbi.ProjectN)
             {
                 dependencyList.Add(GetGCStaticEETypeNode(factory), "GCStatic EEType");
                 if (_preInitFieldInfos != null)
                     dependencyList.Add(factory.GCStaticsPreInitDataNode(_type), "PreInitData node");
             }
+            else
+            {
+                dependencyList.Add(((UtcNodeFactory)factory).TypeGCStaticDescSymbol(_type), "GC Desc");
+            }
 
             dependencyList.Add(factory.GCStaticIndirection(_type), "GC statics indirection");
+            EETypeNode.AddDependenciesForStaticsNode(factory, _type, ref dependencyList);
+
             return dependencyList;
         }
 
@@ -122,6 +130,13 @@ namespace ILCompiler.DependencyAnalysis
                     return GCStaticsPreInitDataNode.GetDataForPreInitDataField(this, _type, _preInitFieldInfos, 0, factory, relocsOnly);
                 }
             }
+        }
+
+        public override int ClassCode => -522346696;
+
+        public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
+        {
+            return comparer.Compare(_type, ((GCStaticsNode)other)._type);
         }
     }
 }

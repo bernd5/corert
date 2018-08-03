@@ -8,10 +8,11 @@ using System.Diagnostics;
 
 namespace System.Reflection
 {
-#if CORECLR
-    internal
-#else
+#if CORERT
+    [System.Runtime.CompilerServices.ReflectionBlocked]
     public // Needs to be public so that Reflection.Core can see it.
+#else
+    internal
 #endif
     static class SignatureTypeExtensions
     {
@@ -84,7 +85,7 @@ namespace System.Reflection
             }
             else if (pattern.IsGenericMethodParameter)
             {
-                if (!(actual.IsGenericParameter && actual.DeclaringMethod != null))
+                if (!actual.IsGenericMethodParameter)
                     return false;
                 if (pattern.GenericParameterPosition != actual.GenericParameterPosition)
                     return false;

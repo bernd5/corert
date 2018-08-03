@@ -21,6 +21,7 @@ using System.Runtime.Versioning;
 using Internal.Reflection.Core.NonPortable;
 
 using Internal.Runtime;
+using Internal.Runtime.CompilerServices;
 
 namespace System
 {
@@ -76,10 +77,10 @@ namespace System
         [Intrinsic]
         public Type GetType()
         {
-            return ReflectionCoreNonPortable.GetRuntimeTypeForEEType(EETypePtr);
+            return RuntimeTypeUnifier.GetRuntimeTypeForEEType(EETypePtr);
         }
 
-        public virtual String ToString()
+        public virtual string ToString()
         {
             return GetType().ToString();
         }
@@ -89,7 +90,7 @@ namespace System
         // For Value Types, the toolchain (will) generate a ValueType.Equals override method,
         // and will not be using this routine.
 
-        public virtual bool Equals(Object obj)
+        public virtual bool Equals(object obj)
         {
             if (this == obj)
                 return true;
@@ -101,7 +102,7 @@ namespace System
             return false;
         }
 
-        public static bool Equals(Object objA, Object objB)
+        public static bool Equals(object objA, object objB)
         {
             if (objA == objB)
             {
@@ -115,7 +116,7 @@ namespace System
         }
 
         //[ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
-        public static bool ReferenceEquals(Object objA, Object objB)
+        public static bool ReferenceEquals(object objA, object objB)
         {
             return objA == objB;
         }

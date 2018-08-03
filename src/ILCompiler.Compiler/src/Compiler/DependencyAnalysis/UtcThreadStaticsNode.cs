@@ -7,7 +7,7 @@ using Internal.TypeSystem;
 
 namespace ILCompiler.DependencyAnalysis
 {
-    public class UtcThreadStaticsNode : ObjectNode, ISymbolDefinitionNode
+    public class UtcThreadStaticsNode : ObjectNode, ISymbolDefinitionNode, ISymbolNodeWithDebugInfo, ISortableSymbolNode
     {
         private MetadataType _type;
 
@@ -26,12 +26,14 @@ namespace ILCompiler.DependencyAnalysis
         public int Offset => 0;
         public MetadataType Type => _type;
 
+        public IDebugInfo DebugInfo => NullTypeIndexDebugInfo.Instance;
+
         public static string GetMangledName(TypeDesc type, NameMangler nameMangler)
         {
             return nameMangler.NodeMangler.ThreadStatics(type);
         }
 
-        public virtual bool IsExported(NodeFactory factory) => factory.CompilationModuleGroup.ExportsType(Type);
+        public virtual ExportForm GetExportForm(NodeFactory factory) => factory.CompilationModuleGroup.GetExportTypeForm(Type);
 
         protected override DependencyList ComputeNonRelocationBasedDependencies(NodeFactory factory)
         {
@@ -42,6 +44,8 @@ namespace ILCompiler.DependencyAnalysis
                 dependencyList.Add(factory.EagerCctorIndirection(_type.GetStaticConstructor()), "Eager .cctor");
             }
 
+            dependencyList.Add(((UtcNodeFactory)factory).TypeThreadStaticGCDescNode(_type), "GC Desc");
+            EETypeNode.AddDependenciesForStaticsNode(factory, _type, ref dependencyList);
             return dependencyList;
         }
 
@@ -57,6 +61,13 @@ namespace ILCompiler.DependencyAnalysis
             builder.EmitZeros(_type.ThreadStaticFieldSize.AsInt);
             builder.AddSymbol(this);
             return builder.ToObjectData();
+        }
+
+        public sealed override int ClassCode => -1421136129;
+
+        public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
+        {
+            return comparer.Compare(_type, ((UtcThreadStaticsNode)other)._type);
         }
     }
 }

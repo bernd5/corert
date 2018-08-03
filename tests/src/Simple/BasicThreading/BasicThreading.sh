@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 $1/$2
 if [ $? == 100 ]; then
     echo pass

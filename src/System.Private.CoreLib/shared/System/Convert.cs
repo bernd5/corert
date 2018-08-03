@@ -11,7 +11,6 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security;
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 
 namespace System
 {
@@ -97,31 +96,31 @@ namespace System
     // When passed Value.DBNull, the Value.ToXXX() methods all throw an
     // InvalidCastException.
 
-    public static class Convert
+    public static partial class Convert
     {
         //A typeof operation is fairly expensive (does a system call), so we'll cache these here
         //statically.  These are exactly lined up with the TypeCode, eg. ConvertType[TypeCode.Int16]
-        //will give you the type of an Int16.
+        //will give you the type of an short.
         internal static readonly Type[] ConvertTypes = {
             typeof(System.Empty),
-            typeof(Object),
+            typeof(object),
             typeof(System.DBNull),
-            typeof(Boolean),
-            typeof(Char),
-            typeof(SByte),
-            typeof(Byte),
-            typeof(Int16),
-            typeof(UInt16),
-            typeof(Int32),
-            typeof(UInt32),
-            typeof(Int64),
-            typeof(UInt64),
-            typeof(Single),
-            typeof(Double),
-            typeof(Decimal),
+            typeof(bool),
+            typeof(char),
+            typeof(sbyte),
+            typeof(byte),
+            typeof(short),
+            typeof(ushort),
+            typeof(int),
+            typeof(uint),
+            typeof(long),
+            typeof(ulong),
+            typeof(float),
+            typeof(double),
+            typeof(decimal),
             typeof(DateTime),
-            typeof(Object), //TypeCode is discontinuous so we need a placeholder.
-            typeof(String)
+            typeof(object), //TypeCode is discontinuous so we need a placeholder.
+            typeof(string)
         };
 
         // Need to special case Enum because typecode will be underlying type, e.g. Int32
@@ -133,9 +132,9 @@ namespace System
                                                        't','u','v','w','x','y','z','0','1','2','3','4','5','6','7',
                                                        '8','9','+','/','=' };
 
-        private const Int32 base64LineBreakPosition = 76;
+        private const int base64LineBreakPosition = 76;
 
-#if _DEBUG
+#if DEBUG
         private static bool TriggerAsserts = DoAsserts();
         private static bool DoAsserts()
         {
@@ -143,7 +142,7 @@ namespace System
             Debug.Assert(ConvertTypes.Length == ((int)TypeCode.String + 1), "[Convert.cctor]ConvertTypes.Length == ((int)TypeCode.String + 1)");
             Debug.Assert(ConvertTypes[(int)TypeCode.Empty] == typeof(System.Empty),
                             "[Convert.cctor]ConvertTypes[(int)TypeCode.Empty]==typeof(System.Empty)");
-            Debug.Assert(ConvertTypes[(int)TypeCode.String] == typeof(String),
+            Debug.Assert(ConvertTypes[(int)TypeCode.String] == typeof(string),
                             "[Convert.cctor]ConvertTypes[(int)TypeCode.String]==typeof(System.String)");
             Debug.Assert(ConvertTypes[(int)TypeCode.Int32] == typeof(int),
                             "[Convert.cctor]ConvertTypes[(int)TypeCode.Int32]==typeof(int)");
@@ -151,14 +150,13 @@ namespace System
         }
 #endif
 
-        public static readonly Object DBNull = System.DBNull.Value;
+        public static readonly object DBNull = System.DBNull.Value;
 
         // Returns the type code for the given object. If the argument is null,
         // the result is TypeCode.Empty. If the argument is not a value (i.e. if
         // the object does not implement IConvertible), the result is TypeCode.Object.
         // Otherwise, the result is the type code of the object, as determined by
         // the object's implementation of IConvertible.
-        [Pure]
         public static TypeCode GetTypeCode(object value)
         {
             if (value == null) return TypeCode.Empty;
@@ -172,7 +170,6 @@ namespace System
 
         // Returns true if the given object is a database null. This operation
         // corresponds to "value.GetTypeCode() == TypeCode.DBNull".
-        [Pure]
         public static bool IsDBNull(object value)
         {
             if (value == System.DBNull.Value) return true;
@@ -192,12 +189,12 @@ namespace System
         // object already has the given type code, in which case the object is
         // simply returned. Otherwise, the appropriate ToXXX() is invoked on the
         // object's implementation of IConvertible.
-        public static Object ChangeType(Object value, TypeCode typeCode)
+        public static object ChangeType(object value, TypeCode typeCode)
         {
             return ChangeType(value, typeCode, CultureInfo.CurrentCulture);
         }
 
-        public static Object ChangeType(Object value, TypeCode typeCode, IFormatProvider provider)
+        public static object ChangeType(object value, TypeCode typeCode, IFormatProvider provider)
         {
             if (value == null && (typeCode == TypeCode.Empty || typeCode == TypeCode.String || typeCode == TypeCode.Object))
             {
@@ -211,7 +208,7 @@ namespace System
             }
 
             // This line is invalid for things like Enums that return a TypeCode
-            // of Int32, but the object can't actually be cast to an Int32.
+            // of int, but the object can't actually be cast to an int.
             //            if (v.GetTypeCode() == typeCode) return value;
             switch (typeCode)
             {
@@ -256,14 +253,13 @@ namespace System
             }
         }
 
-        internal static Object DefaultToType(IConvertible value, Type targetType, IFormatProvider provider)
+        internal static object DefaultToType(IConvertible value, Type targetType, IFormatProvider provider)
         {
             Debug.Assert(value != null, "[Convert.DefaultToType]value!=null");
             if (targetType == null)
             {
                 throw new ArgumentNullException(nameof(targetType));
             }
-            Contract.EndContractBlock();
 
             if (ReferenceEquals(value.GetType(), targetType))
             {
@@ -301,7 +297,7 @@ namespace System
             if (ReferenceEquals(targetType, ConvertTypes[(int)TypeCode.String]))
                 return value.ToString(provider);
             if (ReferenceEquals(targetType, ConvertTypes[(int)TypeCode.Object]))
-                return (Object)value;
+                return (object)value;
             //  Need to special case Enum because typecode will be underlying type, e.g. Int32
             if (ReferenceEquals(targetType, EnumType))
                 return (Enum)value;
@@ -313,18 +309,17 @@ namespace System
             throw new InvalidCastException(string.Format(SR.InvalidCast_FromTo, value.GetType().FullName, targetType.FullName));
         }
 
-        public static Object ChangeType(Object value, Type conversionType)
+        public static object ChangeType(object value, Type conversionType)
         {
             return ChangeType(value, conversionType, CultureInfo.CurrentCulture);
         }
 
-        public static Object ChangeType(Object value, Type conversionType, IFormatProvider provider)
+        public static object ChangeType(object value, Type conversionType, IFormatProvider provider)
         {
-            if (ReferenceEquals(conversionType, null))
+            if (conversionType is null)
             {
                 throw new ArgumentNullException(nameof(conversionType));
             }
-            Contract.EndContractBlock();
 
             if (value == null)
             {
@@ -376,45 +371,36 @@ namespace System
             if (ReferenceEquals(conversionType, ConvertTypes[(int)TypeCode.String]))
                 return ic.ToString(provider);
             if (ReferenceEquals(conversionType, ConvertTypes[(int)TypeCode.Object]))
-                return (Object)value;
+                return (object)value;
 
             return ic.ToType(conversionType, provider);
         }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ThrowCharOverflowException() { throw new OverflowException(SR.Overflow_Char); }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ThrowByteOverflowException() { throw new OverflowException(SR.Overflow_Byte); }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ThrowSByteOverflowException() { throw new OverflowException(SR.Overflow_SByte); }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ThrowInt16OverflowException() { throw new OverflowException(SR.Overflow_Int16); }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ThrowUInt16OverflowException() { throw new OverflowException(SR.Overflow_UInt16); }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ThrowInt32OverflowException() { throw new OverflowException(SR.Overflow_Int32); }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ThrowUInt32OverflowException() { throw new OverflowException(SR.Overflow_UInt32); }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ThrowInt64OverflowException() { throw new OverflowException(SR.Overflow_Int64); }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ThrowUInt64OverflowException() { throw new OverflowException(SR.Overflow_UInt64); }
 
         // Conversions to Boolean
-        public static bool ToBoolean(Object value)
+        public static bool ToBoolean(object value)
         {
             return value == null ? false : ((IConvertible)value).ToBoolean(null);
         }
 
-        public static bool ToBoolean(Object value, IFormatProvider provider)
+        public static bool ToBoolean(object value, IFormatProvider provider)
         {
             return value == null ? false : ((IConvertible)value).ToBoolean(provider);
         }
@@ -477,18 +463,18 @@ namespace System
             return value != 0;
         }
 
-        public static bool ToBoolean(String value)
+        public static bool ToBoolean(string value)
         {
             if (value == null)
                 return false;
-            return Boolean.Parse(value);
+            return bool.Parse(value);
         }
 
-        public static bool ToBoolean(String value, IFormatProvider provider)
+        public static bool ToBoolean(string value, IFormatProvider provider)
         {
             if (value == null)
                 return false;
-            return Boolean.Parse(value);
+            return bool.Parse(value);
         }
 
         public static bool ToBoolean(float value)
@@ -541,7 +527,6 @@ namespace System
         public static char ToChar(sbyte value)
         {
             if (value < 0) ThrowCharOverflowException();
-            Contract.EndContractBlock();
             return (char)value;
         }
 
@@ -553,7 +538,6 @@ namespace System
         public static char ToChar(short value)
         {
             if (value < 0) ThrowCharOverflowException();
-            Contract.EndContractBlock();
             return (char)value;
         }
 
@@ -565,31 +549,27 @@ namespace System
 
         public static char ToChar(int value)
         {
-            if (value < 0 || value > Char.MaxValue) ThrowCharOverflowException();
-            Contract.EndContractBlock();
+            if (value < 0 || value > char.MaxValue) ThrowCharOverflowException();
             return (char)value;
         }
 
         [CLSCompliant(false)]
         public static char ToChar(uint value)
         {
-            if (value > Char.MaxValue) ThrowCharOverflowException();
-            Contract.EndContractBlock();
+            if (value > char.MaxValue) ThrowCharOverflowException();
             return (char)value;
         }
 
         public static char ToChar(long value)
         {
-            if (value < 0 || value > Char.MaxValue) ThrowCharOverflowException();
-            Contract.EndContractBlock();
+            if (value < 0 || value > char.MaxValue) ThrowCharOverflowException();
             return (char)value;
         }
 
         [CLSCompliant(false)]
         public static char ToChar(ulong value)
         {
-            if (value > Char.MaxValue) ThrowCharOverflowException();
-            Contract.EndContractBlock();
+            if (value > char.MaxValue) ThrowCharOverflowException();
             return (char)value;
         }
 
@@ -597,16 +577,15 @@ namespace System
         // @VariantSwitch
         // Remove FormatExceptions;
         //
-        public static char ToChar(String value)
+        public static char ToChar(string value)
         {
             return ToChar(value, null);
         }
 
-        public static char ToChar(String value, IFormatProvider provider)
+        public static char ToChar(string value, IFormatProvider provider)
         {
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
-            Contract.EndContractBlock();
 
             if (value.Length != 1)
                 throw new FormatException(SR.Format_NeedSingleChar);
@@ -661,7 +640,7 @@ namespace System
         [CLSCompliant(false)]
         public static sbyte ToSByte(bool value)
         {
-            return value ? (sbyte)Boolean.True : (sbyte)Boolean.False;
+            return value ? (sbyte)bool.True : (sbyte)bool.False;
         }
 
         [CLSCompliant(false)]
@@ -673,64 +652,56 @@ namespace System
         [CLSCompliant(false)]
         public static sbyte ToSByte(char value)
         {
-            if (value > SByte.MaxValue) ThrowSByteOverflowException();
-            Contract.EndContractBlock();
+            if (value > sbyte.MaxValue) ThrowSByteOverflowException();
             return (sbyte)value;
         }
 
         [CLSCompliant(false)]
         public static sbyte ToSByte(byte value)
         {
-            if (value > SByte.MaxValue) ThrowSByteOverflowException();
-            Contract.EndContractBlock();
+            if (value > sbyte.MaxValue) ThrowSByteOverflowException();
             return (sbyte)value;
         }
 
         [CLSCompliant(false)]
         public static sbyte ToSByte(short value)
         {
-            if (value < SByte.MinValue || value > SByte.MaxValue) ThrowSByteOverflowException();
-            Contract.EndContractBlock();
+            if (value < sbyte.MinValue || value > sbyte.MaxValue) ThrowSByteOverflowException();
             return (sbyte)value;
         }
 
         [CLSCompliant(false)]
         public static sbyte ToSByte(ushort value)
         {
-            if (value > SByte.MaxValue) ThrowSByteOverflowException();
-            Contract.EndContractBlock();
+            if (value > sbyte.MaxValue) ThrowSByteOverflowException();
             return (sbyte)value;
         }
 
         [CLSCompliant(false)]
         public static sbyte ToSByte(int value)
         {
-            if (value < SByte.MinValue || value > SByte.MaxValue) ThrowSByteOverflowException();
-            Contract.EndContractBlock();
+            if (value < sbyte.MinValue || value > sbyte.MaxValue) ThrowSByteOverflowException();
             return (sbyte)value;
         }
 
         [CLSCompliant(false)]
         public static sbyte ToSByte(uint value)
         {
-            if (value > SByte.MaxValue) ThrowSByteOverflowException();
-            Contract.EndContractBlock();
+            if (value > sbyte.MaxValue) ThrowSByteOverflowException();
             return (sbyte)value;
         }
 
         [CLSCompliant(false)]
         public static sbyte ToSByte(long value)
         {
-            if (value < SByte.MinValue || value > SByte.MaxValue) ThrowSByteOverflowException();
-            Contract.EndContractBlock();
+            if (value < sbyte.MinValue || value > sbyte.MaxValue) ThrowSByteOverflowException();
             return (sbyte)value;
         }
 
         [CLSCompliant(false)]
         public static sbyte ToSByte(ulong value)
         {
-            if (value > (ulong)SByte.MaxValue) ThrowSByteOverflowException();
-            Contract.EndContractBlock();
+            if (value > (ulong)sbyte.MaxValue) ThrowSByteOverflowException();
             return (sbyte)value;
         }
 
@@ -749,21 +720,21 @@ namespace System
         [CLSCompliant(false)]
         public static sbyte ToSByte(decimal value)
         {
-            return Decimal.ToSByte(Decimal.Round(value, 0));
+            return decimal.ToSByte(decimal.Round(value, 0));
         }
 
         [CLSCompliant(false)]
-        public static sbyte ToSByte(String value)
+        public static sbyte ToSByte(string value)
         {
             if (value == null)
                 return 0;
-            return SByte.Parse(value, CultureInfo.CurrentCulture);
+            return sbyte.Parse(value, CultureInfo.CurrentCulture);
         }
 
         [CLSCompliant(false)]
-        public static sbyte ToSByte(String value, IFormatProvider provider)
+        public static sbyte ToSByte(string value, IFormatProvider provider)
         {
-            return SByte.Parse(value, NumberStyles.Integer, provider);
+            return sbyte.Parse(value, NumberStyles.Integer, provider);
         }
 
         [CLSCompliant(false)]
@@ -789,7 +760,7 @@ namespace System
 
         public static byte ToByte(bool value)
         {
-            return value ? (byte)Boolean.True : (byte)Boolean.False;
+            return value ? (byte)bool.True : (byte)bool.False;
         }
 
         public static byte ToByte(byte value)
@@ -799,61 +770,53 @@ namespace System
 
         public static byte ToByte(char value)
         {
-            if (value > Byte.MaxValue) ThrowByteOverflowException();
-            Contract.EndContractBlock();
+            if (value > byte.MaxValue) ThrowByteOverflowException();
             return (byte)value;
         }
 
         [CLSCompliant(false)]
         public static byte ToByte(sbyte value)
         {
-            if (value < Byte.MinValue) ThrowByteOverflowException();
-            Contract.EndContractBlock();
+            if (value < byte.MinValue) ThrowByteOverflowException();
             return (byte)value;
         }
 
         public static byte ToByte(short value)
         {
-            if (value < Byte.MinValue || value > Byte.MaxValue) ThrowByteOverflowException();
-            Contract.EndContractBlock();
+            if (value < byte.MinValue || value > byte.MaxValue) ThrowByteOverflowException();
             return (byte)value;
         }
 
         [CLSCompliant(false)]
         public static byte ToByte(ushort value)
         {
-            if (value > Byte.MaxValue) ThrowByteOverflowException();
-            Contract.EndContractBlock();
+            if (value > byte.MaxValue) ThrowByteOverflowException();
             return (byte)value;
         }
 
         public static byte ToByte(int value)
         {
-            if (value < Byte.MinValue || value > Byte.MaxValue) ThrowByteOverflowException();
-            Contract.EndContractBlock();
+            if (value < byte.MinValue || value > byte.MaxValue) ThrowByteOverflowException();
             return (byte)value;
         }
 
         [CLSCompliant(false)]
         public static byte ToByte(uint value)
         {
-            if (value > Byte.MaxValue) ThrowByteOverflowException();
-            Contract.EndContractBlock();
+            if (value > byte.MaxValue) ThrowByteOverflowException();
             return (byte)value;
         }
 
         public static byte ToByte(long value)
         {
-            if (value < Byte.MinValue || value > Byte.MaxValue) ThrowByteOverflowException();
-            Contract.EndContractBlock();
+            if (value < byte.MinValue || value > byte.MaxValue) ThrowByteOverflowException();
             return (byte)value;
         }
 
         [CLSCompliant(false)]
         public static byte ToByte(ulong value)
         {
-            if (value > Byte.MaxValue) ThrowByteOverflowException();
-            Contract.EndContractBlock();
+            if (value > byte.MaxValue) ThrowByteOverflowException();
             return (byte)value;
         }
 
@@ -869,21 +832,21 @@ namespace System
 
         public static byte ToByte(decimal value)
         {
-            return Decimal.ToByte(Decimal.Round(value, 0));
+            return decimal.ToByte(decimal.Round(value, 0));
         }
 
-        public static byte ToByte(String value)
+        public static byte ToByte(string value)
         {
             if (value == null)
                 return 0;
-            return Byte.Parse(value, CultureInfo.CurrentCulture);
+            return byte.Parse(value, CultureInfo.CurrentCulture);
         }
 
-        public static byte ToByte(String value, IFormatProvider provider)
+        public static byte ToByte(string value, IFormatProvider provider)
         {
             if (value == null)
                 return 0;
-            return Byte.Parse(value, NumberStyles.Integer, provider);
+            return byte.Parse(value, NumberStyles.Integer, provider);
         }
 
         public static byte ToByte(DateTime value)
@@ -909,13 +872,12 @@ namespace System
 
         public static short ToInt16(bool value)
         {
-            return value ? (short)Boolean.True : (short)Boolean.False;
+            return value ? (short)bool.True : (short)bool.False;
         }
 
         public static short ToInt16(char value)
         {
-            if (value > Int16.MaxValue) ThrowInt16OverflowException();
-            Contract.EndContractBlock();
+            if (value > short.MaxValue) ThrowInt16OverflowException();
             return (short)value;
         }
 
@@ -933,23 +895,20 @@ namespace System
         [CLSCompliant(false)]
         public static short ToInt16(ushort value)
         {
-            if (value > Int16.MaxValue) ThrowInt16OverflowException();
-            Contract.EndContractBlock();
+            if (value > short.MaxValue) ThrowInt16OverflowException();
             return (short)value;
         }
 
         public static short ToInt16(int value)
         {
-            if (value < Int16.MinValue || value > Int16.MaxValue) ThrowInt16OverflowException();
-            Contract.EndContractBlock();
+            if (value < short.MinValue || value > short.MaxValue) ThrowInt16OverflowException();
             return (short)value;
         }
 
         [CLSCompliant(false)]
         public static short ToInt16(uint value)
         {
-            if (value > Int16.MaxValue) ThrowInt16OverflowException();
-            Contract.EndContractBlock();
+            if (value > short.MaxValue) ThrowInt16OverflowException();
             return (short)value;
         }
 
@@ -960,16 +919,14 @@ namespace System
 
         public static short ToInt16(long value)
         {
-            if (value < Int16.MinValue || value > Int16.MaxValue) ThrowInt16OverflowException();
-            Contract.EndContractBlock();
+            if (value < short.MinValue || value > short.MaxValue) ThrowInt16OverflowException();
             return (short)value;
         }
 
         [CLSCompliant(false)]
         public static short ToInt16(ulong value)
         {
-            if (value > (ulong)Int16.MaxValue) ThrowInt16OverflowException();
-            Contract.EndContractBlock();
+            if (value > (ulong)short.MaxValue) ThrowInt16OverflowException();
             return (short)value;
         }
 
@@ -985,21 +942,21 @@ namespace System
 
         public static short ToInt16(decimal value)
         {
-            return Decimal.ToInt16(Decimal.Round(value, 0));
+            return decimal.ToInt16(decimal.Round(value, 0));
         }
 
-        public static short ToInt16(String value)
+        public static short ToInt16(string value)
         {
             if (value == null)
                 return 0;
-            return Int16.Parse(value, CultureInfo.CurrentCulture);
+            return short.Parse(value, CultureInfo.CurrentCulture);
         }
 
-        public static short ToInt16(String value, IFormatProvider provider)
+        public static short ToInt16(string value, IFormatProvider provider)
         {
             if (value == null)
                 return 0;
-            return Int16.Parse(value, NumberStyles.Integer, provider);
+            return short.Parse(value, NumberStyles.Integer, provider);
         }
 
         public static short ToInt16(DateTime value)
@@ -1029,7 +986,7 @@ namespace System
         [CLSCompliant(false)]
         public static ushort ToUInt16(bool value)
         {
-            return value ? (ushort)Boolean.True : (ushort)Boolean.False;
+            return value ? (ushort)bool.True : (ushort)bool.False;
         }
 
         [CLSCompliant(false)]
@@ -1042,7 +999,6 @@ namespace System
         public static ushort ToUInt16(sbyte value)
         {
             if (value < 0) ThrowUInt16OverflowException();
-            Contract.EndContractBlock();
             return (ushort)value;
         }
 
@@ -1056,15 +1012,13 @@ namespace System
         public static ushort ToUInt16(short value)
         {
             if (value < 0) ThrowUInt16OverflowException();
-            Contract.EndContractBlock();
             return (ushort)value;
         }
 
         [CLSCompliant(false)]
         public static ushort ToUInt16(int value)
         {
-            if (value < 0 || value > UInt16.MaxValue) ThrowUInt16OverflowException();
-            Contract.EndContractBlock();
+            if (value < 0 || value > ushort.MaxValue) ThrowUInt16OverflowException();
             return (ushort)value;
         }
 
@@ -1077,8 +1031,7 @@ namespace System
         [CLSCompliant(false)]
         public static ushort ToUInt16(uint value)
         {
-            if (value > UInt16.MaxValue) ThrowUInt16OverflowException();
-            Contract.EndContractBlock();
+            if (value > ushort.MaxValue) ThrowUInt16OverflowException();
             return (ushort)value;
         }
 
@@ -1086,16 +1039,14 @@ namespace System
         [CLSCompliant(false)]
         public static ushort ToUInt16(long value)
         {
-            if (value < 0 || value > UInt16.MaxValue) ThrowUInt16OverflowException();
-            Contract.EndContractBlock();
+            if (value < 0 || value > ushort.MaxValue) ThrowUInt16OverflowException();
             return (ushort)value;
         }
 
         [CLSCompliant(false)]
         public static ushort ToUInt16(ulong value)
         {
-            if (value > UInt16.MaxValue) ThrowUInt16OverflowException();
-            Contract.EndContractBlock();
+            if (value > ushort.MaxValue) ThrowUInt16OverflowException();
             return (ushort)value;
         }
 
@@ -1114,23 +1065,23 @@ namespace System
         [CLSCompliant(false)]
         public static ushort ToUInt16(decimal value)
         {
-            return Decimal.ToUInt16(Decimal.Round(value, 0));
+            return decimal.ToUInt16(decimal.Round(value, 0));
         }
 
         [CLSCompliant(false)]
-        public static ushort ToUInt16(String value)
+        public static ushort ToUInt16(string value)
         {
             if (value == null)
                 return 0;
-            return UInt16.Parse(value, CultureInfo.CurrentCulture);
+            return ushort.Parse(value, CultureInfo.CurrentCulture);
         }
 
         [CLSCompliant(false)]
-        public static ushort ToUInt16(String value, IFormatProvider provider)
+        public static ushort ToUInt16(string value, IFormatProvider provider)
         {
             if (value == null)
                 return 0;
-            return UInt16.Parse(value, NumberStyles.Integer, provider);
+            return ushort.Parse(value, NumberStyles.Integer, provider);
         }
 
         [CLSCompliant(false)]
@@ -1157,7 +1108,7 @@ namespace System
 
         public static int ToInt32(bool value)
         {
-            return value ? Boolean.True : Boolean.False;
+            return value ? bool.True : bool.False;
         }
 
         public static int ToInt32(char value)
@@ -1190,8 +1141,7 @@ namespace System
         [CLSCompliant(false)]
         public static int ToInt32(uint value)
         {
-            if (value > Int32.MaxValue) ThrowInt32OverflowException();
-            Contract.EndContractBlock();
+            if (value > int.MaxValue) ThrowInt32OverflowException();
             return (int)value;
         }
 
@@ -1202,16 +1152,14 @@ namespace System
 
         public static int ToInt32(long value)
         {
-            if (value < Int32.MinValue || value > Int32.MaxValue) ThrowInt32OverflowException();
-            Contract.EndContractBlock();
+            if (value < int.MinValue || value > int.MaxValue) ThrowInt32OverflowException();
             return (int)value;
         }
 
         [CLSCompliant(false)]
         public static int ToInt32(ulong value)
         {
-            if (value > Int32.MaxValue) ThrowInt32OverflowException();
-            Contract.EndContractBlock();
+            if (value > int.MaxValue) ThrowInt32OverflowException();
             return (int)value;
         }
 
@@ -1247,21 +1195,21 @@ namespace System
 
         public static int ToInt32(decimal value)
         {
-            return Decimal.ToInt32(Decimal.Round(value, 0));
+            return decimal.ToInt32(decimal.Round(value, 0));
         }
 
-        public static int ToInt32(String value)
+        public static int ToInt32(string value)
         {
             if (value == null)
                 return 0;
-            return Int32.Parse(value, CultureInfo.CurrentCulture);
+            return int.Parse(value, CultureInfo.CurrentCulture);
         }
 
-        public static int ToInt32(String value, IFormatProvider provider)
+        public static int ToInt32(string value, IFormatProvider provider)
         {
             if (value == null)
                 return 0;
-            return Int32.Parse(value, NumberStyles.Integer, provider);
+            return int.Parse(value, NumberStyles.Integer, provider);
         }
 
         public static int ToInt32(DateTime value)
@@ -1291,7 +1239,7 @@ namespace System
         [CLSCompliant(false)]
         public static uint ToUInt32(bool value)
         {
-            return value ? (uint)Boolean.True : (uint)Boolean.False;
+            return value ? (uint)bool.True : (uint)bool.False;
         }
 
         [CLSCompliant(false)]
@@ -1304,7 +1252,6 @@ namespace System
         public static uint ToUInt32(sbyte value)
         {
             if (value < 0) ThrowUInt32OverflowException();
-            Contract.EndContractBlock();
             return (uint)value;
         }
 
@@ -1318,7 +1265,6 @@ namespace System
         public static uint ToUInt32(short value)
         {
             if (value < 0) ThrowUInt32OverflowException();
-            Contract.EndContractBlock();
             return (uint)value;
         }
 
@@ -1332,7 +1278,6 @@ namespace System
         public static uint ToUInt32(int value)
         {
             if (value < 0) ThrowUInt32OverflowException();
-            Contract.EndContractBlock();
             return (uint)value;
         }
 
@@ -1345,16 +1290,14 @@ namespace System
         [CLSCompliant(false)]
         public static uint ToUInt32(long value)
         {
-            if (value < 0 || value > UInt32.MaxValue) ThrowUInt32OverflowException();
-            Contract.EndContractBlock();
+            if (value < 0 || value > uint.MaxValue) ThrowUInt32OverflowException();
             return (uint)value;
         }
 
         [CLSCompliant(false)]
         public static uint ToUInt32(ulong value)
         {
-            if (value > UInt32.MaxValue) ThrowUInt32OverflowException();
-            Contract.EndContractBlock();
+            if (value > uint.MaxValue) ThrowUInt32OverflowException();
             return (uint)value;
         }
 
@@ -1380,23 +1323,23 @@ namespace System
         [CLSCompliant(false)]
         public static uint ToUInt32(decimal value)
         {
-            return Decimal.ToUInt32(Decimal.Round(value, 0));
+            return decimal.ToUInt32(decimal.Round(value, 0));
         }
 
         [CLSCompliant(false)]
-        public static uint ToUInt32(String value)
+        public static uint ToUInt32(string value)
         {
             if (value == null)
                 return 0;
-            return UInt32.Parse(value, CultureInfo.CurrentCulture);
+            return uint.Parse(value, CultureInfo.CurrentCulture);
         }
 
         [CLSCompliant(false)]
-        public static uint ToUInt32(String value, IFormatProvider provider)
+        public static uint ToUInt32(string value, IFormatProvider provider)
         {
             if (value == null)
                 return 0;
-            return UInt32.Parse(value, NumberStyles.Integer, provider);
+            return uint.Parse(value, NumberStyles.Integer, provider);
         }
 
         [CLSCompliant(false)]
@@ -1423,7 +1366,7 @@ namespace System
 
         public static long ToInt64(bool value)
         {
-            return value ? Boolean.True : Boolean.False;
+            return value ? bool.True : bool.False;
         }
 
         public static long ToInt64(char value)
@@ -1467,8 +1410,7 @@ namespace System
         [CLSCompliant(false)]
         public static long ToInt64(ulong value)
         {
-            if (value > Int64.MaxValue) ThrowInt64OverflowException();
-            Contract.EndContractBlock();
+            if (value > long.MaxValue) ThrowInt64OverflowException();
             return (long)value;
         }
 
@@ -1490,21 +1432,21 @@ namespace System
 
         public static long ToInt64(decimal value)
         {
-            return Decimal.ToInt64(Decimal.Round(value, 0));
+            return decimal.ToInt64(decimal.Round(value, 0));
         }
 
         public static long ToInt64(string value)
         {
             if (value == null)
                 return 0;
-            return Int64.Parse(value, CultureInfo.CurrentCulture);
+            return long.Parse(value, CultureInfo.CurrentCulture);
         }
 
-        public static long ToInt64(String value, IFormatProvider provider)
+        public static long ToInt64(string value, IFormatProvider provider)
         {
             if (value == null)
                 return 0;
-            return Int64.Parse(value, NumberStyles.Integer, provider);
+            return long.Parse(value, NumberStyles.Integer, provider);
         }
 
         public static long ToInt64(DateTime value)
@@ -1532,7 +1474,7 @@ namespace System
         [CLSCompliant(false)]
         public static ulong ToUInt64(bool value)
         {
-            return value ? (ulong)Boolean.True : (ulong)Boolean.False;
+            return value ? (ulong)bool.True : (ulong)bool.False;
         }
 
         [CLSCompliant(false)]
@@ -1546,7 +1488,6 @@ namespace System
         public static ulong ToUInt64(sbyte value)
         {
             if (value < 0) ThrowUInt64OverflowException();
-            Contract.EndContractBlock();
             return (ulong)value;
         }
 
@@ -1560,7 +1501,6 @@ namespace System
         public static ulong ToUInt64(short value)
         {
             if (value < 0) ThrowUInt64OverflowException();
-            Contract.EndContractBlock();
             return (ulong)value;
         }
 
@@ -1574,7 +1514,6 @@ namespace System
         public static ulong ToUInt64(int value)
         {
             if (value < 0) ThrowUInt64OverflowException();
-            Contract.EndContractBlock();
             return (ulong)value;
         }
 
@@ -1588,12 +1527,11 @@ namespace System
         public static ulong ToUInt64(long value)
         {
             if (value < 0) ThrowUInt64OverflowException();
-            Contract.EndContractBlock();
             return (ulong)value;
         }
 
         [CLSCompliant(false)]
-        public static ulong ToUInt64(UInt64 value)
+        public static ulong ToUInt64(ulong value)
         {
             return value;
         }
@@ -1613,23 +1551,23 @@ namespace System
         [CLSCompliant(false)]
         public static ulong ToUInt64(decimal value)
         {
-            return Decimal.ToUInt64(Decimal.Round(value, 0));
+            return decimal.ToUInt64(decimal.Round(value, 0));
         }
 
         [CLSCompliant(false)]
-        public static ulong ToUInt64(String value)
+        public static ulong ToUInt64(string value)
         {
             if (value == null)
                 return 0;
-            return UInt64.Parse(value, CultureInfo.CurrentCulture);
+            return ulong.Parse(value, CultureInfo.CurrentCulture);
         }
 
         [CLSCompliant(false)]
-        public static ulong ToUInt64(String value, IFormatProvider provider)
+        public static ulong ToUInt64(string value, IFormatProvider provider)
         {
             if (value == null)
                 return 0;
-            return UInt64.Parse(value, NumberStyles.Integer, provider);
+            return ulong.Parse(value, NumberStyles.Integer, provider);
         }
 
         [CLSCompliant(false)]
@@ -1717,24 +1655,24 @@ namespace System
             return (float)value;
         }
 
-        public static float ToSingle(String value)
+        public static float ToSingle(string value)
         {
             if (value == null)
                 return 0;
-            return Single.Parse(value, CultureInfo.CurrentCulture);
+            return float.Parse(value, CultureInfo.CurrentCulture);
         }
 
-        public static float ToSingle(String value, IFormatProvider provider)
+        public static float ToSingle(string value, IFormatProvider provider)
         {
             if (value == null)
                 return 0;
-            return Single.Parse(value, NumberStyles.Float | NumberStyles.AllowThousands, provider);
+            return float.Parse(value, NumberStyles.Float | NumberStyles.AllowThousands, provider);
         }
 
 
         public static float ToSingle(bool value)
         {
-            return value ? Boolean.True : Boolean.False;
+            return value ? bool.True : bool.False;
         }
 
         public static float ToSingle(DateTime value)
@@ -1822,23 +1760,23 @@ namespace System
             return (double)value;
         }
 
-        public static double ToDouble(String value)
+        public static double ToDouble(string value)
         {
             if (value == null)
                 return 0;
-            return Double.Parse(value, CultureInfo.CurrentCulture);
+            return double.Parse(value, CultureInfo.CurrentCulture);
         }
 
-        public static double ToDouble(String value, IFormatProvider provider)
+        public static double ToDouble(string value, IFormatProvider provider)
         {
             if (value == null)
                 return 0;
-            return Double.Parse(value, NumberStyles.Float | NumberStyles.AllowThousands, provider);
+            return double.Parse(value, NumberStyles.Float | NumberStyles.AllowThousands, provider);
         }
 
         public static double ToDouble(bool value)
         {
-            return value ? Boolean.True : Boolean.False;
+            return value ? bool.True : bool.False;
         }
 
         public static double ToDouble(DateTime value)
@@ -1920,18 +1858,18 @@ namespace System
             return (decimal)value;
         }
 
-        public static decimal ToDecimal(String value)
+        public static decimal ToDecimal(string value)
         {
             if (value == null)
                 return 0m;
-            return Decimal.Parse(value, CultureInfo.CurrentCulture);
+            return decimal.Parse(value, CultureInfo.CurrentCulture);
         }
 
-        public static Decimal ToDecimal(String value, IFormatProvider provider)
+        public static decimal ToDecimal(string value, IFormatProvider provider)
         {
             if (value == null)
                 return 0m;
-            return Decimal.Parse(value, NumberStyles.Number, provider);
+            return decimal.Parse(value, NumberStyles.Number, provider);
         }
 
         public static decimal ToDecimal(decimal value)
@@ -1941,7 +1879,7 @@ namespace System
 
         public static decimal ToDecimal(bool value)
         {
-            return value ? Boolean.True : Boolean.False;
+            return value ? bool.True : bool.False;
         }
 
         public static decimal ToDecimal(DateTime value)
@@ -1969,14 +1907,14 @@ namespace System
             return value == null ? DateTime.MinValue : ((IConvertible)value).ToDateTime(provider);
         }
 
-        public static DateTime ToDateTime(String value)
+        public static DateTime ToDateTime(string value)
         {
             if (value == null)
                 return new DateTime(0);
             return DateTime.Parse(value, CultureInfo.CurrentCulture);
         }
 
-        public static DateTime ToDateTime(String value, IFormatProvider provider)
+        public static DateTime ToDateTime(string value, IFormatProvider provider)
         {
             if (value == null)
                 return new DateTime(0);
@@ -2057,12 +1995,12 @@ namespace System
 
         // Conversions to String
 
-        public static string ToString(Object value)
+        public static string ToString(object value)
         {
             return ToString(value, null);
         }
 
-        public static string ToString(Object value, IFormatProvider provider)
+        public static string ToString(object value, IFormatProvider provider)
         {
             IConvertible ic = value as IConvertible;
             if (ic != null)
@@ -2070,194 +2008,164 @@ namespace System
             IFormattable formattable = value as IFormattable;
             if (formattable != null)
                 return formattable.ToString(null, provider);
-            return value == null ? String.Empty : value.ToString();
+            return value == null ? string.Empty : value.ToString();
         }
 
         public static string ToString(bool value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString();
         }
 
         public static string ToString(bool value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString();
         }
 
         public static string ToString(char value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
-            return Char.ToString(value);
+            return char.ToString(value);
         }
 
         public static string ToString(char value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString();
         }
 
         [CLSCompliant(false)]
         public static string ToString(sbyte value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(CultureInfo.CurrentCulture);
         }
 
         [CLSCompliant(false)]
         public static string ToString(sbyte value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
         public static string ToString(byte value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(CultureInfo.CurrentCulture);
         }
 
         public static string ToString(byte value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
         public static string ToString(short value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(CultureInfo.CurrentCulture);
         }
 
         public static string ToString(short value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
         [CLSCompliant(false)]
         public static string ToString(ushort value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(CultureInfo.CurrentCulture);
         }
 
         [CLSCompliant(false)]
         public static string ToString(ushort value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
         public static string ToString(int value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(CultureInfo.CurrentCulture);
         }
 
         public static string ToString(int value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
         [CLSCompliant(false)]
         public static string ToString(uint value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(CultureInfo.CurrentCulture);
         }
 
         [CLSCompliant(false)]
         public static string ToString(uint value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
         public static string ToString(long value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(CultureInfo.CurrentCulture);
         }
 
         public static string ToString(long value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
         [CLSCompliant(false)]
         public static string ToString(ulong value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(CultureInfo.CurrentCulture);
         }
 
         [CLSCompliant(false)]
         public static string ToString(ulong value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
         public static string ToString(float value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(CultureInfo.CurrentCulture);
         }
 
         public static string ToString(float value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
         public static string ToString(double value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(CultureInfo.CurrentCulture);
         }
 
         public static string ToString(double value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
         public static string ToString(decimal value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(CultureInfo.CurrentCulture);
         }
 
-        public static string ToString(Decimal value, IFormatProvider provider)
+        public static string ToString(decimal value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
         public static string ToString(DateTime value)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString();
         }
 
         public static string ToString(DateTime value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() != null);
             return value.ToString(provider);
         }
 
-        public static String ToString(String value)
+        public static string ToString(string value)
         {
-            Contract.Ensures(Contract.Result<string>() == value);  // We were always skipping the null check here.
             return value;
         }
 
-        public static String ToString(String value, IFormatProvider provider)
+        public static string ToString(string value, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<string>() == value);  // We were always skipping the null check here.
             return value; // avoid the null check
         }
 
@@ -2269,15 +2177,20 @@ namespace System
         // be 2, 8, 10, or 16.  If base is 16, the number may be preceded
         // by 0x; any other leading or trailing characters cause an error.
         //
-        public static byte ToByte(String value, int fromBase)
+        public static byte ToByte(string value, int fromBase)
         {
             if (fromBase != 2 && fromBase != 8 && fromBase != 10 && fromBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
-            int r = ParseNumbers.StringToInt(value, fromBase, ParseNumbers.IsTight | ParseNumbers.TreatAsUnsigned);
-            if (r < Byte.MinValue || r > Byte.MaxValue)
+
+            if (value == null)
+            {
+                return 0;
+            }
+
+            int r = ParseNumbers.StringToInt(value.AsSpan(), fromBase, ParseNumbers.IsTight | ParseNumbers.TreatAsUnsigned);
+            if (r < byte.MinValue || r > byte.MaxValue)
                 ThrowByteOverflowException();
             return (byte)r;
         }
@@ -2287,18 +2200,23 @@ namespace System
         // by 0x; any other leading or trailing characters cause an error.
         //
         [CLSCompliant(false)]
-        public static sbyte ToSByte(String value, int fromBase)
+        public static sbyte ToSByte(string value, int fromBase)
         {
             if (fromBase != 2 && fromBase != 8 && fromBase != 10 && fromBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
-            int r = ParseNumbers.StringToInt(value, fromBase, ParseNumbers.IsTight | ParseNumbers.TreatAsI1);
-            if (fromBase != 10 && r <= Byte.MaxValue)
+
+            if (value == null)
+            {
+                return 0;
+            }
+
+            int r = ParseNumbers.StringToInt(value.AsSpan(), fromBase, ParseNumbers.IsTight | ParseNumbers.TreatAsI1);
+            if (fromBase != 10 && r <= byte.MaxValue)
                 return (sbyte)r;
 
-            if (r < SByte.MinValue || r > SByte.MaxValue)
+            if (r < sbyte.MinValue || r > sbyte.MaxValue)
                 ThrowSByteOverflowException();
             return (sbyte)r;
         }
@@ -2307,18 +2225,23 @@ namespace System
         // be 2, 8, 10, or 16.  If fromBase is 16, the number may be preceded
         // by 0x; any other leading or trailing characters cause an error.
         //
-        public static short ToInt16(String value, int fromBase)
+        public static short ToInt16(string value, int fromBase)
         {
             if (fromBase != 2 && fromBase != 8 && fromBase != 10 && fromBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
-            int r = ParseNumbers.StringToInt(value, fromBase, ParseNumbers.IsTight | ParseNumbers.TreatAsI2);
-            if (fromBase != 10 && r <= UInt16.MaxValue)
+
+            if (value == null)
+            {
+                return 0;
+            }
+
+            int r = ParseNumbers.StringToInt(value.AsSpan(), fromBase, ParseNumbers.IsTight | ParseNumbers.TreatAsI2);
+            if (fromBase != 10 && r <= ushort.MaxValue)
                 return (short)r;
 
-            if (r < Int16.MinValue || r > Int16.MaxValue)
+            if (r < short.MinValue || r > short.MaxValue)
                 ThrowInt16OverflowException();
             return (short)r;
         }
@@ -2328,15 +2251,20 @@ namespace System
         // by 0x; any other leading or trailing characters cause an error.
         //
         [CLSCompliant(false)]
-        public static ushort ToUInt16(String value, int fromBase)
+        public static ushort ToUInt16(string value, int fromBase)
         {
             if (fromBase != 2 && fromBase != 8 && fromBase != 10 && fromBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
-            int r = ParseNumbers.StringToInt(value, fromBase, ParseNumbers.IsTight | ParseNumbers.TreatAsUnsigned);
-            if (r < UInt16.MinValue || r > UInt16.MaxValue)
+
+            if (value == null)
+            {
+                return 0;
+            }
+
+            int r = ParseNumbers.StringToInt(value.AsSpan(), fromBase, ParseNumbers.IsTight | ParseNumbers.TreatAsUnsigned);
+            if (r < ushort.MinValue || r > ushort.MaxValue)
                 ThrowUInt16OverflowException();
             return (ushort)r;
         }
@@ -2345,14 +2273,15 @@ namespace System
         // be 2, 8, 10, or 16.  If fromBase is 16, the number may be preceded
         // by 0x; any other leading or trailing characters cause an error.
         //
-        public static int ToInt32(String value, int fromBase)
+        public static int ToInt32(string value, int fromBase)
         {
             if (fromBase != 2 && fromBase != 8 && fromBase != 10 && fromBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
-            return ParseNumbers.StringToInt(value, fromBase, ParseNumbers.IsTight);
+            return value != null ?
+                ParseNumbers.StringToInt(value.AsSpan(), fromBase, ParseNumbers.IsTight) :
+                0;
         }
 
         // Parses value in base fromBase.  fromBase can only
@@ -2360,28 +2289,30 @@ namespace System
         // by 0x; any other leading or trailing characters cause an error.
         //
         [CLSCompliant(false)]
-        public static uint ToUInt32(String value, int fromBase)
+        public static uint ToUInt32(string value, int fromBase)
         {
             if (fromBase != 2 && fromBase != 8 && fromBase != 10 && fromBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
-            return (uint)ParseNumbers.StringToInt(value, fromBase, ParseNumbers.TreatAsUnsigned | ParseNumbers.IsTight);
+            return value != null ?
+                (uint)ParseNumbers.StringToInt(value.AsSpan(), fromBase, ParseNumbers.TreatAsUnsigned | ParseNumbers.IsTight) :
+                0;
         }
 
         // Parses value in base fromBase.  fromBase can only
         // be 2, 8, 10, or 16.  If fromBase is 16, the number may be preceded
         // by 0x; any other leading or trailing characters cause an error.
         //
-        public static long ToInt64(String value, int fromBase)
+        public static long ToInt64(string value, int fromBase)
         {
             if (fromBase != 2 && fromBase != 8 && fromBase != 10 && fromBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
-            return ParseNumbers.StringToLong(value, fromBase, ParseNumbers.IsTight);
+            return value != null ?
+                ParseNumbers.StringToLong(value.AsSpan(), fromBase, ParseNumbers.IsTight) :
+                0;
         }
 
         // Parses value in base fromBase.  fromBase can only
@@ -2389,133 +2320,124 @@ namespace System
         // by 0x; any other leading or trailing characters cause an error.
         //
         [CLSCompliant(false)]
-        public static ulong ToUInt64(String value, int fromBase)
+        public static ulong ToUInt64(string value, int fromBase)
         {
             if (fromBase != 2 && fromBase != 8 && fromBase != 10 && fromBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
-            return (ulong)ParseNumbers.StringToLong(value, fromBase, ParseNumbers.TreatAsUnsigned | ParseNumbers.IsTight);
+            return value != null ?
+                (ulong)ParseNumbers.StringToLong(value.AsSpan(), fromBase, ParseNumbers.TreatAsUnsigned | ParseNumbers.IsTight) :
+                0;
         }
 
         // Convert the byte value to a string in base fromBase
-        public static String ToString(byte value, int toBase)
+        public static string ToString(byte value, int toBase)
         {
             if (toBase != 2 && toBase != 8 && toBase != 10 && toBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
             return ParseNumbers.IntToString((int)value, toBase, -1, ' ', ParseNumbers.PrintAsI1);
         }
 
         // Convert the Int16 value to a string in base fromBase
-        public static String ToString(short value, int toBase)
+        public static string ToString(short value, int toBase)
         {
             if (toBase != 2 && toBase != 8 && toBase != 10 && toBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
             return ParseNumbers.IntToString((int)value, toBase, -1, ' ', ParseNumbers.PrintAsI2);
         }
 
         // Convert the Int32 value to a string in base toBase
-        public static String ToString(int value, int toBase)
+        public static string ToString(int value, int toBase)
         {
             if (toBase != 2 && toBase != 8 && toBase != 10 && toBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
             return ParseNumbers.IntToString(value, toBase, -1, ' ', 0);
         }
 
         // Convert the Int64 value to a string in base toBase
-        public static String ToString(long value, int toBase)
+        public static string ToString(long value, int toBase)
         {
             if (toBase != 2 && toBase != 8 && toBase != 10 && toBase != 16)
             {
                 throw new ArgumentException(SR.Arg_InvalidBase);
             }
-            Contract.EndContractBlock();
             return ParseNumbers.LongToString(value, toBase, -1, ' ', 0);
         }
 
-        public static String ToBase64String(byte[] inArray)
+        public static string ToBase64String(byte[] inArray)
         {
             if (inArray == null)
             {
                 throw new ArgumentNullException(nameof(inArray));
             }
-            Contract.Ensures(Contract.Result<string>() != null);
-            Contract.EndContractBlock();
-            return ToBase64String(inArray, 0, inArray.Length, Base64FormattingOptions.None);
+            return ToBase64String(new ReadOnlySpan<byte>(inArray), Base64FormattingOptions.None);
         }
 
-        public static String ToBase64String(byte[] inArray, Base64FormattingOptions options)
+        public static string ToBase64String(byte[] inArray, Base64FormattingOptions options)
         {
             if (inArray == null)
             {
                 throw new ArgumentNullException(nameof(inArray));
             }
-            Contract.Ensures(Contract.Result<string>() != null);
-            Contract.EndContractBlock();
-            return ToBase64String(inArray, 0, inArray.Length, options);
+            return ToBase64String(new ReadOnlySpan<byte>(inArray), options);
         }
 
-        public static String ToBase64String(byte[] inArray, int offset, int length)
+        public static string ToBase64String(byte[] inArray, int offset, int length)
         {
             return ToBase64String(inArray, offset, length, Base64FormattingOptions.None);
         }
 
-        public static unsafe String ToBase64String(byte[] inArray, int offset, int length, Base64FormattingOptions options)
+        public static string ToBase64String(byte[] inArray, int offset, int length, Base64FormattingOptions options)
         {
-            //Do data verfication
             if (inArray == null)
                 throw new ArgumentNullException(nameof(inArray));
             if (length < 0)
                 throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_Index);
             if (offset < 0)
                 throw new ArgumentOutOfRangeException(nameof(offset), SR.ArgumentOutOfRange_GenericPositive);
-            if (options < Base64FormattingOptions.None || options > Base64FormattingOptions.InsertLineBreaks)
-                throw new ArgumentException(string.Format(SR.Arg_EnumIllegalVal, (int)options));
-            Contract.Ensures(Contract.Result<string>() != null);
-            Contract.EndContractBlock();
-
-            int inArrayLength;
-            int stringLength;
-
-            inArrayLength = inArray.Length;
-            if (offset > (inArrayLength - length))
+            if (offset > (inArray.Length - length))
                 throw new ArgumentOutOfRangeException(nameof(offset), SR.ArgumentOutOfRange_OffsetLength);
 
-            if (inArrayLength == 0)
-                return String.Empty;
+            return ToBase64String(new ReadOnlySpan<byte>(inArray, offset, length), options);
+        }
+
+        public static string ToBase64String(ReadOnlySpan<byte> bytes, Base64FormattingOptions options = Base64FormattingOptions.None)
+        {
+            if (options < Base64FormattingOptions.None || options > Base64FormattingOptions.InsertLineBreaks)
+            {
+                throw new ArgumentException(string.Format(SR.Arg_EnumIllegalVal, (int)options), nameof(options));
+            }
+
+            if (bytes.Length == 0)
+            {
+                return string.Empty;
+            }
 
             bool insertLineBreaks = (options == Base64FormattingOptions.InsertLineBreaks);
-            //Create the new string.  This is the maximally required length.
-            stringLength = ToBase64_CalculateAndValidateOutputLength(length, insertLineBreaks);
+            string result = string.FastAllocateString(ToBase64_CalculateAndValidateOutputLength(bytes.Length, insertLineBreaks));
 
-            string returnString = string.FastAllocateString(stringLength);
-            fixed (char* outChars = returnString)
+            unsafe
             {
-                fixed (byte* inData = &inArray[0])
+                fixed (byte* bytesPtr = &MemoryMarshal.GetReference(bytes))
+                fixed (char* charsPtr = result)
                 {
-                    int j = ConvertToBase64Array(outChars, inData, offset, length, insertLineBreaks);
-                    Debug.Assert(returnString.Length == j, "returnString.Length == j");
-                    return returnString;
+                    int charsWritten = ConvertToBase64Array(charsPtr, bytesPtr, 0, bytes.Length, insertLineBreaks);
+                    Debug.Assert(result.Length == charsWritten, $"Expected {result.Length} == {charsWritten}");
                 }
             }
+
+            return result;
         }
 
         public static int ToBase64CharArray(byte[] inArray, int offsetIn, int length, char[] outArray, int offsetOut)
         {
-            Contract.Ensures(Contract.Result<int>() >= 0);
-            Contract.Ensures(Contract.Result<int>() <= outArray.Length);
-            Contract.EndContractBlock();
-
             return ToBase64CharArray(inArray, offsetIn, length, outArray, offsetOut, Base64FormattingOptions.None);
         }
 
@@ -2535,11 +2457,8 @@ namespace System
 
             if (options < Base64FormattingOptions.None || options > Base64FormattingOptions.InsertLineBreaks)
             {
-                throw new ArgumentException(string.Format(SR.Arg_EnumIllegalVal, (int)options));
+                throw new ArgumentException(string.Format(SR.Arg_EnumIllegalVal, (int)options), nameof(options));
             }
-            Contract.Ensures(Contract.Result<int>() >= 0);
-            Contract.Ensures(Contract.Result<int>() <= outArray.Length);
-            Contract.EndContractBlock();
 
 
             int retVal;
@@ -2575,6 +2494,36 @@ namespace System
             }
 
             return retVal;
+        }
+
+        public static unsafe bool TryToBase64Chars(ReadOnlySpan<byte> bytes, Span<char> chars, out int charsWritten, Base64FormattingOptions options = Base64FormattingOptions.None)
+        {
+            if (options < Base64FormattingOptions.None || options > Base64FormattingOptions.InsertLineBreaks)
+            {
+                throw new ArgumentException(string.Format(SR.Arg_EnumIllegalVal, (int)options), nameof(options));
+            }
+
+            if (bytes.Length == 0)
+            {
+                charsWritten = 0;
+                return true;
+            }
+
+            bool insertLineBreaks = (options == Base64FormattingOptions.InsertLineBreaks);
+
+            int charLengthRequired = ToBase64_CalculateAndValidateOutputLength(bytes.Length, insertLineBreaks);
+            if (charLengthRequired > chars.Length)
+            {
+                charsWritten = 0;
+                return false;
+            }
+
+            fixed (char* outChars = &MemoryMarshal.GetReference(chars))
+            fixed (byte* inData = &MemoryMarshal.GetReference(bytes))
+            {
+                charsWritten = ConvertToBase64Array(outChars, inData, 0, bytes.Length, insertLineBreaks);
+                return true;
+            }
         }
 
         private static unsafe int ConvertToBase64Array(char* outChars, byte* inData, int offset, int length, bool insertLineBreaks)
@@ -2671,24 +2620,150 @@ namespace System
         /// </summary>
         /// <param name="s">The string to convert</param>
         /// <returns>The array of bytes represented by the specified Base64 string.</returns>
-        public static Byte[] FromBase64String(String s)
+        public static byte[] FromBase64String(string s)
         {
             // "s" is an unfortunate parameter name, but we need to keep it for backward compat.
 
             if (s == null)
                 throw new ArgumentNullException(nameof(s));
 
-            Contract.EndContractBlock();
 
             unsafe
             {
-                fixed (Char* sPtr = s)
+                fixed (char* sPtr = s)
                 {
                     return FromBase64CharPtr(sPtr, s.Length);
                 }
             }
         }
 
+        public static bool TryFromBase64String(string s, Span<byte> bytes, out int bytesWritten)
+        {
+            if (s == null)
+            {
+                throw new ArgumentNullException(nameof(s));
+            }
+
+            return TryFromBase64Chars(s.AsSpan(), bytes, out bytesWritten);
+        }
+
+        public static bool TryFromBase64Chars(ReadOnlySpan<char> chars, Span<byte> bytes, out int bytesWritten)
+        {
+            // This is actually local to one of the nested blocks but is being declared at the top as we don't want multiple stackallocs
+            // for each iteraton of the loop. 
+            Span<char> tempBuffer = stackalloc char[4];  // Note: The tempBuffer size could be made larger than 4 but the size must be a multiple of 4.
+
+            bytesWritten = 0;
+
+            while (chars.Length != 0)
+            {
+                // Attempt to decode a segment that doesn't contain whitespace.
+                bool complete = TryDecodeFromUtf16(chars, bytes, out int consumedInThisIteration, out int bytesWrittenInThisIteration);
+                bytesWritten += bytesWrittenInThisIteration;
+                if (complete)
+                    return true;
+
+                chars = chars.Slice(consumedInThisIteration);
+                bytes = bytes.Slice(bytesWrittenInThisIteration);
+
+                Debug.Assert(chars.Length != 0); // If TryDecodeFromUtf16() consumed the entire buffer, it could not have returned false.
+                if (chars[0].IsSpace())
+                {
+                    // If we got here, the very first character not consumed was a whitespace. We can skip past any consecutive whitespace, then continue decoding.
+
+                    int indexOfFirstNonSpace = 1;
+                    for (; ; )
+                    {
+                        if (indexOfFirstNonSpace == chars.Length)
+                            break;
+                        if (!chars[indexOfFirstNonSpace].IsSpace())
+                            break;
+                        indexOfFirstNonSpace++;
+                    }
+
+                    chars = chars.Slice(indexOfFirstNonSpace);
+
+                    if ((bytesWrittenInThisIteration % 3) != 0 && chars.Length != 0)
+                    {
+                        // If we got here, the last successfully decoded block encountered an end-marker, yet we have trailing non-whitespace characters.
+                        // That is not allowed.
+                        bytesWritten = default;
+                        return false;
+                    }
+
+                    // We now loop again to decode the next run of non-space characters. 
+                }
+                else
+                {
+                    Debug.Assert(chars.Length != 0 && !chars[0].IsSpace());
+
+                    // If we got here, it is possible that there is whitespace that occurred in the middle of a 4-byte chunk. That is, we still have
+                    // up to three Base64 characters that were left undecoded by the fast-path helper because they didn't form a complete 4-byte chunk.
+                    // This is hopefully the rare case (multiline-formatted base64 message with a non-space character width that's not a multiple of 4.)
+                    // We'll filter out whitespace and copy the remaining characters into a temporary buffer.
+                    CopyToTempBufferWithoutWhiteSpace(chars, tempBuffer, out int consumedFromChars, out int charsWritten);
+                    if ((charsWritten & 0x3) != 0)
+                    {
+                        // Even after stripping out whitespace, the number of characters is not divisible by 4. This cannot be a legal Base64 string.
+                        bytesWritten = default;
+                        return false;
+                    }
+
+                    tempBuffer = tempBuffer.Slice(0, charsWritten);
+                    if (!TryDecodeFromUtf16(tempBuffer, bytes, out int consumedFromTempBuffer, out int bytesWrittenFromTempBuffer))
+                    {
+                        bytesWritten = default;
+                        return false;
+                    }
+                    bytesWritten += bytesWrittenFromTempBuffer;
+                    chars = chars.Slice(consumedFromChars);
+                    bytes = bytes.Slice(bytesWrittenFromTempBuffer);
+
+                    if ((bytesWrittenFromTempBuffer % 3) != 0)
+                    {
+                        // If we got here, this decode contained one or more padding characters ('='). We can accept trailing whitespace after this
+                        // but nothing else.
+                        for (int i = 0; i < chars.Length; i++)
+                        {
+                            if (!chars[i].IsSpace())
+                            {
+                                bytesWritten = default;
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
+
+                    // We now loop again to decode the next run of non-space characters. 
+                }
+            }
+
+            return true;
+        }
+
+        private static void CopyToTempBufferWithoutWhiteSpace(ReadOnlySpan<char> chars, Span<char> tempBuffer, out int consumed, out int charsWritten)
+        {
+            Debug.Assert(tempBuffer.Length != 0); // We only bound-check after writing a character to the tempBuffer.
+
+            charsWritten = 0;
+            for (int i = 0; i < chars.Length; i++)
+            {
+                char c = chars[i];
+                if (!c.IsSpace())
+                {
+                    tempBuffer[charsWritten++] = c;
+                    if (charsWritten == tempBuffer.Length)
+                    {
+                        consumed = i + 1;
+                        return;
+                    }
+                }
+            }
+            consumed = chars.Length;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool IsSpace(this char c) => c == ' ' || c == '\t' || c == '\r' || c == '\n';
 
         /// <summary>
         /// Converts the specified range of a Char array, which encodes binary data as Base64 digits, to the equivalent byte array.     
@@ -2697,7 +2772,7 @@ namespace System
         /// <param name="offset">A position within the input array.</param>
         /// <param name="length">Number of element to convert.</param>
         /// <returns>The array of bytes represented by the specified Base64 encoding characters.</returns>
-        public static Byte[] FromBase64CharArray(Char[] inArray, Int32 offset, Int32 length)
+        public static byte[] FromBase64CharArray(char[] inArray, int offset, int length)
         {
             if (inArray == null)
                 throw new ArgumentNullException(nameof(inArray));
@@ -2711,7 +2786,6 @@ namespace System
             if (offset > inArray.Length - length)
                 throw new ArgumentOutOfRangeException(nameof(offset), SR.ArgumentOutOfRange_OffsetLength);
 
-            Contract.EndContractBlock();
 
             if (inArray.Length == 0)
             {
@@ -2720,14 +2794,12 @@ namespace System
 
             unsafe
             {
-                fixed (Char* inArrayPtr = &inArray[0])
+                fixed (char* inArrayPtr = &inArray[0])
                 {
                     return FromBase64CharPtr(inArrayPtr + offset, length);
                 }
             }
         }
-
-
 
         /// <summary>
         /// Convert Base64 encoding characters to bytes:
@@ -2738,7 +2810,7 @@ namespace System
         /// <param name="inputPtr">Pointer to the first input char</param>
         /// <param name="inputLength">Number of input chars</param>
         /// <returns></returns>
-        private static unsafe Byte[] FromBase64CharPtr(Char* inputPtr, Int32 inputLength)
+        private static unsafe byte[] FromBase64CharPtr(char* inputPtr, int inputLength)
         {
             // The validity of parameters much be checked by callers, thus we are Critical here.
 
@@ -2748,14 +2820,14 @@ namespace System
             // Otherwise we would be rejecting input such as "abc= ":
             while (inputLength > 0)
             {
-                Int32 lastChar = inputPtr[inputLength - 1];
-                if (lastChar != (Int32)' ' && lastChar != (Int32)'\n' && lastChar != (Int32)'\r' && lastChar != (Int32)'\t')
+                int lastChar = inputPtr[inputLength - 1];
+                if (lastChar != (int)' ' && lastChar != (int)'\n' && lastChar != (int)'\r' && lastChar != (int)'\t')
                     break;
                 inputLength--;
             }
 
             // Compute the output length:
-            Int32 resultLength = FromBase64_ComputeResultLength(inputPtr, inputLength);
+            int resultLength = FromBase64_ComputeResultLength(inputPtr, inputLength);
 
             Debug.Assert(0 <= resultLength);
 
@@ -2763,14 +2835,13 @@ namespace System
             // It may either simply write no bytes (e.g. input = " ") or throw (e.g. input = "ab").
 
             // Create result byte blob:
-            Byte[] decodedBytes = new Byte[resultLength];
+            byte[] decodedBytes = new byte[resultLength];
 
             // Convert Base64 chars into bytes:
-            Int32 actualResultLength;
-            fixed (Byte* decodedBytesPtr = decodedBytes)
-                actualResultLength = FromBase64_Decode(inputPtr, inputLength, decodedBytesPtr, resultLength);
+            if (!TryFromBase64Chars(new ReadOnlySpan<char>(inputPtr, inputLength), decodedBytes, out int _))
+                throw new FormatException(SR.Format_BadBase64Char);
 
-            // Note that actualResultLength can differ from resultLength if the caller is modifying the array
+            // Note that the number of bytes written can differ from resultLength if the caller is modifying the array
             // as it is being converted. Silently ignore the failure.
             // Consider throwing exception in an non in-place release.
 
@@ -2778,218 +2849,25 @@ namespace System
             return decodedBytes;
         }
 
-
-        /// <summary>
-        /// Decode characters representing a Base64 encoding into bytes:
-        /// Walk the input. Every time 4 chars are read, convert them to the 3 corresponding output bytes.
-        /// This method is a bit lengthy on purpose. We are trying to avoid jumps to helpers in the loop
-        /// to aid performance.
-        /// </summary>
-        /// <param name="inputPtr">Pointer to first input char</param>
-        /// <param name="inputLength">Number of input chars</param>
-        /// <param name="destPtr">Pointer to location for the first result byte</param>
-        /// <param name="destLength">Max length of the preallocated result buffer</param>
-        /// <returns>If the result buffer was not large enough to write all result bytes, return -1;
-        /// Otherwise return the number of result bytes actually produced.</returns>
-        private static unsafe Int32 FromBase64_Decode(Char* startInputPtr, Int32 inputLength, Byte* startDestPtr, Int32 destLength)
-        {
-            // You may find this method weird to look at. It's written for performance, not aesthetics.
-            // You will find unrolled loops label jumps and bit manipulations.
-
-            const UInt32 intA = (UInt32)'A';
-            const UInt32 inta = (UInt32)'a';
-            const UInt32 int0 = (UInt32)'0';
-            const UInt32 intEq = (UInt32)'=';
-            const UInt32 intPlus = (UInt32)'+';
-            const UInt32 intSlash = (UInt32)'/';
-            const UInt32 intSpace = (UInt32)' ';
-            const UInt32 intTab = (UInt32)'\t';
-            const UInt32 intNLn = (UInt32)'\n';
-            const UInt32 intCRt = (UInt32)'\r';
-            const UInt32 intAtoZ = (UInt32)('Z' - 'A');  // = ('z' - 'a')
-            const UInt32 int0to9 = (UInt32)('9' - '0');
-
-            Char* inputPtr = startInputPtr;
-            Byte* destPtr = startDestPtr;
-
-            // Pointers to the end of input and output:
-            Char* endInputPtr = inputPtr + inputLength;
-            Byte* endDestPtr = destPtr + destLength;
-
-            // Current char code/value:
-            UInt32 currCode;
-
-            // This 4-byte integer will contain the 4 codes of the current 4-char group.
-            // Eeach char codes for 6 bits = 24 bits.
-            // The remaining byte will be FF, we use it as a marker when 4 chars have been processed.            
-            UInt32 currBlockCodes = 0x000000FFu;
-
-            unchecked
-            {
-                while (true)
-                {
-                    // break when done:
-                    if (inputPtr >= endInputPtr)
-                        goto _AllInputConsumed;
-
-                    // Get current char:
-                    currCode = (UInt32)(*inputPtr);
-                    inputPtr++;
-
-                    // Determine current char code:
-
-                    if (currCode - intA <= intAtoZ)
-                        currCode -= intA;
-
-                    else if (currCode - inta <= intAtoZ)
-                        currCode -= (inta - 26u);
-
-                    else if (currCode - int0 <= int0to9)
-                        currCode -= (int0 - 52u);
-
-                    else
-                    {
-                        // Use the slower switch for less common cases:
-                        switch (currCode)
-                        {
-                            // Significant chars:
-                            case intPlus:
-                                currCode = 62u;
-                                break;
-
-                            case intSlash:
-                                currCode = 63u;
-                                break;
-
-                            // Legal no-value chars (we ignore these):
-                            case intCRt:
-                            case intNLn:
-                            case intSpace:
-                            case intTab:
-                                continue;
-
-                            // The equality char is only legal at the end of the input.
-                            // Jump after the loop to make it easier for the JIT register predictor to do a good job for the loop itself:
-                            case intEq:
-                                goto _EqualityCharEncountered;
-
-                            // Other chars are illegal:
-                            default:
-                                throw new FormatException(SR.Format_BadBase64Char);
-                        }
-                    }
-
-                    // Ok, we got the code. Save it:
-                    currBlockCodes = (currBlockCodes << 6) | currCode;
-
-                    // Last bit in currBlockCodes will be on after in shifted right 4 times:
-                    if ((currBlockCodes & 0x80000000u) != 0u)
-                    {
-                        if ((Int32)(endDestPtr - destPtr) < 3)
-                            return -1;
-
-                        *(destPtr) = (Byte)(currBlockCodes >> 16);
-                        *(destPtr + 1) = (Byte)(currBlockCodes >> 8);
-                        *(destPtr + 2) = (Byte)(currBlockCodes);
-                        destPtr += 3;
-
-                        currBlockCodes = 0x000000FFu;
-                    }
-                }
-            }  // unchecked while
-
-        // 'd be nice to have an assert that we never get here, but CS0162: Unreachable code detected.
-        // Debug.Assert(false, "We only leave the above loop by jumping; should never get here.");
-
-        // We jump here out of the loop if we hit an '=':
-        _EqualityCharEncountered:
-
-            Debug.Assert(currCode == intEq);
-
-            // Recall that inputPtr is now one position past where '=' was read.
-            // '=' can only be at the last input pos:
-            if (inputPtr == endInputPtr)
-            {
-                // Code is zero for trailing '=':
-                currBlockCodes <<= 6;
-
-                // The '=' did not complete a 4-group. The input must be bad:
-                if ((currBlockCodes & 0x80000000u) == 0u)
-                    throw new FormatException(SR.Format_BadBase64CharArrayLength);
-
-                if ((int)(endDestPtr - destPtr) < 2)  // Autch! We underestimated the output length!
-                    return -1;
-
-                // We are good, store bytes form this past group. We had a single "=", so we take two bytes:
-                *(destPtr++) = (Byte)(currBlockCodes >> 16);
-                *(destPtr++) = (Byte)(currBlockCodes >> 8);
-
-                currBlockCodes = 0x000000FFu;
-            }
-            else
-            { // '=' can also be at the pre-last position iff the last is also a '=' excluding the white spaces:
-                // We need to get rid of any intermediate white spaces.
-                // Otherwise we would be rejecting input such as "abc= =":
-                while (inputPtr < (endInputPtr - 1))
-                {
-                    Int32 lastChar = *(inputPtr);
-                    if (lastChar != (Int32)' ' && lastChar != (Int32)'\n' && lastChar != (Int32)'\r' && lastChar != (Int32)'\t')
-                        break;
-                    inputPtr++;
-                }
-
-                if (inputPtr == (endInputPtr - 1) && *(inputPtr) == '=')
-                {
-                    // Code is zero for each of the two '=':
-                    currBlockCodes <<= 12;
-
-                    // The '=' did not complete a 4-group. The input must be bad:
-                    if ((currBlockCodes & 0x80000000u) == 0u)
-                        throw new FormatException(SR.Format_BadBase64CharArrayLength);
-
-                    if ((Int32)(endDestPtr - destPtr) < 1)  // Autch! We underestimated the output length!
-                        return -1;
-
-                    // We are good, store bytes form this past group. We had a "==", so we take only one byte:
-                    *(destPtr++) = (Byte)(currBlockCodes >> 16);
-
-                    currBlockCodes = 0x000000FFu;
-                }
-                else  // '=' is not ok at places other than the end:
-                    throw new FormatException(SR.Format_BadBase64Char);
-            }
-
-        // We get here either from above or by jumping out of the loop:
-        _AllInputConsumed:
-
-            // The last block of chars has less than 4 items
-            if (currBlockCodes != 0x000000FFu)
-                throw new FormatException(SR.Format_BadBase64CharArrayLength);
-
-            // Return how many bytes were actually recovered:
-            return (Int32)(destPtr - startDestPtr);
-        } // Int32 FromBase64_Decode(...)
-
-
         /// <summary>
         /// Compute the number of bytes encoded in the specified Base 64 char array:
         /// Walk the entire input counting white spaces and padding chars, then compute result length
         /// based on 3 bytes per 4 chars.
         /// </summary>
-        private static unsafe Int32 FromBase64_ComputeResultLength(Char* inputPtr, Int32 inputLength)
+        private static unsafe int FromBase64_ComputeResultLength(char* inputPtr, int inputLength)
         {
-            const UInt32 intEq = (UInt32)'=';
-            const UInt32 intSpace = (UInt32)' ';
+            const uint intEq = (uint)'=';
+            const uint intSpace = (uint)' ';
 
             Debug.Assert(0 <= inputLength);
 
-            Char* inputEndPtr = inputPtr + inputLength;
-            Int32 usefulInputLength = inputLength;
-            Int32 padding = 0;
+            char* inputEndPtr = inputPtr + inputLength;
+            int usefulInputLength = inputLength;
+            int padding = 0;
 
             while (inputPtr < inputEndPtr)
             {
-                UInt32 c = (UInt32)(*inputPtr);
+                uint c = (uint)(*inputPtr);
                 inputPtr++;
 
                 // We want to be as fast as possible and filter out spaces with as few comparisons as possible.

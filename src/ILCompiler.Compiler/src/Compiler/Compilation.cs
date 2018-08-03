@@ -25,6 +25,7 @@ namespace ILCompiler
         protected readonly NodeFactory _nodeFactory;
         protected readonly Logger _logger;
         private readonly DebugInformationProvider _debugInformationProvider;
+        private readonly DevirtualizationManager _devirtualizationManager;
 
         public NameMangler NameMangler => _nodeFactory.NameMangler;
         public NodeFactory NodeFactory => _nodeFactory;
@@ -41,12 +42,14 @@ namespace ILCompiler
             NodeFactory nodeFactory,
             IEnumerable<ICompilationRootProvider> compilationRoots,
             DebugInformationProvider debugInformationProvider,
+            DevirtualizationManager devirtualizationManager,
             Logger logger)
         {
             _dependencyGraph = dependencyGraph;
             _nodeFactory = nodeFactory;
             _logger = logger;
             _debugInformationProvider = debugInformationProvider;
+            _devirtualizationManager = devirtualizationManager;
 
             _dependencyGraph.ComputeDependencyRoutine += ComputeDependencyNodeDependencies;
             NodeFactory.AttachToDependencyGraph(_dependencyGraph);
@@ -55,7 +58,7 @@ namespace ILCompiler
             foreach (var rootProvider in compilationRoots)
                 rootProvider.AddCompilationRoots(rootingService);
 
-            MetadataType globalModuleGeneratedType = nodeFactory.CompilationModuleGroup.GeneratedAssembly.GetGlobalModuleType();
+            MetadataType globalModuleGeneratedType = nodeFactory.TypeSystemContext.GeneratedAssembly.GetGlobalModuleType();
             _typeGetTypeMethodThunks = new TypeGetTypeMethodThunkCache(globalModuleGeneratedType);
             _assemblyGetExecutingAssemblyMethodThunks = new AssemblyGetExecutingAssemblyMethodThunkCache(globalModuleGeneratedType);
             _methodBaseGetCurrentMethodThunks = new MethodBaseGetCurrentMethodThunkCache();
@@ -87,6 +90,12 @@ namespace ILCompiler
 
         public DelegateCreationInfo GetDelegateCtor(TypeDesc delegateType, MethodDesc target, bool followVirtualDispatch)
         {
+            // If we're creating a delegate to a virtual method that cannot be overriden, devirtualize.
+            // This is not just an optimization - it's required for correctness in the presence of sealed
+            // vtable slots.
+            if (followVirtualDispatch && (target.IsFinal || target.OwningType.IsSealed()))
+                followVirtualDispatch = false;
+
             return DelegateCreationInfo.Create(delegateType, target, NodeFactory, followVirtualDispatch);
         }
 
@@ -99,7 +108,7 @@ namespace ILCompiler
             {
                 var pInvokeFixup = (PInvokeLazyFixupField)field;
                 PInvokeMetadata metadata = pInvokeFixup.PInvokeMetadata;
-                return NodeFactory.PInvokeMethodFixup(metadata.Module, metadata.Name);
+                return NodeFactory.PInvokeMethodFixup(metadata.Module, metadata.Name, metadata.Flags);
             }
             else
             {
@@ -176,6 +185,21 @@ namespace ILCompiler
         public bool HasFixedSlotVTable(TypeDesc type)
         {
             return NodeFactory.VTable(type).HasFixedSlots;
+        }
+
+        public bool IsEffectivelySealed(TypeDesc type)
+        {
+            return _devirtualizationManager.IsEffectivelySealed(type);
+        }
+
+        public bool IsEffectivelySealed(MethodDesc method)
+        {
+            return _devirtualizationManager.IsEffectivelySealed(method);
+        }
+
+        public MethodDesc ResolveVirtualMethod(MethodDesc declMethod, TypeDesc implType)
+        {
+            return _devirtualizationManager.ResolveVirtualMethod(declMethod, implType);
         }
 
         public bool NeedsRuntimeLookup(ReadyToRunHelperId lookupKind, object targetOfLookup)
@@ -270,18 +294,21 @@ namespace ILCompiler
                     int pointerSize = _nodeFactory.Target.PointerSize;
 
                     GenericLookupResult lookup = ReadyToRunGenericHelperNode.GetLookupSignature(_nodeFactory, lookupKind, targetOfLookup);
-                    int dictionarySlot = dictionaryLayout.GetSlotForEntry(lookup);
-                    int dictionaryOffset = dictionarySlot * pointerSize;
+                    int dictionarySlot = dictionaryLayout.GetSlotForFixedEntry(lookup);
+                    if (dictionarySlot != -1)
+                    {
+                        int dictionaryOffset = dictionarySlot * pointerSize;
 
-                    if (contextSource == GenericContextSource.MethodParameter)
-                    {
-                        return GenericDictionaryLookup.CreateFixedLookup(contextSource, dictionaryOffset);
-                    }
-                    else
-                    {
-                        int vtableSlot = VirtualMethodSlotHelper.GetGenericDictionarySlot(_nodeFactory, contextMethod.OwningType);
-                        int vtableOffset = EETypeNode.GetVTableOffset(pointerSize) + vtableSlot * pointerSize;
-                        return GenericDictionaryLookup.CreateFixedLookup(contextSource, vtableOffset, dictionaryOffset);
+                        if (contextSource == GenericContextSource.MethodParameter)
+                        {
+                            return GenericDictionaryLookup.CreateFixedLookup(contextSource, dictionaryOffset);
+                        }
+                        else
+                        {
+                            int vtableSlot = VirtualMethodSlotHelper.GetGenericDictionarySlot(_nodeFactory, contextMethod.OwningType);
+                            int vtableOffset = EETypeNode.GetVTableOffset(pointerSize) + vtableSlot * pointerSize;
+                            return GenericDictionaryLookup.CreateFixedLookup(contextSource, vtableOffset, dictionaryOffset);
+                        }
                     }
                 }
             }
@@ -331,14 +358,7 @@ namespace ILCompiler
 
             public void AddCompilationRoot(TypeDesc type, string reason)
             {
-                if (!ConstructedEETypeNode.CreationAllowed(type))
-                {
-                    _graph.AddRoot(_factory.NecessaryTypeSymbol(type), reason);
-                }
-                else
-                {
-                    _graph.AddRoot(_factory.ConstructedTypeSymbol(type), reason);
-                }
+                _graph.AddRoot(_factory.MaximallyConstructableType(type), reason);
             }
 
             public void RootThreadStaticBaseForType(TypeDesc type, string reason)
@@ -386,13 +406,29 @@ namespace ILCompiler
             {
                 Debug.Assert(method.IsVirtual);
 
-                if (!_factory.VTable(method.OwningType).HasFixedSlots)
-                    _graph.AddRoot(_factory.VirtualMethodUse(method), reason);
+                // Virtual method use is tracked on the slot defining method only.
+                MethodDesc slotDefiningMethod = MetadataVirtualMethodAlgorithm.FindSlotDefiningMethodForVirtualMethod(method);
+                if (!_factory.VTable(slotDefiningMethod.OwningType).HasFixedSlots)
+                    _graph.AddRoot(_factory.VirtualMethodUse(slotDefiningMethod), reason);
 
                 if (method.IsAbstract)
                 {
                     _graph.AddRoot(_factory.ReflectableMethod(method), reason);
                 }
+            }
+
+            public void RootModuleMetadata(ModuleDesc module, string reason)
+            {
+                // RootModuleMetadata is kind of a hack - this is pretty much only used to force include
+                // type forwarders from assemblies metadata generator would normally not look at.
+                // This will go away when the temporary RD.XML parser goes away.
+                if (_factory.MetadataManager is UsageBasedMetadataManager)
+                    _graph.AddRoot(_factory.ModuleMetadata(module), reason);
+            }
+
+            public void RootReadOnlyDataBlob(byte[] data, int alignment, string reason, string exportName)
+            {
+                _graph.AddRoot(_factory.ReadOnlyDataBlob(exportName, data, alignment), reason);
             }
         }
     }

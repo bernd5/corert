@@ -34,7 +34,7 @@ unsigned __int64 g_startupTimelineEvents[NUM_STARTUP_TIMELINE_EVENTS] = { 0 };
 #endif // PROFILE_STARTUP
 
 #ifdef PLATFORM_UNIX
-Int32 __stdcall RhpHardwareExceptionHandler(UIntNative faultCode, UIntNative faultAddress, PAL_LIMITED_CONTEXT* palContext, UIntNative* arg0Reg, UIntNative* arg1Reg);
+Int32 RhpHardwareExceptionHandler(UIntNative faultCode, UIntNative faultAddress, PAL_LIMITED_CONTEXT* palContext, UIntNative* arg0Reg, UIntNative* arg1Reg);
 #else
 Int32 __stdcall RhpVectoredExceptionHandler(PEXCEPTION_POINTERS pExPtrs);
 #endif
@@ -147,7 +147,7 @@ static void CheckForPalFallback()
 
 void DetectCPUFeatures()
 {
-#if !defined(CORERT) // @TODO: CORERT: DetectCPUFeatures
+#ifdef PROJECTN // @TODO: CORERT: DetectCPUFeatures
 
 #ifdef _X86_
     // We depend on fxsave / fxrstor.  These were added to Pentium II and later, so they're pretty well guaranteed to be
@@ -167,7 +167,7 @@ void DetectCPUFeatures()
         g_fHasFastFxsave = true;
 #endif
 
-#endif // !CORERT
+#endif // PROJECTN
 }
 
 #ifdef PROFILE_STARTUP

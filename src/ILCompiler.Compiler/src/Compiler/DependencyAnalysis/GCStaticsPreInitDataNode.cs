@@ -112,5 +112,12 @@ namespace ILCompiler.DependencyAnalysis
 
             return builder.ToObjectData();
         }
+
+        public override int ClassCode => 1148300665;
+
+        public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
+        {
+            return comparer.Compare(_type, ((GCStaticsPreInitDataNode)other)._type);
+        }
     }
 }

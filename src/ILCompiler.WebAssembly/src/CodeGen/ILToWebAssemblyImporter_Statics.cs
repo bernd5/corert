@@ -10,9 +10,10 @@ using Internal.TypeSystem;
 using Internal.TypeSystem.Ecma;
 
 using ILCompiler;
-using ILCompiler.Compiler.CppCodeGen;
+using ILCompiler.CodeGen;
 
 using ILCompiler.DependencyAnalysis;
+using LLVMSharp;
 
 namespace Internal.IL
 {
@@ -22,10 +23,16 @@ namespace Internal.IL
         {
             MethodDesc method = methodCodeNodeNeedingCode.Method;
 
-            compilation.Logger.Writer.WriteLine("Compiling " + method.ToString());
+            if (compilation.Logger.IsVerbose)
+            {
+                string methodName = method.ToString();
+                compilation.Logger.Writer.WriteLine("Compiling " + methodName);
+            }
+
             if (method.HasCustomAttribute("System.Runtime", "RuntimeImportAttribute"))
             {
-                throw new NotImplementedException();
+                methodCodeNodeNeedingCode.CompilationCompleted = true;
+                //throw new NotImplementedException();
                 //CompileExternMethod(methodCodeNodeNeedingCode, ((EcmaMethod)method).GetRuntimeImportName());
                 //return;
             }
@@ -43,7 +50,19 @@ namespace Internal.IL
             ILImporter ilImporter = null;
             try
             {
-                ilImporter = new ILImporter(compilation, method, methodIL, methodCodeNodeNeedingCode.GetMangledName(compilation.NameMangler));
+                string mangledName;
+
+                // TODO: Better detection of the StartupCodeMain method
+                if (methodCodeNodeNeedingCode.Method.Signature.IsStatic && methodCodeNodeNeedingCode.Method.Name == "StartupCodeMain")
+                {
+                    mangledName = "StartupCodeMain";
+                }
+                else
+                {
+                    mangledName = compilation.NameMangler.GetMangledMethodName(methodCodeNodeNeedingCode.Method).ToString();
+                }
+
+                ilImporter = new ILImporter(compilation, method, methodIL, mangledName);
 
                 CompilerTypeSystemContext typeSystemContext = compilation.TypeSystemContext;
 
@@ -65,8 +84,8 @@ namespace Internal.IL
                     ilImporter.SetParameterNames(parameters);*/
 
                 ilImporter.Import();
+
                 methodCodeNodeNeedingCode.CompilationCompleted = true;
-                methodCodeNodeNeedingCode.SetDependencies(ilImporter.GetDependencies());
             }
             catch (Exception e)
             {
@@ -77,7 +96,25 @@ namespace Internal.IL
                 //throw new NotImplementedException();
                 //methodCodeNodeNeedingCode.SetCode(sb.ToString(), Array.Empty<Object>());
             }
+
+            // Uncomment the block below to get specific method failures when LLVM fails for cryptic reasons
+#if false
+            LLVMBool result = LLVM.VerifyFunction(ilImporter._llvmFunction, LLVMVerifierFailureAction.LLVMPrintMessageAction);
+            if (result.Value != 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Error compliling {method.OwningType}.{method}");
+                Console.ResetColor();
+            }
+#endif // false
+
+            // Ensure dependencies show up regardless of exceptions to avoid breaking LLVM
+            methodCodeNodeNeedingCode.SetDependencies(ilImporter.GetDependencies());
         }
+
+        static LLVMValueRef DebugtrapFunction = default(LLVMValueRef);
+        static LLVMValueRef TrapFunction = default(LLVMValueRef);
+        static LLVMValueRef DoNothingFunction = default(LLVMValueRef);
 
         private static IEnumerable<string> GetParameterNamesForMethod(MethodDesc method)
         {

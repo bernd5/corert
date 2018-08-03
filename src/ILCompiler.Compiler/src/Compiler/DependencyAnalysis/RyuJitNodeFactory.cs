@@ -14,7 +14,7 @@ namespace ILCompiler.DependencyAnalysis
     {
         public RyuJitNodeFactory(CompilerTypeSystemContext context, CompilationModuleGroup compilationModuleGroup, MetadataManager metadataManager,
             InteropStubManager interopStubManager, NameMangler nameMangler, VTableSliceProvider vtableSliceProvider, DictionaryLayoutProvider dictionaryLayoutProvider)
-            : base(context, compilationModuleGroup, metadataManager, interopStubManager, nameMangler, new LazyGenericsDisabledPolicy(), vtableSliceProvider, dictionaryLayoutProvider)
+            : base(context, compilationModuleGroup, metadataManager, interopStubManager, nameMangler, new LazyGenericsDisabledPolicy(), vtableSliceProvider, dictionaryLayoutProvider, new ExternSymbolsImportedNodeProvider())
         {
         }
 
@@ -40,13 +40,13 @@ namespace ILCompiler.DependencyAnalysis
                 ThrowHelper.ThrowInvalidProgramException(ExceptionStringID.InvalidProgramSpecific, method);
             }
 
-            if (CompilationModuleGroup.ContainsMethodBody(method))
+            if (CompilationModuleGroup.ContainsMethodBody(method, false))
             {
                 return new MethodCodeNode(method);
             }
             else
             {
-                return new ExternMethodSymbolNode(this, method);
+                return _importedNodeProvider.ImportedMethodCodeNode(this, method, false);
             }
         }
 
@@ -60,7 +60,7 @@ namespace ILCompiler.DependencyAnalysis
                 // 'this' and also provides an instantiation argument (we do a calling convention conversion).
                 // We don't do this for generic instance methods though because they don't use the EEType
                 // for the generic context anyway.
-                return new MethodCodeNode(TypeSystemContext.GetSpecialUnboxingThunk(method, CompilationModuleGroup.GeneratedAssembly));
+                return new MethodCodeNode(TypeSystemContext.GetSpecialUnboxingThunk(method, TypeSystemContext.GeneratedAssembly));
             }
             else
             {

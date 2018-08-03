@@ -40,10 +40,9 @@ namespace ILCompiler.DependencyAnalysis
             }
         }
 
-        protected override void OutputBaseSize(ref ObjectDataBuilder objData)
-        {
-            // Canonical definition types will have their base size set to the minimum
-            objData.EmitInt(MinimumObjectSize);
-        }
+        // Canonical definition types will have their base size set to the minimum
+        protected override int BaseSize => MinimumObjectSize;
+
+        public override int ClassCode => -1851030036;
     }
 }

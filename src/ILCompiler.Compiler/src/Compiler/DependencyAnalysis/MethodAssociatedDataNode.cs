@@ -41,6 +41,13 @@ namespace ILCompiler.DependencyAnalysis
         public int Offset => 0;
         public override bool IsShareable => _methodNode.Method is InstantiatedMethod || EETypeNode.IsTypeNodeShareable(_methodNode.Method.OwningType);
 
+        public override int ClassCode => 1055183914;
+
+        public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
+        {
+            return comparer.Compare(_methodNode, ((MethodAssociatedDataNode)other)._methodNode);
+        }
+
         public virtual void AppendMangledName(NameMangler nameMangler, Utf8StringBuilder sb)
         {
             sb.Append("_associatedData_").Append(nameMangler.GetMangledMethodName(_methodNode.Method));
@@ -72,7 +79,7 @@ namespace ILCompiler.DependencyAnalysis
             if (unboxThunkNode != null && unboxThunkNode.IsSpecialUnboxingThunk)
             {
                 flags |= AssociatedDataFlags.HasUnboxingStubTarget;
-                objData.EmitPointerReloc(unboxThunkNode.GetUnboxingThunkTarget(factory));
+                objData.EmitReloc(unboxThunkNode.GetUnboxingThunkTarget(factory), RelocType.IMAGE_REL_BASED_RELPTR32);
             }
 
             objData.EmitByte(flagsReservation, (byte)flags);

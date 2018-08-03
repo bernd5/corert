@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -48,7 +47,7 @@ namespace System.IO
         private long _offset;
         private FileAccess _access;
         private bool _isOpen;
-        private Task<Int32> _lastReadTask; // The last successful task returned from ReadAsync 
+        private Task<int> _lastReadTask; // The last successful task returned from ReadAsync 
 
         /// <summary>
         /// Creates a closed stream.
@@ -111,7 +110,6 @@ namespace System.IO
             {
                 throw new ArgumentOutOfRangeException(nameof(access));
             }
-            Contract.EndContractBlock();
 
             if (_isOpen)
             {
@@ -178,7 +176,6 @@ namespace System.IO
                 throw new ArgumentOutOfRangeException((length < 0) ? nameof(length) : nameof(capacity), SR.ArgumentOutOfRange_NeedNonNegNum);
             if (length > capacity)
                 throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_LengthGreaterThanCapacity);
-            Contract.EndContractBlock();
             // Check for wraparound.
             if (((byte*)((long)pointer + capacity)) < pointer)
                 throw new ArgumentOutOfRangeException(nameof(capacity), SR.ArgumentOutOfRange_UnmanagedMemStreamWrapAround);
@@ -200,7 +197,6 @@ namespace System.IO
         /// </summary>
         public override bool CanRead
         {
-            [Pure]
             get { return _isOpen && (_access & FileAccess.Read) != 0; }
         }
 
@@ -209,7 +205,6 @@ namespace System.IO
         /// </summary>
         public override bool CanSeek
         {
-            [Pure]
             get { return _isOpen; }
         }
 
@@ -218,7 +213,6 @@ namespace System.IO
         /// </summary>
         public override bool CanWrite
         {
-            [Pure]
             get { return _isOpen && (_access & FileAccess.Write) != 0; }
         }
 
@@ -237,12 +231,30 @@ namespace System.IO
             base.Dispose(disposing);
         }
 
+        private void EnsureNotClosed()
+        {
+            if (!_isOpen)
+                throw Error.GetStreamIsClosed();
+        }
+
+        private void EnsureReadable()
+        {
+            if (!CanRead)
+                throw Error.GetReadNotSupported();
+        }
+
+        private void EnsureWriteable()
+        {
+            if (!CanWrite)
+                throw Error.GetWriteNotSupported();
+        }
+
         /// <summary>
         /// Since it's a memory stream, this method does nothing.
         /// </summary>
         public override void Flush()
         {
-            if (!_isOpen) throw Error.GetStreamIsClosed();
+            EnsureNotClosed();
         }
 
         /// <summary>
@@ -273,7 +285,7 @@ namespace System.IO
         {
             get
             {
-                if (!_isOpen) throw Error.GetStreamIsClosed();
+                EnsureNotClosed();
                 return Interlocked.Read(ref _length);
             }
         }
@@ -285,7 +297,7 @@ namespace System.IO
         {
             get
             {
-                if (!_isOpen) throw Error.GetStreamIsClosed();
+                EnsureNotClosed();
                 return _capacity;
             }
         }
@@ -298,14 +310,12 @@ namespace System.IO
             get
             {
                 if (!CanSeek) throw Error.GetStreamIsClosed();
-                Contract.EndContractBlock();
                 return Interlocked.Read(ref _position);
             }
             set
             {
                 if (value < 0) throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_NeedNonNegNum);
                 if (!CanSeek) throw Error.GetStreamIsClosed();
-                Contract.EndContractBlock();
 
                 Interlocked.Exchange(ref _position, value);
             }
@@ -319,8 +329,10 @@ namespace System.IO
         {
             get
             {
-                if (_buffer != null) throw new NotSupportedException(SR.NotSupported_UmsSafeBuffer);
-                if (!_isOpen) throw Error.GetStreamIsClosed();
+                if (_buffer != null)
+                    throw new NotSupportedException(SR.NotSupported_UmsSafeBuffer);
+
+                EnsureNotClosed();
 
                 // Use a temp to avoid a race
                 long pos = Interlocked.Read(ref _position);
@@ -331,8 +343,10 @@ namespace System.IO
             }
             set
             {
-                if (_buffer != null) throw new NotSupportedException(SR.NotSupported_UmsSafeBuffer);
-                if (!_isOpen) throw Error.GetStreamIsClosed();
+                if (_buffer != null)
+                    throw new NotSupportedException(SR.NotSupported_UmsSafeBuffer);
+
+                EnsureNotClosed();
 
                 if (value < _mem)
                     throw new IOException(SR.IO_SeekBeforeBegin);
@@ -365,31 +379,31 @@ namespace System.IO
             return ReadCore(new Span<byte>(buffer, offset, count));
         }
 
-        public override int Read(Span<byte> destination)
+        public override int Read(Span<byte> buffer)
         {
             if (GetType() == typeof(UnmanagedMemoryStream))
             {
-                return ReadCore(destination);
+                return ReadCore(buffer);
             }
             else
             {
                 // UnmanagedMemoryStream is not sealed, and a derived type may have overridden Read(byte[], int, int) prior
                 // to this Read(Span<byte>) overload being introduced.  In that case, this Read(Span<byte>) overload
                 // should use the behavior of Read(byte[],int,int) overload.
-                return base.Read(destination);
+                return base.Read(buffer);
             }
         }
 
-        internal int ReadCore(Span<byte> destination)
+        internal int ReadCore(Span<byte> buffer)
         {
-            if (!_isOpen) throw Error.GetStreamIsClosed();
-            if (!CanRead) throw Error.GetReadNotSupported();
+            EnsureNotClosed();
+            EnsureReadable();
 
             // Use a local variable to avoid a race where another thread 
             // changes our position after we decide we can read some bytes.
             long pos = Interlocked.Read(ref _position);
             long len = Interlocked.Read(ref _length);
-            long n = Math.Min(len - pos, destination.Length);
+            long n = Math.Min(len - pos, buffer.Length);
             if (n <= 0)
             {
                 return 0;
@@ -404,7 +418,7 @@ namespace System.IO
 
             unsafe
             {
-                fixed (byte* pBuffer = &destination.DangerousGetPinnableReference())
+                fixed (byte* pBuffer = &MemoryMarshal.GetReference(buffer))
                 {
                     if (_buffer != null)
                     {
@@ -442,7 +456,7 @@ namespace System.IO
         /// <param name="count">Maximum number of bytes to read.</param>       
         /// <param name="cancellationToken">Token that can be used to cancel this operation.</param>
         /// <returns>Task that can be used to access the number of bytes actually read.</returns>
-        public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken)
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
             if (buffer == null)
                 throw new ArgumentNullException(nameof(buffer), SR.ArgumentNull_Buffer);
@@ -452,30 +466,29 @@ namespace System.IO
                 throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
             if (buffer.Length - offset < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
-            Contract.EndContractBlock();  // contract validation copied from Read(...) 
 
             if (cancellationToken.IsCancellationRequested)
-                return Task.FromCanceled<Int32>(cancellationToken);
+                return Task.FromCanceled<int>(cancellationToken);
 
             try
             {
-                Int32 n = Read(buffer, offset, count);
-                Task<Int32> t = _lastReadTask;
+                int n = Read(buffer, offset, count);
+                Task<int> t = _lastReadTask;
                 return (t != null && t.Result == n) ? t : (_lastReadTask = Task.FromResult<Int32>(n));
             }
             catch (Exception ex)
             {
                 Debug.Assert(!(ex is OperationCanceledException));
-                return Task.FromException<Int32>(ex);
+                return Task.FromException<int>(ex);
             }
         }
 
         /// <summary>
         /// Reads bytes from stream and puts them into the buffer
         /// </summary>
-        /// <param name="destination">Buffer to read the bytes to.</param>
+        /// <param name="buffer">Buffer to read the bytes to.</param>
         /// <param name="cancellationToken">Token that can be used to cancel this operation.</param>
-        public override ValueTask<int> ReadAsync(Memory<byte> destination, CancellationToken cancellationToken = default(CancellationToken))
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -497,9 +510,9 @@ namespace System.IO
                 // something other than an array and this is an UnmanagedMemoryStream-derived type that doesn't override Read(Span<byte>) will
                 // it then fall back to doing the ArrayPool/copy behavior.
                 return new ValueTask<int>(
-                    destination.TryGetArray(out ArraySegment<byte> destinationArray) ?
+                    MemoryMarshal.TryGetArray(buffer, out ArraySegment<byte> destinationArray) ?
                         Read(destinationArray.Array, destinationArray.Offset, destinationArray.Count) :
-                        Read(destination.Span));
+                        Read(buffer.Span));
             }
             catch (Exception ex)
             {
@@ -513,8 +526,8 @@ namespace System.IO
         /// <returns></returns>
         public override int ReadByte()
         {
-            if (!_isOpen) throw Error.GetStreamIsClosed();
-            if (!CanRead) throw Error.GetReadNotSupported();
+            EnsureNotClosed();
+            EnsureReadable();
 
             long pos = Interlocked.Read(ref _position);  // Use a local to avoid a race condition
             long len = Interlocked.Read(ref _length);
@@ -560,7 +573,8 @@ namespace System.IO
         /// <returns></returns>
         public override long Seek(long offset, SeekOrigin loc)
         {
-            if (!_isOpen) throw Error.GetStreamIsClosed();
+            EnsureNotClosed();
+
             switch (loc)
             {
                 case SeekOrigin.Begin:
@@ -600,11 +614,11 @@ namespace System.IO
         {
             if (value < 0)
                 throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_NeedNonNegNum);
-            Contract.EndContractBlock();
             if (_buffer != null)
                 throw new NotSupportedException(SR.NotSupported_UmsSafeBuffer);
-            if (!_isOpen) throw Error.GetStreamIsClosed();
-            if (!CanWrite) throw Error.GetWriteNotSupported();
+
+            EnsureNotClosed();
+            EnsureWriteable();
 
             if (value > _capacity)
                 throw new IOException(SR.IO_FixedCapacity);
@@ -645,29 +659,29 @@ namespace System.IO
             WriteCore(new Span<byte>(buffer, offset, count));
         }
 
-        public override void Write(ReadOnlySpan<byte> source)
+        public override void Write(ReadOnlySpan<byte> buffer)
         {
             if (GetType() == typeof(UnmanagedMemoryStream))
             {
-                WriteCore(source);
+                WriteCore(buffer);
             }
             else
             {
                 // UnmanagedMemoryStream is not sealed, and a derived type may have overridden Write(byte[], int, int) prior
                 // to this Write(Span<byte>) overload being introduced.  In that case, this Write(Span<byte>) overload
                 // should use the behavior of Write(byte[],int,int) overload.
-                base.Write(source);
+                base.Write(buffer);
             }
         }
 
-        internal unsafe void WriteCore(ReadOnlySpan<byte> source)
+        internal unsafe void WriteCore(ReadOnlySpan<byte> buffer)
         {
-            if (!_isOpen) throw Error.GetStreamIsClosed();
-            if (!CanWrite) throw Error.GetWriteNotSupported();
+            EnsureNotClosed();
+            EnsureWriteable();
 
             long pos = Interlocked.Read(ref _position);  // Use a local to avoid a race condition
             long len = Interlocked.Read(ref _length);
-            long n = pos + source.Length;
+            long n = pos + buffer.Length;
             // Check for overflow
             if (n < 0)
             {
@@ -695,12 +709,12 @@ namespace System.IO
                 }
             }
 
-            fixed (byte* pBuffer = &source.DangerousGetPinnableReference())
+            fixed (byte* pBuffer = &MemoryMarshal.GetReference(buffer))
             {
                 if (_buffer != null)
                 {
                     long bytesLeft = _capacity - pos;
-                    if (bytesLeft < source.Length)
+                    if (bytesLeft < buffer.Length)
                     {
                         throw new ArgumentException(SR.Arg_BufferTooSmall);
                     }
@@ -710,7 +724,7 @@ namespace System.IO
                     try
                     {
                         _buffer.AcquirePointer(ref pointer);
-                        Buffer.Memcpy(pointer + pos + _offset, pBuffer, source.Length);
+                        Buffer.Memcpy(pointer + pos + _offset, pBuffer, buffer.Length);
                     }
                     finally
                     {
@@ -722,7 +736,7 @@ namespace System.IO
                 }
                 else
                 {
-                    Buffer.Memcpy(_mem + pos, pBuffer, source.Length);
+                    Buffer.Memcpy(_mem + pos, pBuffer, buffer.Length);
                 }
             }
 
@@ -738,7 +752,7 @@ namespace System.IO
         /// <param name="count">Number of bytes to write.</param>
         /// <param name="cancellationToken">Token that can be used to cancel the operation.</param>
         /// <returns>Task that can be awaited </returns>
-        public override Task WriteAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken)
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
             if (buffer == null)
                 throw new ArgumentNullException(nameof(buffer), SR.ArgumentNull_Buffer);
@@ -748,7 +762,6 @@ namespace System.IO
                 throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
             if (buffer.Length - offset < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
-            Contract.EndContractBlock();  // contract validation copied from Write(..) 
 
             if (cancellationToken.IsCancellationRequested)
                 return Task.FromCanceled(cancellationToken);
@@ -770,30 +783,30 @@ namespace System.IO
         /// </summary>
         /// <param name="buffer">Buffer that will be written.</param>
         /// <param name="cancellationToken">Token that can be used to cancel the operation.</param>
-        public override Task WriteAsync(ReadOnlyMemory<byte> source, CancellationToken cancellationToken = default(CancellationToken))
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                return Task.FromCanceled(cancellationToken);
+                return new ValueTask(Task.FromCanceled(cancellationToken));
             }
 
             try
             {
                 // See corresponding comment in ReadAsync for why we don't just always use Write(ReadOnlySpan<byte>).
                 // Unlike ReadAsync, we could delegate to WriteAsync(byte[], ...) here, but we don't for consistency.
-                if (source.DangerousTryGetArray(out ArraySegment<byte> sourceArray))
+                if (MemoryMarshal.TryGetArray(buffer, out ArraySegment<byte> sourceArray))
                 {
                     Write(sourceArray.Array, sourceArray.Offset, sourceArray.Count);
                 }
                 else
                 {
-                    Write(source.Span);
+                    Write(buffer.Span);
                 }
-                return Task.CompletedTask;
+                return default;
             }
             catch (Exception ex)
             {
-                return Task.FromException(ex);
+                return new ValueTask(Task.FromException(ex));
             }
         }
 
@@ -803,8 +816,8 @@ namespace System.IO
         /// <param name="value"></param>
         public override void WriteByte(byte value)
         {
-            if (!_isOpen) throw Error.GetStreamIsClosed();
-            if (!CanWrite) throw Error.GetWriteNotSupported();
+            EnsureNotClosed();
+            EnsureWriteable();
 
             long pos = Interlocked.Read(ref _position);  // Use a local to avoid a race condition
             long len = Interlocked.Read(ref _length);

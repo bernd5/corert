@@ -10,7 +10,6 @@ set(COMMON_RUNTIME_SOURCES
     EHHelpers.cpp
     event.cpp
     FinalizerHelpers.cpp
-    gcdump.cpp
     GCHelpers.cpp
     gcheaputilities.cpp
     GCMemoryHelpers.cpp
@@ -21,14 +20,12 @@ set(COMMON_RUNTIME_SOURCES
     HandleTableHelpers.cpp
     MathHelpers.cpp
     MiscHelpers.cpp
-    module.cpp
     TypeManager.cpp
     ObjectLayout.cpp
     OptionalFieldsRuntime.cpp
     portable.cpp
     profheapwalkhelper.cpp
     RestrictedCallouts.cpp
-    RHCodeMan.cpp
     RhConfig.cpp
     RuntimeInstance.cpp
     RWLock.cpp
@@ -42,7 +39,12 @@ set(COMMON_RUNTIME_SOURCES
     thread.cpp
     threadstore.cpp
     UniversalTransitionHelpers.cpp
-    
+
+    # ProjectN only
+    # gcdump.cpp
+    # module.cpp
+    # RHCodeMan.cpp
+
     ../gc/gccommon.cpp
     ../gc/gceewks.cpp
     ../gc/gcwks.cpp
@@ -52,6 +54,11 @@ set(COMMON_RUNTIME_SOURCES
     ../gc/handletablecore.cpp
     ../gc/handletablescan.cpp
     ../gc/objecthandle.cpp
+)
+
+set(SERVER_GC_SOURCES
+    ../gc/gceesvr.cpp
+    ../gc/gcsvr.cpp
 )
 
 set(FULL_RUNTIME_SOURCES
@@ -76,13 +83,16 @@ if(WIN32)
     windows/PalRedhawkMinWin.cpp
   )
 
-  list(APPEND FULL_RUNTIME_SOURCES 
+  list(APPEND FULL_RUNTIME_SOURCES
     windows/CoffNativeCodeManager.cpp
   )
 
+  set(ASM_SUFFIX asm)
+
   if(CLR_CMAKE_PLATFORM_ARCH_AMD64)
     set(ARCH_SOURCES_DIR amd64)
-    set(ASM_SUFFIX asm)
+  elseif(CLR_CMAKE_PLATFORM_ARCH_I386)
+    set(ARCH_SOURCES_DIR i386)
   endif()
 
   list(APPEND RUNTIME_SOURCES_ARCH_ASM
@@ -93,7 +103,14 @@ if(WIN32)
 else()
 
   include_directories(unix)
+  if(NOT CLR_CMAKE_PLATFORM_ARCH_WASM)
+    include_directories(../libunwind/include)
+  else()
+    include_directories($ENV{EMSCRIPTEN/system/lib/libcxxabi/include})
+  endif()
+
   include_directories(../libunwind/include)
+  include_directories(../libunwind)
 
   # Disable building _Unwind_XXX style APIs of libunwind, since we don't use them.
   add_definitions(-D_LIBUNWIND_DISABLE_ZERO_COST_APIS=1)
@@ -108,6 +125,7 @@ else()
   list(APPEND FULL_RUNTIME_SOURCES
     unix/HardwareExceptions.cpp
     unix/UnixContext.cpp
+    unix/UnwindHelpers.cpp
     unix/UnixNativeCodeManager.cpp
     ../libunwind/src/Unwind-EHABI.cpp
     ../libunwind/src/libunwind.cpp
@@ -119,15 +137,17 @@ else()
     )
   endif()
 
+  set(ASM_SUFFIX S)
   if(CLR_CMAKE_PLATFORM_ARCH_AMD64)
     set(ARCH_SOURCES_DIR amd64)
-    set(ASM_SUFFIX S)
   elseif(CLR_CMAKE_PLATFORM_ARCH_ARM64)
     set(ARCH_SOURCES_DIR arm64)
-    set(ASM_SUFFIX S)
   elseif(CLR_CMAKE_PLATFORM_ARCH_ARM)
     set(ARCH_SOURCES_DIR arm)
-    set(ASM_SUFFIX S)
+  elseif(CLR_CMAKE_PLATFORM_ARCH_I386)
+    set(ARCH_SOURCES_DIR i386)
+  elseif(CLR_CMAKE_PLATFORM_ARCH_WASM)
+    set(ARCH_SOURCES_DIR wasm)
   endif()
 
   list(APPEND RUNTIME_SOURCES_ARCH_ASM
@@ -143,7 +163,7 @@ list(APPEND RUNTIME_SOURCES_ARCH_ASM
   ${ARCH_SOURCES_DIR}/ExceptionHandling.${ASM_SUFFIX}
   ${ARCH_SOURCES_DIR}/Interlocked.${ASM_SUFFIX}
   ${ARCH_SOURCES_DIR}/PInvoke.${ASM_SUFFIX}
-  ${ARCH_SOURCES_DIR}/InteropThunksHelpers.${ASM_SUFFIX}  
+  ${ARCH_SOURCES_DIR}/InteropThunksHelpers.${ASM_SUFFIX}
   ${ARCH_SOURCES_DIR}/StubDispatch.${ASM_SUFFIX}
   ${ARCH_SOURCES_DIR}/UniversalTransition.${ASM_SUFFIX}
   ${ARCH_SOURCES_DIR}/WriteBarriers.${ASM_SUFFIX}
@@ -165,6 +185,7 @@ add_definitions(-DCORERT)
 add_definitions(-DFEATURE_CACHED_INTERFACE_DISPATCH)
 add_definitions(-D_LIB)
 add_definitions(-DEETYPE_TYPE_MANAGER)
+add_definitions(-DFEATURE_EMBEDDED_CONFIG)
 
 if(WIN32)
   # There is a problem with undefined symbol g_pConfig, windows don't care since it is in template method, but clang does 
@@ -203,8 +224,12 @@ convert_to_absolute_path(COMMON_RUNTIME_SOURCES ${COMMON_RUNTIME_SOURCES})
 
 convert_to_absolute_path(FULL_RUNTIME_SOURCES ${FULL_RUNTIME_SOURCES})
 convert_to_absolute_path(PORTABLE_RUNTIME_SOURCES ${PORTABLE_RUNTIME_SOURCES})
+convert_to_absolute_path(SERVER_GC_SOURCES ${SERVER_GC_SOURCES})
 
 convert_to_absolute_path(RUNTIME_SOURCES_ARCH_ASM ${RUNTIME_SOURCES_ARCH_ASM})
 
-add_subdirectory(Full)
+if(NOT CLR_CMAKE_PLATFORM_ARCH_WASM)
+  add_subdirectory(Full)
+endif()
+
 add_subdirectory(Portable)

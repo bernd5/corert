@@ -18,7 +18,7 @@ namespace ILCompiler.DependencyAnalysis
     /// with the class constructor context if the type has a class constructor that
     /// needs to be triggered before the type members can be accessed.
     /// </summary>
-    public class NonGCStaticsNode : ObjectNode, IExportableSymbolNode
+    public class NonGCStaticsNode : ObjectNode, IExportableSymbolNode, ISortableSymbolNode, ISymbolNodeWithDebugInfo
     {
         private MetadataType _type;
         private NodeFactory _factory;
@@ -69,13 +69,15 @@ namespace ILCompiler.DependencyAnalysis
             }
         }
 
+        public IDebugInfo DebugInfo => NullTypeIndexDebugInfo.Instance;
+
         public override bool IsShareable => EETypeNode.IsTypeNodeShareable(_type);
 
         public MetadataType Type => _type;
 
-        public virtual bool IsExported(NodeFactory factory)
+        public virtual ExportForm GetExportForm(NodeFactory factory)
         {
-            return factory.CompilationModuleGroup.ExportsType(Type);
+            return factory.CompilationModuleGroup.GetExportTypeForm(Type);
         }
 
         private static int GetClassConstructorContextSize(TargetDetails target)
@@ -102,14 +104,17 @@ namespace ILCompiler.DependencyAnalysis
 
         protected override DependencyList ComputeNonRelocationBasedDependencies(NodeFactory factory)
         {
+            DependencyList dependencyList = null;
+
             if (factory.TypeSystemContext.HasEagerStaticConstructor(_type))
             {
-                var result = new DependencyList();
-                result.Add(factory.EagerCctorIndirection(_type.GetStaticConstructor()), "Eager .cctor");
-                return result;
+                dependencyList = new DependencyList();
+                dependencyList.Add(factory.EagerCctorIndirection(_type.GetStaticConstructor()), "Eager .cctor");
             }
 
-            return null;
+            EETypeNode.AddDependenciesForStaticsNode(factory, _type, ref dependencyList);
+
+            return dependencyList;
         }
 
         public override ObjectData GetData(NodeFactory factory, bool relocsOnly)
@@ -173,6 +178,13 @@ namespace ILCompiler.DependencyAnalysis
             builder.AddSymbol(this);
 
             return builder.ToObjectData();
+        }
+
+        public override int ClassCode => -1173104872;
+
+        public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
+        {
+            return comparer.Compare(_type, ((NonGCStaticsNode)other)._type);
         }
     }
 }

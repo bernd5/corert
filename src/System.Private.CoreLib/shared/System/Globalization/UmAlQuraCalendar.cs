@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 
 namespace System.Globalization
 {
@@ -356,7 +355,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             "time",
-                            String.Format(
+                            string.Format(
                                 CultureInfo.InvariantCulture,
                                 SR.ArgumentOutOfRange_CalendarRange,
                                 minDate,
@@ -379,7 +378,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(year),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
                                 MinCalendarYear,
@@ -511,13 +510,12 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(months),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
                                 -120000,
                                 120000));
             }
-            Contract.EndContractBlock();
             // Get the date in UmAlQura calendar.
             int y = GetDatePart(time, DatePartYear);
             int m = GetDatePart(time, DatePartMonth);
@@ -712,7 +710,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(day),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Day,
                                 daysInMonth,
@@ -776,7 +774,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                            nameof(day),
-                           String.Format(
+                           string.Format(
                                CultureInfo.CurrentCulture,
                                SR.ArgumentOutOfRange_Day,
                                daysInMonth,
@@ -816,13 +814,12 @@ namespace System.Globalization
                 {
                     throw new ArgumentOutOfRangeException(
                                 nameof(value),
-                                String.Format(
+                                string.Format(
                                     CultureInfo.CurrentCulture,
                                     SR.ArgumentOutOfRange_Range,
                                     MinCalendarYear,
                                     MaxCalendarYear));
                 }
-                Contract.EndContractBlock();
                 VerifyWritable();
                 // We allow year 99 to be set so that one can make ToFourDigitYearMax a no-op by setting TwoDigitYearMax to 99.
                 twoDigitYearMax = value;
@@ -838,7 +835,6 @@ namespace System.Globalization
                 throw new ArgumentOutOfRangeException(nameof(year),
                     SR.ArgumentOutOfRange_NeedNonNegNum);
             }
-            Contract.EndContractBlock();
 
             if (year < 100)
             {
@@ -849,7 +845,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(year),
-                            String.Format(
+                            string.Format(
                                     CultureInfo.CurrentCulture,
                                     SR.ArgumentOutOfRange_Range,
                                     MinCalendarYear,

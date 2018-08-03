@@ -3,35 +3,33 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 
 namespace System.Text
 {
     public sealed class DecoderReplacementFallback : DecoderFallback
     {
         // Our variables
-        private String _strDefault;
+        private string _strDefault;
 
         // Construction.  Default replacement fallback uses no best fit and ? replacement string
         public DecoderReplacementFallback() : this("?")
         {
         }
 
-        public DecoderReplacementFallback(String replacement)
+        public DecoderReplacementFallback(string replacement)
         {
             if (replacement == null)
                 throw new ArgumentNullException(nameof(replacement));
-            Contract.EndContractBlock();
 
             // Make sure it doesn't have bad surrogate pairs
             bool bFoundHigh = false;
             for (int i = 0; i < replacement.Length; i++)
             {
                 // Found a surrogate?
-                if (Char.IsSurrogate(replacement, i))
+                if (char.IsSurrogate(replacement, i))
                 {
                     // High or Low?
-                    if (Char.IsHighSurrogate(replacement, i))
+                    if (char.IsHighSurrogate(replacement, i))
                     {
                         // if already had a high one, stop
                         if (bFoundHigh)
@@ -62,7 +60,7 @@ namespace System.Text
             _strDefault = replacement;
         }
 
-        public String DefaultString
+        public string DefaultString
         {
             get
             {
@@ -84,7 +82,7 @@ namespace System.Text
             }
         }
 
-        public override bool Equals(Object value)
+        public override bool Equals(object value)
         {
             DecoderReplacementFallback that = value as DecoderReplacementFallback;
             if (that != null)
@@ -105,7 +103,7 @@ namespace System.Text
     public sealed class DecoderReplacementFallbackBuffer : DecoderFallbackBuffer
     {
         // Store our default string
-        private String _strDefault;
+        private string _strDefault;
         private int _fallbackCount = -1;
         private int _fallbackIndex = -1;
 

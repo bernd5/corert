@@ -16,7 +16,7 @@ namespace ILCompiler.DependencyAnalysis
     public sealed class ILScanNodeFactory : NodeFactory
     {
         public ILScanNodeFactory(CompilerTypeSystemContext context, CompilationModuleGroup compilationModuleGroup, MetadataManager metadataManager, InteropStubManager interopStubManager, NameMangler nameMangler)
-            : base(context, compilationModuleGroup, metadataManager, interopStubManager, nameMangler, new LazyGenericsDisabledPolicy(), new LazyVTableSliceProvider(), new LazyDictionaryLayoutProvider())
+            : base(context, compilationModuleGroup, metadataManager, interopStubManager, nameMangler, new LazyGenericsDisabledPolicy(), new LazyVTableSliceProvider(), new LazyDictionaryLayoutProvider(), new ExternSymbolsImportedNodeProvider())
         {
         }
 
@@ -43,7 +43,7 @@ namespace ILCompiler.DependencyAnalysis
                 ThrowHelper.ThrowInvalidProgramException(ExceptionStringID.InvalidProgramSpecific, method);
             }
 
-            if (CompilationModuleGroup.ContainsMethodBody(method))
+            if (CompilationModuleGroup.ContainsMethodBody(method, false))
             {
                 return new ScannedMethodNode(method);
             }
@@ -63,7 +63,7 @@ namespace ILCompiler.DependencyAnalysis
                 // 'this' and also provides an instantiation argument (we do a calling convention conversion).
                 // We don't do this for generic instance methods though because they don't use the EEType
                 // for the generic context anyway.
-                return new ScannedMethodNode(TypeSystemContext.GetSpecialUnboxingThunk(method, CompilationModuleGroup.GeneratedAssembly));
+                return new ScannedMethodNode(TypeSystemContext.GetSpecialUnboxingThunk(method, TypeSystemContext.GeneratedAssembly));
             }
             else
             {

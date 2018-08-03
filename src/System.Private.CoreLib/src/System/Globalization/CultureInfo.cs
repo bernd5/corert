@@ -28,7 +28,6 @@
 
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 using System.Runtime.Serialization;
 using System.Threading;
 
@@ -49,7 +48,7 @@ namespace System.Globalization
         //--------------------------------------------------------------------//
 
         // We use an RFC4646 type string to construct CultureInfo.
-        // This string is stored in m_name and is authoritative.
+        // This string is stored in _name and is authoritative.
         // We use the _cultureData to get the data for our object
 
         private bool _isReadOnly;
@@ -67,11 +66,11 @@ namespace System.Globalization
 
         internal bool _isInherited;
 
-        private CultureInfo m_consoleFallbackCulture;
+        private CultureInfo _consoleFallbackCulture;
 
         // Names are confusing.  Here are 3 names we have:
         //
-        //  new CultureInfo()   m_name         _nonSortName    _sortName
+        //  new CultureInfo()   _name          _nonSortName    _sortName
         //      en-US           en-US           en-US           en-US
         //      de-de_phoneb    de-DE_phoneb    de-DE           de-DE_phoneb
         //      fj-fj (custom)  fj-FJ           fj-FJ           en-US (if specified sort is en-US)
@@ -81,9 +80,9 @@ namespace System.Globalization
         // textinfo and compareinfo names are the same as the name
 
         // Note that the name used to be serialized for Everett; it is now serialized
-        // because alernate sorts can have alternate names.
+        // because alternate sorts can have alternate names.
         // This has a de-DE, de-DE_phoneb or fj-FJ style name
-        internal string m_name;
+        internal string _name;
 
         // This will hold the non sorting name to be returned from CultureInfo.Name property.
         // This has a de-DE style name even for de-DE_phoneb type cultures
@@ -101,12 +100,8 @@ namespace System.Globalization
         //
         //--------------------------------------------------------------------//
 
-        //Get the current user default culture.  This one is almost always used, so we create it by default.
         private static volatile CultureInfo s_userDefaultCulture;
-
-        //
-        // All of the following will be created on demand.
-        //
+        private static volatile CultureInfo s_userDefaultUICulture;
 
         // WARNING: We allow diagnostic tools to directly inspect these three members (s_InvariantCultureInfo, s_DefaultThreadCurrentUICulture and s_DefaultThreadCurrentCulture)
         // See https://github.com/dotnet/corert/blob/master/Documentation/design-docs/diagnostics/diagnostics-tools-contract.md for more details. 
@@ -114,7 +109,7 @@ namespace System.Globalization
         // Get in touch with the diagnostics team if you have questions.
 
         //The Invariant culture;
-        private static volatile CultureInfo s_InvariantCultureInfo;
+        private static readonly CultureInfo s_InvariantCultureInfo = new CultureInfo(CultureData.Invariant, isReadOnly: true);
 
         //These are defaults that we use if a thread has not opted into having an explicit culture
         private static volatile CultureInfo s_DefaultThreadCurrentUICulture;
@@ -141,23 +136,16 @@ namespace System.Globalization
         internal const int LOCALE_CUSTOM_DEFAULT = 0x0c00;
         internal const int LOCALE_INVARIANT = 0x007F;
 
-        //
-        // The CultureData  instance that reads the data provided by our CultureData class.
-        //
-        // Using a field initializer rather than a static constructor so that the whole class can be lazy
-        // init.
-        private static readonly bool s_init = Init();
-        private static bool Init()
+        private static CultureInfo InitializeUserDefaultCulture()
         {
-            if (s_InvariantCultureInfo == null)
-            {
-                CultureInfo temp = new CultureInfo("", false);
-                temp._isReadOnly = true;
-                s_InvariantCultureInfo = temp;
-            }
+            Interlocked.CompareExchange(ref s_userDefaultCulture, GetUserDefaultCulture(), null);
+            return s_userDefaultCulture;
+        }
 
-            s_userDefaultCulture = GetUserDefaultCulture();
-            return true;
+        private static CultureInfo InitializeUserDefaultUICulture()
+        {
+            Interlocked.CompareExchange(ref s_userDefaultUICulture, GetUserDefaultUICulture(), null);
+            return s_userDefaultUICulture;
         }
 
         ////////////////////////////////////////////////////////////////////////
@@ -167,12 +155,12 @@ namespace System.Globalization
         ////////////////////////////////////////////////////////////////////////
 
 
-        public CultureInfo(String name)
+        public CultureInfo(string name)
             : this(name, true)
         {
         }
 
-        public CultureInfo(String name, bool useUserOverride)
+        public CultureInfo(string name, bool useUserOverride)
         {
             if (name == null)
             {
@@ -181,22 +169,23 @@ namespace System.Globalization
             }
 
             // Get our data providing record
-            this._cultureData = CultureData.GetCultureData(name, useUserOverride);
+            _cultureData = CultureData.GetCultureData(name, useUserOverride);
 
-            if (this._cultureData == null)
+            if (_cultureData == null)
                 throw new CultureNotFoundException(
                     nameof(name), name, SR.Argument_CultureNotSupported);
 
-            this.m_name = this._cultureData.CultureName;
-            this._isInherited = !this.EETypePtr.FastEquals(EETypePtr.EETypePtrOf<CultureInfo>());
+            _name = _cultureData.CultureName;
+            _isInherited = !this.EETypePtr.FastEquals(EETypePtr.EETypePtrOf<CultureInfo>());
         }
 
-        private CultureInfo(CultureData cultureData)
+        private CultureInfo(CultureData cultureData, bool isReadOnly = false)
         {
             Debug.Assert(cultureData != null);
             _cultureData = cultureData;
-            m_name = cultureData.CultureName;
+            _name = cultureData.CultureName;
             _isInherited = false;
+            _isReadOnly = isReadOnly;
         }
 
         private static CultureInfo CreateCultureInfoNoThrow(string name, bool useUserOverride)
@@ -222,13 +211,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(nameof(culture), SR.ArgumentOutOfRange_NeedPosNum);
             }
-            Contract.EndContractBlock();
 
-            InitializeFromCultureId(culture, useUserOverride);
-        }
-
-        private void InitializeFromCultureId(int culture, bool useUserOverride)
-        {
             switch (culture)
             {
                 case LOCALE_CUSTOM_DEFAULT:
@@ -246,7 +229,7 @@ namespace System.Globalization
                     break;
             }
             _isInherited = (this.GetType() != typeof(System.Globalization.CultureInfo));
-            m_name = _cultureData.CultureName;
+            _name = _cultureData.CultureName;
         }
 
         // Constructor called by SQL Server's special munged culture - creates a culture with
@@ -255,19 +238,18 @@ namespace System.Globalization
         // Note that we really cannot use an LCID version of this override as the cached
         // name we create for it has to include both names, and the logic for this is in
         // the GetCultureInfo override *only*.
-        internal CultureInfo(String cultureName, String textAndCompareCultureName)
+        internal CultureInfo(string cultureName, string textAndCompareCultureName)
         {
             if (cultureName == null)
             {
                 throw new ArgumentNullException(nameof(cultureName), SR.ArgumentNull_String);
             }
-            Contract.EndContractBlock();
 
             _cultureData = CultureData.GetCultureData(cultureName, false);
             if (_cultureData == null)
                 throw new CultureNotFoundException(nameof(cultureName), cultureName, SR.Argument_CultureNotSupported);
 
-            m_name = _cultureData.CultureName;
+            _name = _cultureData.CultureName;
 
             CultureInfo altCulture = GetCultureInfo(textAndCompareCultureName);
             _compareInfo = altCulture.CompareInfo;
@@ -279,7 +261,7 @@ namespace System.Globalization
         //
         // TODO: It would appear that this is only ever called with userOveride = true
         // and this method only has one caller.  Can we fold it into the caller?
-        private static CultureInfo GetCultureByName(String name, bool userOverride)
+        private static CultureInfo GetCultureByName(string name, bool userOverride)
         {
             CultureInfo ci = null;
             // Try to get our culture
@@ -307,10 +289,8 @@ namespace System.Globalization
         // if we can't find a bigger name.  That doesn't help with things like "zh" though, so
         // the approach is of questionable value
         //
-        public static CultureInfo CreateSpecificCulture(String name)
+        public static CultureInfo CreateSpecificCulture(string name)
         {
-            Contract.Ensures(Contract.Result<CultureInfo>() != null);
-
             CultureInfo culture;
 
             try
@@ -359,16 +339,7 @@ namespace System.Globalization
             return (new CultureInfo(culture._cultureData.SSPECIFICCULTURE));
         }
 
-        //        //
-        //        // Return a specific culture.  A tad irrelevent now since we always return valid data
-        //        // for neutral locales.
-        //        //
-        //        // Note that there's interesting behavior that tries to find a smaller name, ala RFC4647,
-        //        // if we can't find a bigger name.  That doesn't help with things like "zh" though, so
-        //        // the approach is of questionable value
-        //        //
-
-        internal static bool VerifyCultureName(String cultureName, bool throwException)
+        internal static bool VerifyCultureName(string cultureName, bool throwException)
         {
             // This function is used by ResourceManager.GetResourceFileName().
             // ResourceManager searches for resource using CultureInfo.Name,
@@ -378,7 +349,7 @@ namespace System.Globalization
             {
                 char c = cultureName[i];
                 // TODO: Names can only be RFC4646 names (ie: a-zA-Z0-9) while this allows any unicode letter/digit
-                if (Char.IsLetterOrDigit(c) || c == '-' || c == '_')
+                if (char.IsLetterOrDigit(c) || c == '-' || c == '_')
                 {
                     continue;
                 }
@@ -444,15 +415,7 @@ namespace System.Globalization
                     return ci;
                 }
 
-                // if s_userDefaultCulture == null means CultureInfo statics didn't get initialized yet. this can happen if there early static
-                // method get executed which eventually hit the cultureInfo code while CultureInfo statics didn't get chance to initialize
-                if (s_userDefaultCulture == null)
-                {
-                    Init();
-                }
-
-                Debug.Assert(s_userDefaultCulture != null);
-                return s_userDefaultCulture;
+                return s_userDefaultCulture ?? InitializeUserDefaultCulture();
             }
 
             set
@@ -496,15 +459,7 @@ namespace System.Globalization
                     return ci;
                 }
 
-                // if s_userDefaultCulture == null means CultureInfo statics didn't get initialized yet. this can happen if there early static
-                // method get executed which eventually hit the cultureInfo code while CultureInfo statics didn't get chance to initialize
-                if (s_userDefaultCulture == null)
-                {
-                    Init();
-                }
-
-                Debug.Assert(s_userDefaultCulture != null);
-                return s_userDefaultCulture;
+                return s_userDefaultUICulture ?? InitializeUserDefaultUICulture();
             }
 
             set
@@ -535,19 +490,9 @@ namespace System.Globalization
             s_currentThreadUICulture = null;
         }
 
-        public static CultureInfo InstalledUICulture
-        {
-            get
-            {
-                Contract.Ensures(Contract.Result<CultureInfo>() != null);
-                if (s_userDefaultCulture == null)
-                {
-                    Init();
-                }
-                Contract.Assert(s_userDefaultCulture != null, "[CultureInfo.InstalledUICulture] s_userDefaultCulture != null");
-                return s_userDefaultCulture;
-            }
-        }
+        internal static CultureInfo UserDefaultUICulture => s_userDefaultUICulture ?? InitializeUserDefaultUICulture();
+
+        public static CultureInfo InstalledUICulture => s_userDefaultCulture ?? InitializeUserDefaultCulture();
 
         public static CultureInfo DefaultThreadCurrentCulture
         {
@@ -599,6 +544,7 @@ namespace System.Globalization
         {
             get
             {
+                Debug.Assert(s_InvariantCultureInfo != null);
                 return (s_InvariantCultureInfo);
             }
         }
@@ -619,9 +565,9 @@ namespace System.Globalization
                 if (null == _parent)
                 {
                     CultureInfo culture = null;
-                    string parentName = this._cultureData.SPARENT;
+                    string parentName = _cultureData.SPARENT;
 
-                    if (String.IsNullOrEmpty(parentName))
+                    if (string.IsNullOrEmpty(parentName))
                     {
                         culture = InvariantCulture;
                     }
@@ -647,7 +593,7 @@ namespace System.Globalization
         {
             get
             {
-                return (this._cultureData.ILANGUAGE);
+                return _cultureData.ILANGUAGE;
             }
         }
 
@@ -661,7 +607,6 @@ namespace System.Globalization
 
         public static CultureInfo[] GetCultures(CultureTypes types)
         {
-            Contract.Ensures(Contract.Result<CultureInfo[]>() != null);
             // internally we treat UserCustomCultures as Supplementals but v2
             // treats as Supplementals and Replacements
             if ((types & CultureTypes.UserCustomCulture) == CultureTypes.UserCustomCulture)
@@ -679,17 +624,17 @@ namespace System.Globalization
         //  "en-US"  This version does NOT include sort information in the name.
         //
         ////////////////////////////////////////////////////////////////////////
-        public virtual String Name
+        public virtual string Name
         {
             get
             {
                 // We return non sorting name here.
                 if (_nonSortName == null)
                 {
-                    _nonSortName = this._cultureData.SNAME;
+                    _nonSortName = _cultureData.SNAME;
                     if (_nonSortName == null)
                     {
-                        _nonSortName = String.Empty;
+                        _nonSortName = string.Empty;
                     }
                 }
                 return _nonSortName;
@@ -697,13 +642,13 @@ namespace System.Globalization
         }
 
         // This one has the sort information (ie: de-DE_phoneb)
-        internal String SortName
+        internal string SortName
         {
             get
             {
                 if (_sortName == null)
                 {
-                    _sortName = this._cultureData.SCOMPAREINFO;
+                    _sortName = _cultureData.SCOMPAREINFO;
                 }
 
                 return _sortName;
@@ -714,8 +659,6 @@ namespace System.Globalization
         {
             get
             {
-                Contract.Ensures(Contract.Result<string>() != null);
-
                 // special case the compatibility cultures
                 switch (this.Name)
                 {
@@ -738,12 +681,11 @@ namespace System.Globalization
         //  US English, "Ingles (Estados Unidos)" will be returned.
         //
         ////////////////////////////////////////////////////////////////////////
-        public virtual String DisplayName
+        public virtual string DisplayName
         {
             get
             {
-                Contract.Ensures(Contract.Result<String>() != null);
-                Debug.Assert(m_name != null, "[CultureInfo.DisplayName] Always expect m_name to be set");
+                Debug.Assert(_name != null, "[CultureInfo.DisplayName] Always expect _name to be set");
 
                 return _cultureData.SLOCALIZEDDISPLAYNAME;
             }
@@ -758,12 +700,11 @@ namespace System.Globalization
         //  (United States)" will be returned.
         //
         ////////////////////////////////////////////////////////////////////////
-        public virtual String NativeName
+        public virtual string NativeName
         {
             get
             {
-                Contract.Ensures(Contract.Result<String>() != null);
-                return (this._cultureData.SNATIVEDISPLAYNAME);
+                return _cultureData.SNATIVEDISPLAYNAME;
             }
         }
 
@@ -776,31 +717,28 @@ namespace System.Globalization
         //  (United States)" will be returned.
         //
         ////////////////////////////////////////////////////////////////////////
-        public virtual String EnglishName
+        public virtual string EnglishName
         {
             get
             {
-                Contract.Ensures(Contract.Result<String>() != null);
-                return (this._cultureData.SENGDISPLAYNAME);
+                return _cultureData.SENGDISPLAYNAME;
             }
         }
 
         // ie: en
-        public virtual String TwoLetterISOLanguageName
+        public virtual string TwoLetterISOLanguageName
         {
             get
             {
-                Contract.Ensures(Contract.Result<String>() != null);
-                return (this._cultureData.SISO639LANGNAME);
+                return _cultureData.SISO639LANGNAME;
             }
         }
 
         // ie: eng
-        public virtual String ThreeLetterISOLanguageName
+        public virtual string ThreeLetterISOLanguageName
         {
             get
             {
-                Contract.Ensures(Contract.Result<String>() != null);
                 return _cultureData.SISO639LANGNAME2;
             }
         }
@@ -813,11 +751,10 @@ namespace System.Globalization
         //  The ISO names are much preferred
         //
         ////////////////////////////////////////////////////////////////////////
-        public virtual String ThreeLetterWindowsLanguageName
+        public virtual string ThreeLetterWindowsLanguageName
         {
             get
             {
-                Contract.Ensures(Contract.Result<String>() != null);
                 return _cultureData.SABBREVLANGNAME;
             }
         }
@@ -838,7 +775,7 @@ namespace System.Globalization
                     // Since CompareInfo's don't have any overrideable properties, get the CompareInfo from
                     // the Non-Overridden CultureInfo so that we only create one CompareInfo per culture
                     CompareInfo temp = UseUserOverride
-                                        ? GetCultureInfo(this.m_name).CompareInfo
+                                        ? GetCultureInfo(_name).CompareInfo
                                         : new CompareInfo(this);
                     if (OkayToCacheClassWithCompatibilityBehavior)
                     {
@@ -875,7 +812,7 @@ namespace System.Globalization
                 if (_textInfo == null)
                 {
                     // Make a new textInfo
-                    TextInfo tempTextInfo = new TextInfo(this._cultureData);
+                    TextInfo tempTextInfo = new TextInfo(_cultureData);
                     tempTextInfo.SetReadOnlyState(_isReadOnly);
 
                     if (OkayToCacheClassWithCompatibilityBehavior)
@@ -901,9 +838,9 @@ namespace System.Globalization
         ////////////////////////////////////////////////////////////////////////
 
 
-        public override bool Equals(Object value)
+        public override bool Equals(object value)
         {
-            if (Object.ReferenceEquals(this, value))
+            if (object.ReferenceEquals(this, value))
                 return true;
 
             CultureInfo that = value as CultureInfo;
@@ -946,13 +883,13 @@ namespace System.Globalization
         ////////////////////////////////////////////////////////////////////////
 
 
-        public override String ToString()
+        public override string ToString()
         {
-            return m_name;
+            return _name;
         }
 
 
-        public virtual Object GetFormat(Type formatType)
+        public virtual object GetFormat(Type formatType)
         {
             if (formatType == typeof(NumberFormatInfo))
                 return (NumberFormat);
@@ -965,7 +902,7 @@ namespace System.Globalization
         {
             get
             {
-                return this._cultureData.IsNeutralCulture;
+                return _cultureData.IsNeutralCulture;
             }
         }
 
@@ -1000,7 +937,7 @@ namespace System.Globalization
             {
                 if (numInfo == null)
                 {
-                    NumberFormatInfo temp = new NumberFormatInfo(this._cultureData);
+                    NumberFormatInfo temp = new NumberFormatInfo(_cultureData);
                     temp.isReadOnly = _isReadOnly;
                     Interlocked.CompareExchange(ref numInfo, temp, null);
                 }
@@ -1032,7 +969,7 @@ namespace System.Globalization
                 if (dateTimeInfo == null)
                 {
                     // Change the calendar of DTFI to the specified calendar of this CultureInfo.
-                    DateTimeFormatInfo temp = new DateTimeFormatInfo(this._cultureData, this.Calendar);
+                    DateTimeFormatInfo temp = new DateTimeFormatInfo(_cultureData, this.Calendar);
                     temp._isReadOnly = _isReadOnly;
                     Interlocked.CompareExchange(ref dateTimeInfo, temp, null);
                 }
@@ -1052,7 +989,9 @@ namespace System.Globalization
 
         public void ClearCachedData()
         {
-            s_userDefaultCulture = null;
+            // reset the default culture values
+            s_userDefaultCulture = GetUserDefaultCulture();
+            s_userDefaultUICulture = GetUserDefaultUICulture();
 
             RegionInfo.s_currentRegionInfo = null;
 #pragma warning disable 0618 // disable the obsolete warning 
@@ -1130,10 +1069,10 @@ namespace System.Globalization
             {
                 if (_calendar == null)
                 {
-                    Debug.Assert(this._cultureData.CalendarIds.Length > 0, "this._cultureData.CalendarIds.Length > 0");
+                    Debug.Assert(_cultureData.CalendarIds.Length > 0, "_cultureData.CalendarIds.Length > 0");
                     // Get the default calendar for this culture.  Note that the value can be
                     // from registry if this is a user default culture.
-                    Calendar newObj = this._cultureData.DefaultCalendar;
+                    Calendar newObj = _cultureData.DefaultCalendar;
 
                     System.Threading.Interlocked.MemoryBarrier();
                     newObj.SetReadOnlyState(_isReadOnly);
@@ -1155,12 +1094,10 @@ namespace System.Globalization
         {
             get
             {
-                Contract.Ensures(Contract.Result<Calendar[]>() != null);
-
                 //
                 // This property always returns a new copy of the calendar array.
                 //
-                CalendarId[] calID = this._cultureData.CalendarIds;
+                CalendarId[] calID = _cultureData.CalendarIds;
                 Calendar[] cals = new Calendar[calID.Length];
                 for (int i = 0; i < cals.Length; i++)
                 {
@@ -1180,19 +1117,17 @@ namespace System.Globalization
 
         public CultureInfo GetConsoleFallbackUICulture()
         {
-            Contract.Ensures(Contract.Result<CultureInfo>() != null);
-
-            CultureInfo temp = m_consoleFallbackCulture;
+            CultureInfo temp = _consoleFallbackCulture;
             if (temp == null)
             {
                 temp = CreateSpecificCulture(_cultureData.SCONSOLEFALLBACKNAME);
                 temp._isReadOnly = true;
-                m_consoleFallbackCulture = temp;
+                _consoleFallbackCulture = temp;
             }
             return (temp);
         }
 
-        public virtual Object Clone()
+        public virtual object Clone()
         {
             CultureInfo ci = (CultureInfo)MemberwiseClone();
             ci._isReadOnly = false;
@@ -1235,8 +1170,6 @@ namespace System.Globalization
             {
                 throw new ArgumentNullException(nameof(ci));
             }
-            Contract.Ensures(Contract.Result<CultureInfo>() != null);
-            Contract.EndContractBlock();
 
             if (ci.IsReadOnly)
             {
@@ -1418,7 +1351,7 @@ namespace System.Globalization
             {
                 // Remember our name (as constructed).  Do NOT use alternate sort name versions because
                 // we have internal state representing the sort.  (So someone would get the wrong cached version)
-                string newName = CultureData.AnsiToLower(retval.m_name);
+                string newName = CultureData.AnsiToLower(retval._name);
 
                 // We add this new culture info object to both tables.
                 using (LockHolder.Hold(s_lock))
@@ -1459,8 +1392,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(nameof(culture), SR.ArgumentOutOfRange_NeedPosNum);
             }
-            Contract.Ensures(Contract.Result<CultureInfo>() != null);
-            Contract.EndContractBlock();
+
             CultureInfo retval = GetCultureInfoHelper(culture, null, null);
             if (null == retval)
             {
@@ -1503,9 +1435,6 @@ namespace System.Globalization
                 throw new ArgumentNullException(nameof(altName));
             }
 
-            Contract.Ensures(Contract.Result<CultureInfo>() != null);
-            Contract.EndContractBlock();
-
             CultureInfo retval = GetCultureInfoHelper(-1, name, altName);
             if (retval == null)
             {
@@ -1518,8 +1447,6 @@ namespace System.Globalization
         // This function is deprecated, we don't like it
         public static CultureInfo GetCultureInfoByIetfLanguageTag(string name)
         {
-            Contract.Ensures(Contract.Result<CultureInfo>() != null);
-
             // Disallow old zh-CHT/zh-CHS names
             if (name == "zh-CHT" || name == "zh-CHS")
             {
@@ -1538,4 +1465,3 @@ namespace System.Globalization
         }
     }
 }
-

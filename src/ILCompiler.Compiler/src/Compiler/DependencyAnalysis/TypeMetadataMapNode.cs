@@ -6,6 +6,7 @@ using System;
 
 using Internal.NativeFormat;
 using Internal.Text;
+using Internal.TypeSystem;
 
 namespace ILCompiler.DependencyAnalysis
 {
@@ -36,8 +37,6 @@ namespace ILCompiler.DependencyAnalysis
 
         public override bool StaticDependenciesAreComputed => true;
 
-        public override bool ShouldSkipEmittingObjectNode(NodeFactory factory) => !factory.MetadataManager.SupportsReflection;
-
         protected override string GetName(NodeFactory factory) => this.GetMangledName(factory.NameMangler);
 
         public override ObjectData GetData(NodeFactory factory, bool relocsOnly = false)
@@ -54,12 +53,9 @@ namespace ILCompiler.DependencyAnalysis
 
             foreach (var mappingEntry in factory.MetadataManager.GetTypeDefinitionMapping(factory))
             {
-                if (!factory.CompilationModuleGroup.ContainsType(mappingEntry.Entity))
-                    continue;
-
                 // Types that don't have EETypes don't need mapping table entries because there's no risk of them
                 // not unifying to the same System.Type at runtime.
-                if (!factory.MetadataManager.TypeGeneratesEEType(mappingEntry.Entity))
+                if (!factory.MetadataManager.TypeGeneratesEEType(mappingEntry.Entity) && !factory.CompilationModuleGroup.ShouldReferenceThroughImportTable(mappingEntry.Entity))
                     continue;
                 
                 // Go with a necessary type symbol. It will be upgraded to a constructed one if a constructed was emitted.
@@ -80,5 +76,9 @@ namespace ILCompiler.DependencyAnalysis
 
             return new ObjectData(hashTableBytes, Array.Empty<Relocation>(), 1, new ISymbolDefinitionNode[] { this, _endSymbol });
         }
+
+        protected internal override int Phase => (int)ObjectNodePhase.Ordered;
+
+        public override int ClassCode => (int)ObjectNodeOrder.TypeMetadataMapNode;
     }
 }

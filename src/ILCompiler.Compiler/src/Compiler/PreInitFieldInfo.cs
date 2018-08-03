@@ -48,7 +48,7 @@ namespace ILCompiler
 
         public override void WriteData(ref ObjectDataBuilder builder, NodeFactory factory)
         {
-            builder.EmitPointerRelocOrIndirectionReference(factory.NecessaryTypeSymbol(TypeFixup));
+            builder.EmitPointerRelocOrIndirectionReference(factory.MaximallyConstructableType(TypeFixup));
         }
     }
 
@@ -96,9 +96,19 @@ namespace ILCompiler
         public FieldDesc Field { get; }
 
         /// <summary>
+        /// The type of the real field data. This could be a subtype of the field type.
+        /// </summary>
+        public TypeDesc Type { get; }
+
+        /// <summary>
         /// Points to the underlying contents of the data.
         /// </summary>
         public byte[] Data { get; }
+
+        /// <summary>
+        /// Start offset of the real contents in the data.
+        /// </summary>
+        public int Offset { get; }
 
         /// <summary>
         /// Number of elements, if this is a frozen array.
@@ -111,10 +121,12 @@ namespace ILCompiler
         /// </summary>
         private List<PreInitFixupInfo> FixupInfos;
 
-        public PreInitFieldInfo(FieldDesc field, byte[] data, int length, List<PreInitFixupInfo> fixups)
+        public PreInitFieldInfo(FieldDesc field, TypeDesc type, byte[] data, int offset, int length, List<PreInitFixupInfo> fixups)
         {
             Field = field;
+            Type = type;
             Data = data;
+            Offset = offset;
             Length = length;
             FixupInfos = fixups;
 
@@ -122,9 +134,9 @@ namespace ILCompiler
                 FixupInfos.Sort();
         }
 
-        public void WriteData(ref ObjectDataBuilder builder, NodeFactory factory)
+        public void WriteData(ref ObjectDataBuilder builder, NodeFactory factory, bool relocsOnly = false)
         {
-            int offset = 0;
+            int offset = Offset;
 
             if (FixupInfos != null)
             {
@@ -138,22 +150,28 @@ namespace ILCompiler
                     if (fixupInfo.Offset < offset)
                         throw new BadImageFormatException();
 
-                    // emit bytes before fixup
-                    builder.EmitBytes(Data, offset, fixupInfo.Offset - offset);
+                    if (!relocsOnly)
+                    {
+                        // emit bytes before fixup
+                        builder.EmitBytes(Data, offset, fixupInfo.Offset - offset);
+                    }
 
                     // write the fixup
                     FixupInfos[i].WriteData(ref builder, factory);
 
                     // move pointer past the fixup
-                    offset = builder.CountBytes - startOffset;
+                    offset = Offset + builder.CountBytes - startOffset;
                 }
             }
 
             if (offset > Data.Length)
                 throw new BadImageFormatException();
             
-            // Emit remaining bytes
-            builder.EmitBytes(Data, offset, Data.Length - offset);
+            if (!relocsOnly)
+            {
+                // Emit remaining bytes
+                builder.EmitBytes(Data, offset, Data.Length - offset);
+            }
         }
 
         public static List<PreInitFieldInfo> GetPreInitFieldInfos(TypeDesc type, bool hasGCStaticBase)
@@ -227,39 +245,15 @@ namespace ILCompiler
                 throw new NotSupportedException();
 
             var rvaData = ecmaDataField.GetFieldRvaData();
-
             var fieldType = field.FieldType;
-
             int elementCount;
-            if (fieldType.IsValueType || fieldType.IsPointer)
-            {
-                elementCount = -1;
-            }
-            else if (field.FieldType.IsSzArray)
-            {
-                var arrType = (ArrayType)field.FieldType;
-
-                int elementSize = arrType.ElementType.GetElementSize().AsInt;
-                if (rvaData.Length % elementSize != 0)
-                {
-                    if (rvaData.Length != 1)
-                    {
-                        // rvaData = 1 can be a special case where it has 0 size but type system will treat it as size 1
-                        throw new BadImageFormatException();
-                    }
-                }
-
-                elementCount = rvaData.Length / elementSize;
-            }
-            else
-            {
-                throw new NotSupportedException();
-            }
+            int realDataOffset;
+            TypeDesc realDataType = null;
 
             //
             // Construct fixups
             //
-            List<PreInitFixupInfo> fixups = null;            
+            List<PreInitFixupInfo> fixups = null;
 
             var typeFixupAttrs = ecmaDataField.GetDecodedCustomAttributes("System.Runtime.CompilerServices", "TypeHandleFixupAttribute");
             foreach (var typeFixupAttr in typeFixupAttrs)
@@ -284,7 +278,15 @@ namespace ILCompiler
 
                 fixups = fixups ?? new List<PreInitFixupInfo>();
 
-                fixups.Add(new PreInitTypeFixupInfo(offset, fixupType));
+                if (offset == 0 && fieldType.IsSzArray)
+                {
+                    // For array field, offset 0 is the element type handle followed by the element count
+                    realDataType = fixupType;
+                }
+                else
+                {
+                    fixups.Add(new PreInitTypeFixupInfo(offset, fixupType));
+                }
             }
 
             var methodFixupAttrs = ecmaDataField.GetDecodedCustomAttributes("System.Runtime.CompilerServices", "MethodAddrFixupAttribute");
@@ -337,13 +339,54 @@ namespace ILCompiler
 
                 fixups.Add(new PreInitFieldFixupInfo(offset, fixupField));
             }
+            
+            if (fieldType.IsValueType || fieldType.IsPointer)
+            {
+                elementCount = -1;
+                realDataOffset = 0;
+                realDataType = fieldType;
+            }
+            else if (fieldType.IsSzArray)
+            {
+                // Offset 0 is the element type handle fixup followed by the element count
+                if (realDataType == null)
+                    throw new BadImageFormatException();
 
-            return new PreInitFieldInfo(field, rvaData, elementCount, fixups);
+                int ptrSize = fieldType.Context.Target.PointerSize;
+                elementCount = rvaData[ptrSize] | rvaData[ptrSize + 1] << 8 | rvaData[ptrSize + 2] << 16 | rvaData[ptrSize + 3] << 24;
+                realDataOffset = ptrSize * 2;
+                realDataType = realDataType.MakeArrayType();
+            }
+            else
+            {
+                throw new NotSupportedException();
+            }
+
+            return new PreInitFieldInfo(field, realDataType, rvaData, realDataOffset, elementCount, fixups);
         }
 
         public static int FieldDescCompare(PreInitFieldInfo fieldInfo1, PreInitFieldInfo fieldInfo2)
         {
             return fieldInfo1.Field.Offset.AsInt - fieldInfo2.Field.Offset.AsInt;
+        }
+
+        public int CompareTo(PreInitFieldInfo other, TypeSystemComparer comparer)
+        {
+            if (Length != other.Length)
+                return Length - other.Length;
+
+            var compare = comparer.Compare(Field, other.Field);
+            if (compare != 0)
+                return compare;
+
+            Debug.Assert(Data.Length == other.Data.Length);
+            for (int i = 0; i < Length; i++)
+            {
+                if (Data[i] != other.Data[i])
+                    return Data[i] - other.Data[i];
+            }
+
+            return 0;
         }
     }
 }

@@ -6,6 +6,7 @@ using System;
 
 using Internal.NativeFormat;
 using Internal.Text;
+using Internal.TypeSystem;
 
 namespace ILCompiler.DependencyAnalysis
 {
@@ -70,7 +71,7 @@ namespace ILCompiler.DependencyAnalysis
                     writer.GetUnsignedConstant(_externalReferences.GetIndex(factory.MethodEntrypoint(structEntry.UnmarshallingThunk))),
                     writer.GetUnsignedConstant(_externalReferences.GetIndex(factory.MethodEntrypoint(structEntry.CleanupThunk))));
 
-                uint size = (uint)nativeType.InstanceByteCount.AsInt;
+                uint size = (uint)nativeType.InstanceFieldSize.AsInt;
                 uint mask = (uint)(nativeType.Fields.Length << 1)  | (uint)(nativeType.HasInvalidLayout ? 1 : 0);
 
                 Vertex data = writer.GetTuple(
@@ -103,5 +104,8 @@ namespace ILCompiler.DependencyAnalysis
 
             return new ObjectData(hashTableBytes, Array.Empty<Relocation>(), 1, new ISymbolDefinitionNode[] { this, _endSymbol });
         }
+
+        protected internal override int Phase => (int)ObjectNodePhase.Ordered;
+        public override int ClassCode => (int)ObjectNodeOrder.StructMarshallingStubMapNode;
     }
 }

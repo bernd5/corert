@@ -17,5 +17,7 @@ namespace ILCompiler
         void RootGCStaticBaseForType(TypeDesc type, string reason);
         void RootNonGCStaticBaseForType(TypeDesc type, string reason);
         void RootVirtualMethodForReflection(MethodDesc method, string reason);
+        void RootModuleMetadata(ModuleDesc module, string reason);
+        void RootReadOnlyDataBlob(byte[] data, int alignment, string reason, string exportName);
     }
 }

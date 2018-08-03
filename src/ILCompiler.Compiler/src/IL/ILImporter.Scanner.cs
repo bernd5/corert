@@ -19,6 +19,7 @@ namespace Internal.IL
     partial class ILImporter
     {
         private readonly MethodIL _methodIL;
+        private readonly MethodIL _canonMethodIL;
         private readonly ILScanner _compilation;
         private readonly ILScanNodeFactory _factory;
 
@@ -34,10 +35,16 @@ namespace Internal.IL
         private class BasicBlock
         {
             // Common fields
+            public enum ImportState : byte
+            {
+                Unmarked,
+                IsPending
+            }
+
             public BasicBlock Next;
 
             public int StartOffset;
-            public int EndOffset;
+            public ImportState State = ImportState.Unmarked;
 
             public bool TryStart;
             public bool FilterStart;
@@ -77,6 +84,8 @@ namespace Internal.IL
             _factory = (ILScanNodeFactory)compilation.NodeFactory;
             
             _ilBytes = methodIL.GetILBytes();
+
+            _canonMethodIL = methodIL;
 
             // Get the runtime determined method IL so that this works right in shared code
             // and tokens in shared code resolve to runtime determined types.
@@ -192,6 +201,17 @@ namespace Internal.IL
                     MarkBasicBlock(_basicBlocks[region.HandlerOffset]);
                     if (region.Kind == ILExceptionRegionKind.Filter)
                         MarkBasicBlock(_basicBlocks[region.FilterOffset]);
+
+                    // Once https://github.com/dotnet/corert/issues/3460 is done, this should be deleted.
+                    // Throwing InvalidProgram is not great, but we want to do *something* if this happens
+                    // because doing nothing means problems at runtime. This is not worth piping a
+                    // a new exception with a fancy message for.
+                    if (region.Kind == ILExceptionRegionKind.Catch)
+                    {
+                        TypeDesc catchType = (TypeDesc)_methodIL.GetObject(region.ClassToken);
+                        if (catchType.IsRuntimeDeterminedSubtype)
+                            ThrowHelper.ThrowInvalidProgramException();
+                    }
                 }
             }
 
@@ -249,11 +269,10 @@ namespace Internal.IL
         
         private void ImportCall(ILOpcode opcode, int token)
         {
-            // Strip runtime determined characteristics off of the method (because that's how RyuJIT operates)
+            // We get both the canonical and runtime determined form - JitInterface mostly operates
+            // on the canonical form.
             var runtimeDeterminedMethod = (MethodDesc)_methodIL.GetObject(token);
-            MethodDesc method = runtimeDeterminedMethod;
-            if (runtimeDeterminedMethod.IsRuntimeDeterminedExactMethod)
-                method = runtimeDeterminedMethod.GetCanonMethodTarget(CanonicalFormKind.Specific);
+            var method = (MethodDesc)_canonMethodIL.GetObject(token);
 
             if (method.IsRawPInvoke())
             {
@@ -337,10 +356,14 @@ namespace Internal.IL
                 }
             }
 
-            if (method.OwningType.IsDelegate && method.Name == "Invoke")
+            if (method.OwningType.IsDelegate && method.Name == "Invoke" &&
+                opcode != ILOpcode.ldftn && opcode != ILOpcode.ldvirtftn)
             {
-                // TODO: might not want to do this if scanning for reflection.
-                // This is expanded as an intrinsic, not a function call.
+                // This call is expanded as an intrinsic; it's not an actual function call.
+                // Before codegen realizes this is an intrinsic, it might still ask questions about
+                // the vtable of this virtual method, so let's make sure it's marked in the scanner's
+                // dependency graph.
+                _dependencies.Add(_factory.VTable(method.OwningType), reason);
                 return;
             }
 
@@ -399,6 +422,11 @@ namespace Internal.IL
             }
 
             TypeDesc exactType = method.OwningType;
+
+            if (method.IsNativeCallable && (opcode != ILOpcode.ldftn && opcode != ILOpcode.ldvirtftn))
+            {
+                ThrowHelper.ThrowInvalidProgramException(ExceptionStringID.InvalidProgramNativeCallable, method);
+            }
 
             bool resolvedConstraint = false;
             bool forceUseRuntimeLookup = false;
@@ -552,7 +580,7 @@ namespace Internal.IL
                             _dependencies.Add(instParam, reason);
                         }
 
-                        _dependencies.Add(_factory.RuntimeDeterminedMethod(runtimeDeterminedMethod), reason);
+                        _dependencies.Add(_factory.CanonicalEntrypoint(targetMethod), reason);
                     }
                     else
                     {
@@ -747,10 +775,7 @@ namespace Internal.IL
                 }
                 else
                 {
-                    if (ConstructedEETypeNode.CreationAllowed(type))
-                        _dependencies.Add(_factory.ConstructedTypeSymbol(type), "ldtoken");
-                    else
-                        _dependencies.Add(_factory.NecessaryTypeSymbol(type), "ldtoken");
+                    _dependencies.Add(_factory.MaximallyConstructableType(type), "ldtoken");
                 }
 
                 // If this is a ldtoken Type / GetValueInternal sequence, we're done.
@@ -1028,6 +1053,11 @@ namespace Internal.IL
         }
 
         private void ReportFallthroughAtEndOfMethod()
+        {
+            ThrowHelper.ThrowInvalidProgramException();
+        }
+
+        private void ReportMethodEndInsideInstruction()
         {
             ThrowHelper.ThrowInvalidProgramException();
         }

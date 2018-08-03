@@ -18,6 +18,8 @@ using ObjectData = ILCompiler.DependencyAnalysis.ObjectNode.ObjectData;
 
 using LLVMSharp;
 using ILCompiler.CodeGen;
+using System.Linq;
+using Internal.IL;
 
 namespace ILCompiler.DependencyAnalysis
 {
@@ -73,6 +75,7 @@ namespace ILCompiler.DependencyAnalysis
         }
 
         private static Dictionary<string, LLVMValueRef> s_symbolValues = new Dictionary<string, LLVMValueRef>();
+        private static Dictionary<FieldDesc, LLVMValueRef> s_staticFieldMapping = new Dictionary<FieldDesc, LLVMValueRef>();
 
         public static LLVMValueRef GetSymbolValuePointer(LLVMModuleRef module, ISymbolNode symbol, NameMangler nameMangler, bool objectWriterUse = false)
         {
@@ -178,31 +181,111 @@ namespace ILCompiler.DependencyAnalysis
             }
 
             EmitNativeMain();
-            LLVM.VerifyModule(Module, LLVMVerifierFailureAction.LLVMPrintMessageAction, out IntPtr unused);
             LLVM.WriteBitcodeToFile(Module, _objectFilePath);
-            LLVM.DumpModule(Module);
+#if DEBUG
+            LLVM.PrintModuleToFile(Module, Path.ChangeExtension(_objectFilePath, ".txt"), out string unused2);
+#endif //DEBUG
+            LLVM.VerifyModule(Module, LLVMVerifierFailureAction.LLVMAbortProcessAction, out string unused);
+
             //throw new NotImplementedException(); // This function isn't complete
+        }
+
+        public static LLVMValueRef GetConstZeroArray(int length)
+        {
+            var int8Type = LLVM.Int8Type();
+            var result = new LLVMValueRef[length];
+            for (int i = 0; i < length; i++)
+            {
+                result[i] = LLVM.ConstInt(int8Type, 0, LLVMMisc.False);
+            }
+            return LLVM.ConstArray(int8Type, result);
+        }
+
+        public static LLVMValueRef EmitGlobal(LLVMModuleRef module, FieldDesc field, NameMangler nameMangler)
+        {
+            if (field.IsStatic)
+            {
+                if (s_staticFieldMapping.TryGetValue(field, out LLVMValueRef existingValue))
+                    return existingValue;
+                else
+                {
+                    var valueType = LLVM.ArrayType(LLVM.Int8Type(), (uint)field.FieldType.GetElementSize().AsInt);
+                    var llvmValue = LLVM.AddGlobal(module, valueType, nameMangler.GetMangledFieldName(field).ToString());
+                    LLVM.SetLinkage(llvmValue, LLVMLinkage.LLVMInternalLinkage);
+                    LLVM.SetInitializer(llvmValue, GetConstZeroArray(field.FieldType.GetElementSize().AsInt));
+                    if (field.IsThreadStatic)
+                    {
+                        LLVM.SetThreadLocal(llvmValue, LLVMMisc.True);
+                    }
+                    s_staticFieldMapping.Add(field, llvmValue);
+                    return llvmValue;
+                }
+            }
+            else
+                throw new NotImplementedException();
+        }
+
+        private void EmitReadyToRunHeaderCallback()
+        {
+            LLVMTypeRef intPtr = LLVM.PointerType(LLVM.Int32Type(), 0);
+            LLVMTypeRef intPtrPtr = LLVM.PointerType(intPtr, 0);
+            var callback = LLVM.AddFunction(Module, "RtRHeaderWrapper", LLVM.FunctionType(intPtrPtr, new LLVMTypeRef[0], false));
+            var builder = LLVM.CreateBuilder();
+            var block = LLVM.AppendBasicBlock(callback, "Block");
+            LLVM.PositionBuilderAtEnd(builder, block);
+
+            LLVMValueRef rtrHeaderPtr = GetSymbolValuePointer(Module, _nodeFactory.ReadyToRunHeader, _nodeFactory.NameMangler, false);
+            LLVMValueRef castRtrHeaderPtr = LLVM.BuildPointerCast(builder, rtrHeaderPtr, intPtrPtr, "castRtrHeaderPtr");
+            LLVM.BuildRet(builder, castRtrHeaderPtr);
         }
 
         private void EmitNativeMain()
         {
+            LLVMValueRef shadowStackTop = LLVM.GetNamedGlobal(Module, "t_pShadowStackTop");
+
             LLVMBuilderRef builder = LLVM.CreateBuilder();
-            var mainSignature = LLVM.FunctionType(LLVM.Int32Type(), new LLVMTypeRef[0], false);
-            var mainFunc = LLVM.AddFunction(Module, "main", mainSignature);
+            var mainSignature = LLVM.FunctionType(LLVM.Int32Type(), new LLVMTypeRef[] { LLVM.Int32Type(), LLVM.PointerType(LLVM.Int8Type(), 0) }, false);
+            var mainFunc = LLVM.AddFunction(Module, "__managed__Main", mainSignature);
             var mainEntryBlock = LLVM.AppendBasicBlock(mainFunc, "entry");
             LLVM.PositionBuilderAtEnd(builder, mainEntryBlock);
-            LLVMValueRef managedMain = LLVM.GetNamedFunction(Module, "Main");
+            LLVMValueRef managedMain = LLVM.GetNamedFunction(Module, "StartupCodeMain");
+            if (managedMain.Pointer == IntPtr.Zero)
+            {
+                throw new Exception("Main not found");
+            }
+
+            LLVMTypeRef reversePInvokeFrameType = LLVM.StructType(new LLVMTypeRef[] { LLVM.PointerType(LLVM.Int8Type(), 0), LLVM.PointerType(LLVM.Int8Type(), 0) }, false);
+            LLVMValueRef reversePinvokeFrame = LLVM.BuildAlloca(builder, reversePInvokeFrameType, "ReversePInvokeFrame");
+            LLVMValueRef RhpReversePInvoke2 = LLVM.GetNamedFunction(Module, "RhpReversePInvoke2");
+
+            if (RhpReversePInvoke2.Pointer == IntPtr.Zero)
+            {
+                RhpReversePInvoke2 = LLVM.AddFunction(Module, "RhpReversePInvoke2", LLVM.FunctionType(LLVM.VoidType(), new LLVMTypeRef[] { LLVM.PointerType(reversePInvokeFrameType, 0) }, false));
+            }
+
+            LLVM.BuildCall(builder, RhpReversePInvoke2, new LLVMValueRef[] { reversePinvokeFrame }, "");
 
             var shadowStack = LLVM.BuildMalloc(builder, LLVM.ArrayType(LLVM.Int8Type(), 1000000), String.Empty);
             var castShadowStack = LLVM.BuildPointerCast(builder, shadowStack, LLVM.PointerType(LLVM.Int8Type(), 0), String.Empty);
+            LLVM.BuildStore(builder, castShadowStack, shadowStackTop);
+
+            // Pass on main arguments
+            var argcSlot = LLVM.BuildPointerCast(builder, shadowStack, LLVM.PointerType(LLVM.Int32Type(), 0), "argcSlot");
+            LLVM.BuildStore(builder, LLVM.GetParam(mainFunc, 0), argcSlot);
+            var argvSlot = LLVM.BuildGEP(builder, castShadowStack, new LLVMValueRef[] { LLVM.ConstInt(LLVM.Int32Type(), 4, LLVMMisc.False) }, "argvSlot");
+            LLVM.BuildStore(builder, LLVM.GetParam(mainFunc, 1), LLVM.BuildPointerCast(builder, argvSlot, LLVM.PointerType(LLVM.PointerType(LLVM.Int8Type(), 0), 0), ""));
+
+            // StartupCodeMain will always return a value whether the user's main does or not
+            LLVMValueRef returnValueSlot = LLVM.BuildAlloca(builder, LLVM.Int32Type(), "returnValue");
+
             LLVM.BuildCall(builder, managedMain, new LLVMValueRef[]
             {
                 castShadowStack,
-                LLVM.ConstPointerNull(LLVM.PointerType(LLVM.Int8Type(), 0))
+                LLVM.BuildPointerCast(builder, returnValueSlot, LLVM.PointerType(LLVM.Int8Type(), 0), String.Empty) 
             },
             String.Empty);
 
-            LLVM.BuildRet(builder, LLVM.ConstInt(LLVM.Int32Type(), 42, LLVMMisc.False));
+            LLVM.BuildRet(builder, LLVM.BuildLoad(builder, returnValueSlot, String.Empty));
             LLVM.SetLinkage(mainFunc, LLVMLinkage.LLVMExternalLinkage);
         }
 
@@ -233,7 +316,7 @@ namespace ILCompiler.DependencyAnalysis
             {
                 LLVMValueRef valRef = IsFunction ? LLVM.GetNamedFunction(module, SymbolName) : LLVM.GetNamedGlobal(module, SymbolName);
 
-                if (Offset != 0)
+                if (Offset != 0 && valRef.Pointer != IntPtr.Zero)
                 {
                     var pointerType = LLVM.PointerType(LLVM.Int8Type(), 0);
                     var bitCast = LLVM.ConstBitCast(valRef, pointerType);
@@ -284,8 +367,16 @@ namespace ILCompiler.DependencyAnalysis
                     if (ObjectSymbolRefs.TryGetValue(curOffset, out symbolRef))
                     {
                         LLVMValueRef pointedAtValue = symbolRef.ToLLVMValueRef(module);
-                        var ptrValue = LLVM.ConstBitCast(pointedAtValue, intPtrType);
-                        entries.Add(ptrValue);
+                        //TODO: why did this come back null
+                        if (pointedAtValue.Pointer != IntPtr.Zero)
+                        {
+                            var ptrValue = LLVM.ConstBitCast(pointedAtValue, intPtrType);
+                            entries.Add(ptrValue);
+                        }
+                        else
+                        {
+                            entries.Add(LLVM.ConstPointerNull(intPtrType));
+                        }
                     }
                     else
                     {
@@ -328,7 +419,6 @@ namespace ILCompiler.DependencyAnalysis
             LLVM.SetLinkage(arrayglobal, LLVMLinkage.LLVMExternalLinkage);
 
             _dataToFill.Add(new ObjectNodeDataEmission(arrayglobal, _currentObjectData.ToArray(), _currentObjectSymbolRefs));
-
 
             foreach (var symbolIdInfo in _symbolDefs)
             {
@@ -413,16 +503,15 @@ namespace ILCompiler.DependencyAnalysis
                 delta = checked(delta + sizeof(int));
             }
 
+            int totalOffset = checked(delta + offsetFromSymbolName);
+
             EmitBlob(new byte[this._nodeFactory.Target.PointerSize]);
             if (relocType == RelocType.IMAGE_REL_BASED_REL32)
             {
-                Console.WriteLine("REL BASED RELOC");
                 return this._nodeFactory.Target.PointerSize;
             }
 
-            
-
-            _currentObjectSymbolRefs.Add(symbolStartOffset, new SymbolRefData(isFunction, realSymbolName, symbolStartOffset + delta));
+            _currentObjectSymbolRefs.Add(symbolStartOffset, new SymbolRefData(isFunction, realSymbolName, totalOffset));
             return _nodeFactory.Target.PointerSize;
         }
 
@@ -626,6 +715,14 @@ namespace ILCompiler.DependencyAnalysis
             }
         }
 
+        private static int GetVTableSlotsCount(NodeFactory factory, TypeDesc type)
+        {
+            if (type == null)
+                return 0;
+            int slotsOnCurrentType = factory.VTable(type).Slots.Count;
+            return slotsOnCurrentType + GetVTableSlotsCount(factory, type.BaseType);
+        }
+
         public static void EmitObject(string objectFilePath, IEnumerable<DependencyNode> nodes, NodeFactory factory, WebAssemblyCodegenCompilation compilation, IObjectDumper dumper)
         {
             WebAssemblyObjectWriter objectWriter = new WebAssemblyObjectWriter(objectFilePath, factory, compilation);
@@ -633,6 +730,7 @@ namespace ILCompiler.DependencyAnalysis
 
             try
             {
+                objectWriter.EmitReadyToRunHeaderCallback();
                 //ObjectNodeSection managedCodeSection = null;
 
                 var listOfOffsets = new List<int>();
@@ -644,6 +742,7 @@ namespace ILCompiler.DependencyAnalysis
 
                     if (node.ShouldSkipEmittingObjectNode(factory))
                         continue;
+
                     objectWriter.StartObjectNode(node);
                     ObjectData nodeContents = node.GetData(factory);
 
@@ -660,7 +759,7 @@ namespace ILCompiler.DependencyAnalysis
                         catch (ArgumentException)
                         {
                             ISymbolNode alreadyWrittenSymbol = _previouslyWrittenNodeNames[definedSymbol.GetMangledName(factory.NameMangler)];
-                            Debug.Assert(false, "Duplicate node name emitted to file",
+                            Debug.Fail("Duplicate node name emitted to file",
                             $"Symbol {definedSymbol.GetMangledName(factory.NameMangler)} has already been written to the output object file {objectFilePath} with symbol {alreadyWrittenSymbol}");
                         }
                     }

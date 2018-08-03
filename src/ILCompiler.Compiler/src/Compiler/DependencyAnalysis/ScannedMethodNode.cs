@@ -62,5 +62,12 @@ namespace ILCompiler.DependencyAnalysis
         public override bool InterestingForDynamicDependencyAnalysis => false;
         public override bool HasDynamicDependencies => false;
         public override bool HasConditionalStaticDependencies => false;
+
+        int ISortableNode.ClassCode => -1381809560;
+
+        int ISortableNode.CompareToImpl(ISortableNode other, CompilerComparer comparer)
+        {
+            return comparer.Compare(Method, ((ScannedMethodNode)other).Method);
+        }
     }
 }

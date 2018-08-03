@@ -18,6 +18,7 @@ using System.Threading;
 using System.Diagnostics;
 
 using Internal.Runtime.Augments;
+using Internal.Runtime.CompilerServices;
 
 namespace System
 {
@@ -133,7 +134,7 @@ namespace System
         /// and gets\create a new RCW in case it is alive.
         /// </summary>
         /// <returns></returns>
-        private Object TryGetComTarget()
+        private object TryGetComTarget()
         {
 #if ENABLE_WINRT
             WinRTInteropCallbacks callbacks = WinRTInterop.UnsafeCallbacks;
@@ -143,7 +144,7 @@ namespace System
             }
             else
             {
-                Debug.Assert(false, "WinRTInteropCallback is null");
+                Debug.Fail("WinRTInteropCallback is null");
             }
 #endif // ENABLE_WINRT
             return null;
@@ -162,7 +163,7 @@ namespace System
                 callbacks.SetCOMWeakReferenceTarget(this, target);
             else
             {
-                Debug.Assert(false, "WinRTInteropCallback is null");
+                Debug.Fail("WinRTInteropCallback is null");
             }
 #endif // ENABLE_WINRT
         }

@@ -23,11 +23,10 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Text;
 using System.Runtime;
-using System.Diagnostics.Contracts;
 
 using Internal.NativeFormat;
 
-#if !RHTESTCL && !CORECLR && !CORERT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
 using Internal.Runtime.Augments;
 using Internal.Runtime.TypeLoader;
 #endif
@@ -73,7 +72,7 @@ namespace System
     /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     [CLSCompliant(false)]
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
     public unsafe class __ComObject : CastableObject, ICastable
 #else
     public unsafe class __ComObject : ICastable
@@ -162,7 +161,7 @@ namespace System
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]
         private RCWFinalizer m_finalizer;
 
-#if !RHTESTCL && !CORECLR && !CORERT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]
         private static readonly System.Collections.Generic.Dictionary<RuntimeTypeHandle, RuntimeTypeHandle> s_DynamicRCWAdapters = 
             new System.Collections.Generic.Dictionary<RuntimeTypeHandle, RuntimeTypeHandle>();
@@ -334,7 +333,7 @@ namespace System
 
         static __ComObject()
         {
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             // Projected types
             s_DynamicRCWAdapters[typeof(IEnumerable<>).TypeHandle]                                                  = typeof(IEnumerable_RCWAdapter<>).TypeHandle;
             s_DynamicRCWAdapters[typeof(IList<>).TypeHandle]                                                        = typeof(IList_RCWAdapter<>).TypeHandle;
@@ -431,7 +430,7 @@ namespace System
                     m_flags |= (ComObjectFlags.GCPressureWinRT_High | ComObjectFlags.GCPressure_Set);
                     break;
                 default:
-                    Debug.Assert(false, "Incorrect GCPressure value");
+                    Debug.Fail("Incorrect GCPressure value");
                     return;
             }
 
@@ -1175,7 +1174,7 @@ namespace System
 
         /// <summary>
         /// Slow path of QueryInterface that does not look at any cache.
-        /// NOTE: MethodImpl(NoInlining) is necessary becauase Bartok is trying to be "helpful" by inlining
+        /// NOTE: MethodImpl(NoInlining) is necessary because Bartok is trying to be "helpful" by inlining
         /// these calls while in other cases it does not inline when it should.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -1327,7 +1326,7 @@ namespace System
             }
 #endif
 
-#if !RHTESTCL && !CORECLR && !CORERT
+#if !RHTESTCL && PROJECTN
 
             //
             // Search the existing cached interfaces in the simple cache that we can cast to the input interface type
@@ -1572,7 +1571,7 @@ namespace System
         #endregion
 
         #region CastableObject implementation for weakly typed RCWs
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
         object CastToICollectionHelper(RuntimeTypeHandle genericTypeDef, RuntimeTypeHandle[] genericArguments, bool testForIDictionary)
         {
             Debug.Assert(genericTypeDef.Equals(typeof(ICollection<>).TypeHandle) || genericTypeDef.Equals(typeof(IReadOnlyCollection<>).TypeHandle));
@@ -1872,7 +1871,7 @@ namespace System
             //
             bool hasValidDispatcher = true;
 
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             hasValidDispatcher = McgModuleManager.UseDynamicInterop && interfaceType.IsGenericType() ? 
                 !interfaceType.GetDispatchClassType().IsInvalid() : 
                 true;
@@ -2234,7 +2233,7 @@ namespace System
         /// </summary>
         private unsafe object GetDynamicAdapterInternal(RuntimeTypeHandle requestedType, RuntimeTypeHandle targetType)
         {
-            Debug.Assert(requestedType.HasDynamicAdapterClass());
+            Debug.Assert(requestedType.HasDynamicAdapterClass() || requestedType.IsGenericType());
 
             Debug.Assert(targetType.IsNull() || targetType.HasDynamicAdapterClass());
 
@@ -2268,7 +2267,7 @@ namespace System
             if (dynamicAdapter != null)
                 return dynamicAdapter;
 
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             // Try dynamic rcw, The Caller will generate/throw exception if return null
             Exception e;
             dynamicAdapter = CastToInterface(requestedType, /*produceCastErrorException*/ false, out e);
@@ -2450,7 +2449,7 @@ namespace System.Runtime.InteropServices
                 int hr = ExternalInterop.CoGetContextToken(out pCookie);
                 if (hr < 0)
                 {
-                    Debug.Assert(false, "CoGetContextToken failed");
+                    Debug.Fail("CoGetContextToken failed");
                     pCookie = default(IntPtr);
                 }
                 return new ContextCookie(pCookie);
@@ -3067,7 +3066,7 @@ namespace System.Runtime.InteropServices
                     (Interop.COM.__IContextCallback*)(void*)pContextCallback;
                 fixed (Guid* unsafe_iid = &Interop.COM.IID_IEnterActivityWithNoLock)
                 {
-                    int hr = CalliIntrinsics.StdCall<int>(
+                    int hr = CalliIntrinsics.StdCall__int(
                         pContextCallbackNativePtr->vtbl->pfnContextCallback,
                         pContextCallbackNativePtr,                              // Don't forget 'this pointer
                         AddrOfIntrinsics.AddrOf<AddrOfIntrinsics.AddrOfTarget1>(EnterContextCallbackProc),
@@ -3608,7 +3607,7 @@ namespace System.Runtime.InteropServices
 
                     try
                     {
-                        int hr = CalliIntrinsics.StdCall<int>(
+                        int hr = CalliIntrinsics.StdCall__int(
                             pIStringable->pVtable->pfnToString,
                             pIStringable,
                             &unsafe_hstring

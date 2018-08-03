@@ -90,5 +90,12 @@ namespace ILCompiler.DependencyAnalysis
         {
             factory.FrozenSegmentRegion.AddEmbeddedObject(this);
         }
+
+        public override int ClassCode => -1733946122;
+
+        public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
+        {
+            return string.CompareOrdinal(_data, ((FrozenStringNode)other)._data);
+        }
     }
 }

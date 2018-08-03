@@ -15,6 +15,8 @@ using System.Runtime.Serialization;
 
 namespace System
 {
+    [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class DivideByZeroException : ArithmeticException
     {
         public DivideByZeroException()
@@ -23,13 +25,13 @@ namespace System
             HResult = HResults.COR_E_DIVIDEBYZERO;
         }
 
-        public DivideByZeroException(String message)
+        public DivideByZeroException(string message)
             : base(message)
         {
             HResult = HResults.COR_E_DIVIDEBYZERO;
         }
 
-        public DivideByZeroException(String message, Exception innerException)
+        public DivideByZeroException(string message, Exception innerException)
             : base(message, innerException)
         {
             HResult = HResults.COR_E_DIVIDEBYZERO;
@@ -37,7 +39,6 @@ namespace System
 
         protected DivideByZeroException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
-            throw new PlatformNotSupportedException();
         }
     }
 }

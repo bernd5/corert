@@ -213,11 +213,11 @@ TODO: Talk about initializing strutures before use
     #define SELECTANY extern __declspec(selectany)
 #endif
 
-SELECTANY const GUID JITEEVersionIdentifier = { /* 7f70c266-eada-427b-be8a-be1260e34b1b */
-    0x7f70c266,
-    0xeada,
-    0x427b,
-    {0xbe, 0x8a, 0xbe, 0x12, 0x60, 0xe3, 0x4b, 0x1b}
+SELECTANY const GUID JITEEVersionIdentifier = { /* 45aafd4d-1d23-4647-9ce1-cf09a2677ca0 */
+    0x45aafd4d,
+    0x1d23,
+    0x4647,
+    {0x9c, 0xe1, 0xcf, 0x09, 0xa2, 0x67, 0x7c, 0xa0}
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -642,6 +642,8 @@ enum CorInfoHelpFunc
 
     CORINFO_HELP_THROW_ARGUMENTEXCEPTION,           // throw ArgumentException
     CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION, // throw ArgumentOutOfRangeException
+    CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED,      // throw PlatformNotSupportedException
+    CORINFO_HELP_THROW_TYPE_NOT_SUPPORTED,          // throw TypeNotSupportedException
 
     CORINFO_HELP_JIT_PINVOKE_BEGIN, // Transition to preemptive mode before a P/Invoke, frame is the first argument
     CORINFO_HELP_JIT_PINVOKE_END,   // Transition to cooperative mode after a P/Invoke, frame is the first argument
@@ -808,7 +810,7 @@ enum CorInfoFlag
     CORINFO_FLG_VIRTUAL               = 0x00000040,
 //  CORINFO_FLG_UNUSED                = 0x00000080,
     CORINFO_FLG_NATIVE                = 0x00000100,
-//  CORINFO_FLG_UNUSED                = 0x00000200,
+    CORINFO_FLG_INTRINSIC_TYPE        = 0x00000200, // This type is marked by [Intrinsic]
     CORINFO_FLG_ABSTRACT              = 0x00000400,
 
     CORINFO_FLG_EnC                   = 0x00000800, // member was added by Edit'n'Continue
@@ -914,6 +916,7 @@ enum CorInfoIntrinsics
 {
     CORINFO_INTRINSIC_Sin,
     CORINFO_INTRINSIC_Cos,
+    CORINFO_INTRINSIC_Cbrt,
     CORINFO_INTRINSIC_Sqrt,
     CORINFO_INTRINSIC_Abs,
     CORINFO_INTRINSIC_Round,
@@ -922,9 +925,12 @@ enum CorInfoIntrinsics
     CORINFO_INTRINSIC_Tan,
     CORINFO_INTRINSIC_Tanh,
     CORINFO_INTRINSIC_Asin,
+    CORINFO_INTRINSIC_Asinh,
     CORINFO_INTRINSIC_Acos,
+    CORINFO_INTRINSIC_Acosh,
     CORINFO_INTRINSIC_Atan,
     CORINFO_INTRINSIC_Atan2,
+    CORINFO_INTRINSIC_Atanh,
     CORINFO_INTRINSIC_Log10,
     CORINFO_INTRINSIC_Pow,
     CORINFO_INTRINSIC_Exp,
@@ -971,8 +977,9 @@ enum CorInfoIntrinsics
 enum InfoAccessType
 {
     IAT_VALUE,      // The info value is directly available
-    IAT_PVALUE,     // The value needs to be accessed via an       indirection
-    IAT_PPVALUE     // The value needs to be accessed via a double indirection
+    IAT_PVALUE,     // The value needs to be accessed via an         indirection
+    IAT_PPVALUE,    // The value needs to be accessed via a double   indirection
+    IAT_RELPVALUE   // The value needs to be accessed via a relative indirection
 };
 
 enum CorInfoGCType
@@ -1237,6 +1244,7 @@ struct CORINFO_METHOD_INFO
 // Constant Lookups are either:
 //     IAT_VALUE: immediate (relocatable) values,
 //     IAT_PVALUE: immediate values access via an indirection through an immediate (relocatable) address
+//     IAT_RELPVALUE: immediate values access via a relative indirection through an immediate offset
 //     IAT_PPVALUE: immediate values access via a double indirection through an immediate (relocatable) address
 //
 // Runtime Lookups
@@ -1262,9 +1270,10 @@ struct CORINFO_CONST_LOOKUP
     // If the handle is obtained at compile-time, then this handle is the "exact" handle (class, method, or field)
     // Otherwise, it's a representative... 
     // If accessType is
-    //     IAT_VALUE   --> "handle" stores the real handle or "addr " stores the computed address
-    //     IAT_PVALUE  --> "addr" stores a pointer to a location which will hold the real handle
-    //     IAT_PPVALUE --> "addr" stores a double indirection to a location which will hold the real handle
+    //     IAT_VALUE     --> "handle" stores the real handle or "addr " stores the computed address
+    //     IAT_PVALUE    --> "addr" stores a pointer to a location which will hold the real handle
+    //     IAT_RELPVALUE --> "addr" stores a relative pointer to a location which will hold the real handle
+    //     IAT_PPVALUE   --> "addr" stores a double indirection to a location which will hold the real handle
 
     InfoAccessType              accessType;
     union
@@ -1355,6 +1364,7 @@ struct CORINFO_LOOKUP
         // Otherwise, it's a representative...  If accessType is
         //     IAT_VALUE --> "handle" stores the real handle or "addr " stores the computed address
         //     IAT_PVALUE --> "addr" stores a pointer to a location which will hold the real handle
+        //     IAT_RELPVALUE --> "addr" stores a relative pointer to a location which will hold the real handle
         //     IAT_PPVALUE --> "addr" stores a double indirection to a location which will hold the real handle
         CORINFO_CONST_LOOKUP    constLookup;
     };
@@ -1920,6 +1930,21 @@ struct CORINFO_VarArgInfo
 
 #include <poppack.h>
 
+#define SIZEOF__CORINFO_Object                            TARGET_POINTER_SIZE /* methTable */
+
+#define OFFSETOF__CORINFO_Array__length                   SIZEOF__CORINFO_Object
+#ifdef _TARGET_64BIT_
+#define OFFSETOF__CORINFO_Array__data                     (OFFSETOF__CORINFO_Array__length + sizeof(unsigned __int32) /* length */ + sizeof(unsigned __int32) /* alignpad */)
+#else
+#define OFFSETOF__CORINFO_Array__data                     (OFFSETOF__CORINFO_Array__length + sizeof(unsigned __int32) /* length */)
+#endif
+
+#define OFFSETOF__CORINFO_TypedReference__dataPtr         0
+#define OFFSETOF__CORINFO_TypedReference__type            (OFFSETOF__CORINFO_TypedReference__dataPtr + TARGET_POINTER_SIZE /* dataPtr */)
+
+#define OFFSETOF__CORINFO_String__stringLen               SIZEOF__CORINFO_Object
+#define OFFSETOF__CORINFO_String__chars                   (OFFSETOF__CORINFO_String__stringLen + sizeof(unsigned __int32) /* stringLen */)
+
 enum CorInfoSecurityRuntimeChecks
 {
     CORINFO_ACCESS_SECURITY_NONE                          = 0,
@@ -1938,9 +1963,6 @@ struct DelegateCtorArgs
 
 // use offsetof to get the offset of the fields above
 #include <stddef.h> // offsetof
-#ifndef offsetof
-#define offsetof(s,m)   ((size_t)&(((s *)0)->m))
-#endif
 
 // Guard-stack cookie for preventing against stack buffer overruns
 typedef SIZE_T GSCookie;
@@ -1953,6 +1975,14 @@ typedef SIZE_T GSCookie;
 // This is the maximum nesting level that a compiler needs to support for EnC
 
 const int MAX_EnC_HANDLER_NESTING_LEVEL = 6;
+
+// Results from type comparison queries
+enum class TypeCompareState
+{
+    MustNot = -1, // types are not equal
+    May = 0,      // types may be equal (must test at runtime)
+    Must = 1,     // type are equal
+};
 
 //
 // This interface is logically split into sections for each class of information 
@@ -2083,6 +2113,18 @@ public:
             CORINFO_METHOD_HANDLE       virtualMethod,          /* IN */
             CORINFO_CLASS_HANDLE        implementingClass,      /* IN */
             CORINFO_CONTEXT_HANDLE      ownerType = NULL        /* IN */
+            ) = 0;
+
+    // Get the unboxed entry point for a method, if possible.
+    virtual CORINFO_METHOD_HANDLE getUnboxedEntry(
+        CORINFO_METHOD_HANDLE ftn,
+        bool* requiresInstMethodTableArg = NULL /* OUT */
+        ) = 0;
+
+    // Given T, return the type of the default EqualityComparer<T>.
+    // Returns null if the type can't be determined exactly.
+    virtual CORINFO_CLASS_HANDLE getDefaultEqualityComparerClass(
+            CORINFO_CLASS_HANDLE elemType
             ) = 0;
 
     // Given resolved token that corresponds to an intrinsic classified as
@@ -2260,6 +2302,21 @@ public:
             CORINFO_CLASS_HANDLE    cls
             ) = 0;
 
+    // Return class name as in metadata, or nullptr if there is none.
+    // Suitable for non-debugging use.
+    virtual const char* getClassNameFromMetadata (
+            CORINFO_CLASS_HANDLE    cls,
+            const char            **namespaceName   /* OUT */
+            ) = 0;
+
+    // Return the type argument of the instantiated generic class,
+    // which is specified by the index
+    virtual CORINFO_CLASS_HANDLE getTypeInstantiationArgument(
+            CORINFO_CLASS_HANDLE cls, 
+            unsigned             index
+            ) = 0;
+    
+
     // Append a (possibly truncated) representation of the type cls to the preallocated buffer ppBuf of length pnBufLen
     // If fNamespace=TRUE, include the namespace/enclosing classes
     // If fFullInst=TRUE (regardless of fNamespace and fAssembly), include namespace and assembly for any type parameters
@@ -2334,7 +2391,7 @@ public:
     // This is only called for Value classes.  It returns a boolean array
     // in representing of 'cls' from a GC perspective.  The class is
     // assumed to be an array of machine words
-    // (of length // getClassSize(cls) / sizeof(void*)),
+    // (of length // getClassSize(cls) / TARGET_POINTER_SIZE),
     // 'gcPtrs' is a pointer to an array of BYTEs of this length.
     // getClassGClayout fills in this array so that gcPtrs[i] is set
     // to one of the CorInfoGCType values which is the GC type of
@@ -2472,6 +2529,12 @@ public:
             CORINFO_CLASS_HANDLE        cls
             ) = 0;
 
+    // "System.Int32" ==> CORINFO_TYPE_INT..
+    // "System.UInt32" ==> CORINFO_TYPE_UINT..
+    virtual CorInfoType getTypeForPrimitiveNumericClass(
+            CORINFO_CLASS_HANDLE        cls
+            ) = 0;
+
     // TRUE if child is a subtype of parent
     // if parent is an interface, then does child implement / extend parent
     virtual BOOL canCast(
@@ -2481,6 +2544,20 @@ public:
 
     // TRUE if cls1 and cls2 are considered equivalent types.
     virtual BOOL areTypesEquivalent(
+            CORINFO_CLASS_HANDLE        cls1,
+            CORINFO_CLASS_HANDLE        cls2
+            ) = 0;
+
+    // See if a cast from fromClass to toClass will succeed, fail, or needs
+    // to be resolved at runtime.
+    virtual TypeCompareState compareTypesForCast(
+            CORINFO_CLASS_HANDLE        fromClass,
+            CORINFO_CLASS_HANDLE        toClass
+            ) = 0;
+
+    // See if types represented by cls1 and cls2 compare equal, not
+    // equal, or the comparison needs to be resolved at runtime.
+    virtual TypeCompareState compareTypesForEquality(
             CORINFO_CLASS_HANDLE        cls1,
             CORINFO_CLASS_HANDLE        cls2
             ) = 0;
@@ -3091,6 +3168,12 @@ public:
     virtual void* getTailCallCopyArgsThunk (
                     CORINFO_SIG_INFO       *pSig,
                     CorInfoHelperTailCallSpecialHandling flags
+                    ) = 0;
+
+    // Optionally, convert calli to regular method call. This is for PInvoke argument marshalling.
+    virtual bool convertPInvokeCalliToCall(
+                    CORINFO_RESOLVED_TOKEN * pResolvedToken,
+                    bool fMustConvert
                     ) = 0;
 };
 

@@ -42,7 +42,8 @@ namespace Internal.TypeSystem.Ecma
 
 #if DEBUG
             // Initialize name eagerly in debug builds for convenience
-            this.ToString();
+            InitializeName();
+            InitializeNamespace();
 #endif
         }
 
@@ -241,12 +242,28 @@ namespace Internal.TypeSystem.Ecma
                     flags |= TypeFlags.HasFinalizer;
             }
 
-            if ((mask & TypeFlags.IsByRefLikeComputed) != 0)
+            if ((mask & TypeFlags.AttributeCacheComputed) != 0)
             {
-                flags |= TypeFlags.IsByRefLikeComputed;
+                MetadataReader reader = MetadataReader;
+                MetadataStringComparer stringComparer = reader.StringComparer;
+                bool isValueType = IsValueType;
 
-                if (IsValueType && HasCustomAttribute("System.Runtime.CompilerServices", "IsByRefLikeAttribute"))
-                    flags |= TypeFlags.IsByRefLike;
+                flags |= TypeFlags.AttributeCacheComputed;
+
+                foreach (CustomAttributeHandle attributeHandle in _typeDefinition.GetCustomAttributes())
+                {
+                    if (MetadataReader.GetAttributeNamespaceAndName(attributeHandle, out StringHandle namespaceHandle, out StringHandle nameHandle))
+                    {
+                        if (isValueType &&
+                            stringComparer.Equals(nameHandle, "IsByRefLikeAttribute") &&
+                            stringComparer.Equals(namespaceHandle, "System.Runtime.CompilerServices"))
+                            flags |= TypeFlags.IsByRefLike;
+
+                        if (stringComparer.Equals(nameHandle, "IntrinsicAttribute") &&
+                            stringComparer.Equals(namespaceHandle, "System.Runtime.CompilerServices"))
+                            flags |= TypeFlags.IsIntrinsic;
+                    }
+                }
             }
 
             return flags;
@@ -474,11 +491,6 @@ namespace Internal.TypeSystem.Ecma
         {
             return !MetadataReader.GetCustomAttributeHandle(_typeDefinition.GetCustomAttributes(),
                 attributeNamespace, attributeName).IsNil;
-        }
-
-        public override string ToString()
-        {
-            return "[" + _module.ToString() + "]" + this.GetFullName();
         }
 
         public override ClassLayoutMetadata GetClassLayout()

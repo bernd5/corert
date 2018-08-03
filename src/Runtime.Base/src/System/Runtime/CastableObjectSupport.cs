@@ -3,8 +3,10 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
-using Internal.Runtime;
 using System.Runtime.CompilerServices;
+
+using Internal.Runtime;
+using Internal.Runtime.CompilerServices;
 
 namespace System.Runtime
 {
@@ -322,7 +324,7 @@ namespace System.Runtime
         unsafe private static IntPtr RhpCastableObjectResolve(IntPtr callerTransitionBlockParam, IntPtr pCell)
         {
             IntPtr locationOfThisPointer = callerTransitionBlockParam + TransitionBlock.GetThisOffset();
-            object pObject = Unsafe.As<IntPtr, Object>(ref *(IntPtr*)locationOfThisPointer);
+            object pObject = Unsafe.As<IntPtr, object>(ref *(IntPtr*)locationOfThisPointer);
 
             DispatchCellInfo cellInfo;
             InternalCalls.RhpGetDispatchCellInfo(pCell, out cellInfo);
@@ -341,7 +343,7 @@ namespace System.Runtime
             if (targetObject == null)
                 EH.FailFastViaClasslib(RhFailFastReason.InternalError, null, pObject.EEType->GetAssociatedModuleAddress());
 
-            Unsafe.As<IntPtr, Object>(ref *(IntPtr*)locationOfThisPointer) = targetObject;
+            Unsafe.As<IntPtr, object>(ref *(IntPtr*)locationOfThisPointer) = targetObject;
 
             InternalCalls.RhpSetTLSDispatchCell(pCell);
             return InternalCalls.RhpGetTailCallTLSDispatchCell();

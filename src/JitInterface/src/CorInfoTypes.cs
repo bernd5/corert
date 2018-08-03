@@ -193,6 +193,7 @@ namespace Internal.JitInterface
     // Constant Lookups are either:
     //     IAT_VALUE: immediate (relocatable) values,
     //     IAT_PVALUE: immediate values access via an indirection through an immediate (relocatable) address
+    //     IAT_RELPVALUE: immediate values access via a relative indirection through an immediate offset
     //     IAT_PPVALUE: immediate values access via a double indirection through an immediate (relocatable) address
     //
     // Runtime Lookups
@@ -220,6 +221,7 @@ namespace Internal.JitInterface
         // If accessType is
         //     IAT_VALUE   --> "handle" stores the real handle or "addr " stores the computed address
         //     IAT_PVALUE  --> "addr" stores a pointer to a location which will hold the real handle
+        //     IAT_RELPVALUE --> "addr" stores a relative pointer to a location which will hold the real handle
         //     IAT_PPVALUE --> "addr" stores a double indirection to a location which will hold the real handle
 
         public InfoAccessType accessType;
@@ -301,6 +303,7 @@ namespace Internal.JitInterface
         // Otherwise, it's a representative...  If accessType is
         //     IAT_VALUE --> "handle" stores the real handle or "addr " stores the computed address
         //     IAT_PVALUE --> "addr" stores a pointer to a location which will hold the real handle
+        //     IAT_RELPVALUE --> "addr" stores a relative pointer to a location which will hold the real handle
         //     IAT_PPVALUE --> "addr" stores a double indirection to a location which will hold the real handle
         public ref CORINFO_CONST_LOOKUP constLookup
         {
@@ -433,6 +436,7 @@ namespace Internal.JitInterface
     {
         CORINFO_INTRINSIC_Sin,
         CORINFO_INTRINSIC_Cos,
+        CORINFO_INTRINSIC_Cbrt,
         CORINFO_INTRINSIC_Sqrt,
         CORINFO_INTRINSIC_Abs,
         CORINFO_INTRINSIC_Round,
@@ -441,9 +445,12 @@ namespace Internal.JitInterface
         CORINFO_INTRINSIC_Tan,
         CORINFO_INTRINSIC_Tanh,
         CORINFO_INTRINSIC_Asin,
+        CORINFO_INTRINSIC_Asinh,
         CORINFO_INTRINSIC_Acos,
+        CORINFO_INTRINSIC_Acosh,
         CORINFO_INTRINSIC_Atan,
         CORINFO_INTRINSIC_Atan2,
+        CORINFO_INTRINSIC_Atanh,
         CORINFO_INTRINSIC_Log10,
         CORINFO_INTRINSIC_Pow,
         CORINFO_INTRINSIC_Exp,
@@ -491,7 +498,8 @@ namespace Internal.JitInterface
     {
         IAT_VALUE,      // The info value is directly available
         IAT_PVALUE,     // The value needs to be accessed via an       indirection
-        IAT_PPVALUE     // The value needs to be accessed via a double indirection
+        IAT_PPVALUE,    // The value needs to be accessed via a double indirection
+        IAT_RELPVALUE   // The value needs to be accessed via a relative indirection
     }
 
     public enum CorInfoGCType
@@ -601,7 +609,7 @@ namespace Internal.JitInterface
         CORINFO_FLG_VIRTUAL = 0x00000040,
         //  CORINFO_FLG_UNUSED                = 0x00000080,
         CORINFO_FLG_NATIVE = 0x00000100,
-        //  CORINFO_FLG_UNUSED                = 0x00000200,
+        CORINFO_FLG_INTRINSIC_TYPE = 0x00000200, // This type is marked by [Intrinsic]
         CORINFO_FLG_ABSTRACT = 0x00000400,
 
         CORINFO_FLG_EnC = 0x00000800, // member was added by Edit'n'Continue
@@ -1436,6 +1444,13 @@ namespace Internal.JitInterface
         CORJIT_RECOVERABLEERROR = unchecked((int)0x80000005)/*MAKE_HRESULT(SEVERITY_ERROR, FACILITY_NULL, 5)*/
     };
 
+    public enum TypeCompareState
+    {
+        MustNot = -1, // types are not equal
+        May = 0,      // types may be equal (must test at runtime)
+        Must = 1,     // type are equal
+    }
+
     public enum CorJitFlag : uint
     {
         CORJIT_FLAG_CALL_GETJITFLAGS = 0xffffffff, // Indicates that the JIT should retrieve flags in the form of a
@@ -1453,7 +1468,7 @@ namespace Internal.JitInterface
         CORJIT_FLAG_UNUSED3 = 10,
         CORJIT_FLAG_UNUSED4 = 11,
         CORJIT_FLAG_UNUSED5 = 12,
-        CORJIT_FLAG_USE_SSE3_4 = 13,
+        CORJIT_FLAG_UNUSED6 = 13,
         CORJIT_FLAG_USE_AVX = 14,
         CORJIT_FLAG_USE_AVX2 = 15,
         CORJIT_FLAG_USE_AVX_512 = 16,
@@ -1483,6 +1498,44 @@ namespace Internal.JitInterface
         CORJIT_FLAG_TIER1 = 40, // This is the final tier (for now) for tiered compilation which should generate high quality code
         CORJIT_FLAG_RELATIVE_CODE_RELOCS = 41, // JIT should generate PC-relative address computations instead of EE relocation records
         CORJIT_FLAG_NO_INLINING = 42, // JIT should not inline any called method into this method
+
+#region ARM64
+        CORJIT_FLAG_HAS_ARM64_AES           = 43, // ID_AA64ISAR0_EL1.AES is 1 or better
+        CORJIT_FLAG_HAS_ARM64_ATOMICS       = 44, // ID_AA64ISAR0_EL1.Atomic is 2 or better
+        CORJIT_FLAG_HAS_ARM64_CRC32         = 45, // ID_AA64ISAR0_EL1.CRC32 is 1 or better
+        CORJIT_FLAG_HAS_ARM64_DCPOP         = 46, // ID_AA64ISAR1_EL1.DPB is 1 or better
+        CORJIT_FLAG_HAS_ARM64_DP            = 47, // ID_AA64ISAR0_EL1.DP is 1 or better
+        CORJIT_FLAG_HAS_ARM64_FCMA          = 48, // ID_AA64ISAR1_EL1.FCMA is 1 or better
+        CORJIT_FLAG_HAS_ARM64_FP            = 49, // ID_AA64PFR0_EL1.FP is 0 or better
+        CORJIT_FLAG_HAS_ARM64_FP16          = 50, // ID_AA64PFR0_EL1.FP is 1 or better
+        CORJIT_FLAG_HAS_ARM64_JSCVT         = 51, // ID_AA64ISAR1_EL1.JSCVT is 1 or better
+        CORJIT_FLAG_HAS_ARM64_LRCPC         = 52, // ID_AA64ISAR1_EL1.LRCPC is 1 or better
+        CORJIT_FLAG_HAS_ARM64_PMULL         = 53, // ID_AA64ISAR0_EL1.AES is 2 or better
+        CORJIT_FLAG_HAS_ARM64_SHA1          = 54, // ID_AA64ISAR0_EL1.SHA1 is 1 or better
+        CORJIT_FLAG_HAS_ARM64_SHA256        = 55, // ID_AA64ISAR0_EL1.SHA2 is 1 or better
+        CORJIT_FLAG_HAS_ARM64_SHA512        = 56, // ID_AA64ISAR0_EL1.SHA2 is 2 or better
+        CORJIT_FLAG_HAS_ARM64_SHA3          = 57, // ID_AA64ISAR0_EL1.SHA3 is 1 or better
+        CORJIT_FLAG_HAS_ARM64_SIMD          = 58, // ID_AA64PFR0_EL1.AdvSIMD is 0 or better
+        CORJIT_FLAG_HAS_ARM64_SIMD_V81      = 59, // ID_AA64ISAR0_EL1.RDM is 1 or better
+        CORJIT_FLAG_HAS_ARM64_SIMD_FP16     = 60, // ID_AA64PFR0_EL1.AdvSIMD is 1 or better
+        CORJIT_FLAG_HAS_ARM64_SM3           = 61, // ID_AA64ISAR0_EL1.SM3 is 1 or better
+        CORJIT_FLAG_HAS_ARM64_SM4           = 62, // ID_AA64ISAR0_EL1.SM4 is 1 or better
+        CORJIT_FLAG_HAS_ARM64_SVE           = 63, // ID_AA64PFR0_EL1.SVE is 1 or better
+#endregion
+
+#region x86/x64
+        CORJIT_FLAG_USE_SSE3 = 43,
+        CORJIT_FLAG_USE_SSSE3 = 44,
+        CORJIT_FLAG_USE_SSE41 = 45,
+        CORJIT_FLAG_USE_SSE42 = 46,
+        CORJIT_FLAG_USE_AES = 47,
+        CORJIT_FLAG_USE_BMI1 = 48,
+        CORJIT_FLAG_USE_BMI2 = 49,
+        CORJIT_FLAG_USE_FMA = 50,
+        CORJIT_FLAG_USE_LZCNT = 51,
+        CORJIT_FLAG_USE_PCLMULQDQ = 52,
+        CORJIT_FLAG_USE_POPCNT = 53,
+#endregion
     }
 
     public struct CORJIT_FLAGS

@@ -847,14 +847,14 @@ namespace Internal.Runtime.TypeLoader
             // done at runtime. When working with the CoreRT ABI, the correct slot numbers will be written to the map,
             // and no adjustments will be performed at runtime.
             //
-            
-#if CORERT
+
+#if PROJECTN
             CanonicallyEquivalentEntryLocator canonHelper = new CanonicallyEquivalentEntryLocator(
-                methodHandleDeclaringType, 
+                Instance.GetTypeDefinition(methodHandleDeclaringType), 
                 CanonicalFormKind.Specific);
 #else
             CanonicallyEquivalentEntryLocator canonHelper = new CanonicallyEquivalentEntryLocator(
-                Instance.GetTypeDefinition(methodHandleDeclaringType), 
+                methodHandleDeclaringType,
                 CanonicalFormKind.Specific);
 #endif
 
@@ -931,7 +931,7 @@ namespace Internal.Runtime.TypeLoader
                 {
                     uint slot = entryParser.GetUnsigned();
 
-#if !CORERT
+#if PROJECTN
                     RuntimeTypeHandle searchForSharedGenericTypesInParentHierarchy = declaringTypeOfVirtualInvoke;
                     while (!searchForSharedGenericTypesInParentHierarchy.IsNull())
                     {
@@ -1749,7 +1749,7 @@ namespace Internal.Runtime.TypeLoader
                 if ((_flags & InvokeTableFlags.IsUniversalCanonicalEntry) != 0)
                 {
                     // _nameAndSignature should have been read from the InvokeMap entry directly!
-                    Debug.Assert(false, "Universal canonical entries do NOT have dictionary entries!");
+                    Debug.Fail("Universal canonical entries do NOT have dictionary entries!");
                     return false;
                 }
 

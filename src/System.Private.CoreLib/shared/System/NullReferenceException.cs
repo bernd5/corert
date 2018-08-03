@@ -15,6 +15,8 @@ using System.Runtime.Serialization;
 
 namespace System
 {
+    [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class NullReferenceException : SystemException
     {
         public NullReferenceException()
@@ -23,13 +25,13 @@ namespace System
             HResult = HResults.COR_E_NULLREFERENCE;
         }
 
-        public NullReferenceException(String message)
+        public NullReferenceException(string message)
             : base(message)
         {
             HResult = HResults.COR_E_NULLREFERENCE;
         }
 
-        public NullReferenceException(String message, Exception innerException)
+        public NullReferenceException(string message, Exception innerException)
             : base(message, innerException)
         {
             HResult = HResults.COR_E_NULLREFERENCE;
@@ -37,7 +39,6 @@ namespace System
 
         protected NullReferenceException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
-            throw new PlatformNotSupportedException();
         }
     }
 }

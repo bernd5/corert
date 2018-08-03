@@ -824,6 +824,12 @@ void * Module::GetClasslibFunction(ClasslibFunctionId functionId)
     case ClasslibFunctionId::OnFirstChanceException:
         pMethod = m_pModuleHeader->Get_OnFirstChanceException();
         break;
+    case ClasslibFunctionId::DebugFuncEvalHelper:
+        pMethod = m_pModuleHeader->Get_DebugFuncEvalHelper();
+        break;
+    case ClasslibFunctionId::DebugFuncEvalAbortHelper:
+        pMethod = m_pModuleHeader->Get_DebugFuncEvalAbortHelper();
+        break;
     default:
         pMethod = NULL;
         break;
@@ -1035,12 +1041,6 @@ void Module::UnsynchronizedResetHijackedLoops()
     }
 }
 
-EXTERN_C void * FASTCALL RecoverLoopHijackTarget(UInt32 entryIndex, ModuleHeader * pModuleHeader)
-{
-    Module * pModule = GetRuntimeInstance()->FindModuleByReadOnlyDataAddress(pModuleHeader);
-    return pModule->RecoverLoopHijackTarget(entryIndex, pModuleHeader);
-}
-
 void * Module::RecoverLoopHijackTarget(UInt32 entryIndex, ModuleHeader * pModuleHeader)
 {
     // read lock scope
@@ -1171,7 +1171,7 @@ void Module::DoCustomImports(ModuleHeader * pModuleHeader)
         // obtain address of indirection cell pointing to the EAT for the exporting module
         UInt32 **ptrPtrEAT = (UInt32 **)(thisBaseAddress + customImportTable[i].RvaEATAddr);
 
-        // obtain the EAT by derefencing
+        // obtain the EAT by dereferencing
         UInt32 *ptrEAT = *ptrPtrEAT;
  
         // obtain the exporting module

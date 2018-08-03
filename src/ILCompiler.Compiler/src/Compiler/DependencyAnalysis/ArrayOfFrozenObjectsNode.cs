@@ -41,5 +41,7 @@ namespace ILCompiler.DependencyAnalysis
             AlignNextObject(ref builder, factory);
             builder.EmitZeroPointer();
         }
+
+        public override int ClassCode => -1771336339;
     }
 }

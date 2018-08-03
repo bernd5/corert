@@ -2,6 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+#if SUPPORT_JIT
+extern alias System_Private_CoreLib;
+using TextWriter = System_Private_CoreLib::System.IO.TextWriter;
+#endif
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,6 +15,10 @@ using System.Text;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
+
+#if SUPPORT_JIT
+using Internal.Runtime.CompilerServices;
+#endif
 
 using Internal.TypeSystem;
 
@@ -40,10 +49,10 @@ namespace Internal.JitInterface
 
         private ExceptionDispatchInfo _lastException;
 
-        [DllImport("clrjitilc")]
+        [DllImport("clrjitilc", CallingConvention=CallingConvention.StdCall)] // stdcall in CoreCLR!
         private extern static IntPtr jitStartup(IntPtr host);
 
-        [DllImport("clrjitilc")]
+        [DllImport("clrjitilc", CallingConvention=CallingConvention.StdCall)]
         private extern static IntPtr getJit();
 
         [DllImport("jitinterface")]
@@ -355,6 +364,14 @@ namespace Internal.JitInterface
 
                             var methodIL = (MethodIL)HandleToObject((IntPtr)_methodScope);
                             var type = (TypeDesc)methodIL.GetObject((int)clause.ClassTokenOrOffset);
+
+                            // Once https://github.com/dotnet/corert/issues/3460 is done, this should be an assert.
+                            // Throwing InvalidProgram is not great, but we want to do *something* if this happens
+                            // because doing nothing means problems at runtime. This is not worth piping a
+                            // a new exception with a fancy message for.
+                            if (type.IsCanonicalSubtype(CanonicalFormKind.Any))
+                                ThrowHelper.ThrowInvalidProgramException();
+
                             var typeSymbol = _compilation.NodeFactory.NecessaryTypeSymbol(type);
 
                             RelocType rel = (_compilation.NodeFactory.Target.IsWindows) ?
@@ -389,13 +406,25 @@ namespace Internal.JitInterface
                                                        relocs,
                                                        _compilation.NodeFactory.Target.MinimumFunctionAlignment,
                                                        new ISymbolDefinitionNode[] { _methodCodeNode });
+            ObjectNode.ObjectData ehInfo = _ehClauses != null ? EncodeEHInfo() : null;
+            DebugEHClauseInfo[] debugEHClauseInfos = null;
+            if (_ehClauses != null)
+            {
+                debugEHClauseInfos = new DebugEHClauseInfo[_ehClauses.Length];
+                for (int i = 0; i < _ehClauses.Length; i++)
+                {
+                    var clause = _ehClauses[i];
+                    debugEHClauseInfos[i] = new DebugEHClauseInfo(clause.TryOffset, clause.TryLength,
+                                                        clause.HandlerOffset, clause.HandlerLength);
+                }
+            }
 
             _methodCodeNode.SetCode(objectData);
 
             _methodCodeNode.InitializeFrameInfos(_frameInfos);
+            _methodCodeNode.InitializeDebugEHClauseInfos(debugEHClauseInfos);
             _methodCodeNode.InitializeGCInfo(_gcInfo);
-            if (_ehClauses != null)
-                _methodCodeNode.InitializeEHInfo(EncodeEHInfo());
+            _methodCodeNode.InitializeEHInfo(ehInfo);
 
             _methodCodeNode.InitializeDebugLocInfos(_debugLocInfos);
             _methodCodeNode.InitializeDebugVarInfos(_debugVarInfos);
@@ -538,14 +567,26 @@ namespace Internal.JitInterface
             // Does the method have a hidden parameter?
             bool hasHiddenParameter = method.RequiresInstArg() && !isFatFunctionPointer;
 
-            // Some intrinsics will beg to differ about the hasHiddenParameter decision
             if (method.IsIntrinsic)
             {
+                // Some intrinsics will beg to differ about the hasHiddenParameter decision
                 if (_compilation.TypeSystemContext.IsSpecialUnboxingThunkTargetMethod(method))
                     hasHiddenParameter = false;
 
                 if (method.IsArrayAddressMethod())
                     hasHiddenParameter = true;
+                
+                // We only populate sigInst for intrinsic methods because most of the time,
+                // JIT doesn't care what the instantiation is and this is expensive.
+                Instantiation owningTypeInst = method.OwningType.Instantiation;
+                sig.sigInst.classInstCount = (uint)owningTypeInst.Length;
+                if (owningTypeInst.Length > 0)
+                {
+                    var classInst = new IntPtr[owningTypeInst.Length];
+                    for (int i = 0; i < owningTypeInst.Length; i++)
+                        classInst[i] = (IntPtr)ObjectToHandle(owningTypeInst[i]);
+                    sig.sigInst.classInst = (CORINFO_CLASS_STRUCT_**)GetPin(classInst);
+                }
             }
 
             if (hasHiddenParameter)
@@ -698,7 +739,7 @@ namespace Internal.JitInterface
             if (method.IsSynchronized)
                 result |= CorInfoFlag.CORINFO_FLG_SYNCH;
             if (method.IsIntrinsic)
-                result |= CorInfoFlag.CORINFO_FLG_INTRINSIC;
+                result |= CorInfoFlag.CORINFO_FLG_INTRINSIC | CorInfoFlag.CORINFO_FLG_JIT_INTRINSIC;
             if (method.IsVirtual)
                 result |= CorInfoFlag.CORINFO_FLG_VIRTUAL;
             if (method.IsAbstract)
@@ -711,11 +752,8 @@ namespace Internal.JitInterface
             // method body.
             //
 
-            var owningType = method.OwningType;
-            var owningMetadataType = owningType as MetadataType;
-
             // method or class might have the final bit
-            if (method.IsFinal || (owningMetadataType != null && owningMetadataType.IsSealed))
+            if (_compilation.IsEffectivelySealed(method))
                 result |= CorInfoFlag.CORINFO_FLG_FINAL;
 
             if (method.IsSharedByGenericInstantiations)
@@ -725,7 +763,8 @@ namespace Internal.JitInterface
             {
                 result |= CorInfoFlag.CORINFO_FLG_PINVOKE;
 
-                // See comment in pInvokeMarshalingRequired
+                // TODO: Enable PInvoke inlining
+                // https://github.com/dotnet/corert/issues/6063
                 result |= CorInfoFlag.CORINFO_FLG_DONT_INLINE;
             }
 
@@ -742,13 +781,16 @@ namespace Internal.JitInterface
                 result |= CorInfoFlag.CORINFO_FLG_FORCEINLINE;
             }
 
-            if (owningType.IsDelegate)
+            if (method.OwningType.IsDelegate && method.Name == "Invoke")
             {
-                if (method.Name == "Invoke")
-                    // This is now used to emit efficient invoke code for any delegate invoke,
-                    // including multicast.
-                    result |= CorInfoFlag.CORINFO_FLG_DELEGATE_INVOKE;
-            }
+                // This is now used to emit efficient invoke code for any delegate invoke,
+                // including multicast.
+                result |= CorInfoFlag.CORINFO_FLG_DELEGATE_INVOKE;
+
+                // RyuJIT special cases this method; it would assert if it's not final
+                // and we might not have set the bit in the code above.
+                result |= CorInfoFlag.CORINFO_FLG_FINAL;
+           }
 
             result |= CorInfoFlag.CORINFO_FLG_NOSECURITYWRAP;
 
@@ -830,8 +872,9 @@ namespace Internal.JitInterface
 
             // Normalize to the slot defining method. We don't have slot information for the overrides.
             methodDesc = MetadataVirtualMethodAlgorithm.FindSlotDefiningMethodForVirtualMethod(methodDesc);
+            Debug.Assert(!methodDesc.CanMethodBeInSealedVTable());
 
-            int slot = VirtualMethodSlotHelper.GetVirtualMethodSlot(_compilation.NodeFactory, methodDesc);
+            int slot = VirtualMethodSlotHelper.GetVirtualMethodSlot(_compilation.NodeFactory, methodDesc, methodDesc.OwningType);
             Debug.Assert(slot != -1);
 
             offsetAfterIndirection = (uint)(EETypeNode.GetVTableOffset(pointerSize) + slot * pointerSize);
@@ -847,41 +890,28 @@ namespace Internal.JitInterface
                 return null;
             }
 
-            implType = implType.GetClosestDefType();
+            if (implType.IsValueType)
+            {
+                // TODO: If we resolve to a method on a valuetype, we should return a MethodDesc for the unboxing stub
+                // so that RyuJIT won't try to inline it. We don't have MethodDescs for unboxing stubs in the
+                // type system though.
+                return null;
+            }
 
             MethodDesc decl = HandleToObject(baseMethod);
-            Debug.Assert(decl.IsVirtual);
             Debug.Assert(!decl.HasInstantiation);
 
-            MethodDesc impl;
-
-            TypeDesc declOwningType = decl.OwningType;
-            if (declOwningType.IsInterface)
+            if (ownerType != null)
             {
-                // Interface call devirtualization.
-
-                if (implType.IsValueType)
+                TypeDesc ownerTypeDesc = typeFromContext(ownerType);
+                if (decl.OwningType != ownerTypeDesc)
                 {
-                    // TODO: this ends up asserting RyuJIT - why?
-                    return null;
-                }
-
-                if (implType.IsCanonicalSubtype(CanonicalFormKind.Any))
-                {
-                    // TODO: attempt to devirtualize methods on canonical interfaces
-                    return null;
-                }
-
-                impl = implType.ResolveInterfaceMethodTarget(decl);
-                if (impl != null)
-                {
-                    impl = implType.GetClosestDefType().FindVirtualFunctionTargetMethodOnObjectType(impl);
+                    Debug.Assert(ownerTypeDesc is InstantiatedType);
+                    decl = _compilation.TypeSystemContext.GetMethodForInstantiatedType(decl.GetTypicalMethodDefinition(), (InstantiatedType)ownerTypeDesc);
                 }
             }
-            else
-            {
-                impl = implType.GetClosestDefType().FindVirtualFunctionTargetMethodOnObjectType(decl);
-            }
+
+            MethodDesc impl = _compilation.ResolveVirtualMethod(decl, implType);
 
             return impl != null ? ObjectToHandle(impl) : null;
         }
@@ -946,6 +976,16 @@ namespace Internal.JitInterface
             }
         }
 
+        private CORINFO_METHOD_STRUCT_* getUnboxedEntry(CORINFO_METHOD_STRUCT_* ftn, byte* requiresInstMethodTableArg)
+        { throw new NotImplementedException(); }
+
+        private CORINFO_CLASS_STRUCT_* getDefaultEqualityComparerClass(CORINFO_CLASS_STRUCT_* elemType)
+        {
+            TypeDesc comparand = HandleToObject(elemType);
+            TypeDesc comparer = IL.Stubs.ComparerIntrinsics.GetEqualityComparerForType(comparand);
+            return comparer != null ? ObjectToHandle(comparer) : null;
+        }
+
         private void expandRawHandleIntrinsic(ref CORINFO_RESOLVED_TOKEN pResolvedToken, ref CORINFO_GENERICHANDLE_RESULT pResult)
         {
             // Resolved token as a potentially RuntimeDetermined object.
@@ -967,7 +1007,7 @@ namespace Internal.JitInterface
         {
             TypeDesc type = HandleToObject(classHnd);
             
-            if (_simdHelper.IsInSimdModule(type))
+            if (_simdHelper.IsSimdType(type))
             {
 #if DEBUG
                 // If this is Vector<T>, make sure the codegen and the type system agree on what instructions/registers
@@ -998,23 +1038,34 @@ namespace Internal.JitInterface
             return (CorInfoUnmanagedCallConv)unmanagedCallConv;
         }
 
+        private bool IsPInvokeStubRequired(MethodDesc method)
+        {
+            return ((Internal.IL.Stubs.PInvokeILStubMethodIL)_compilation.GetMethodIL(method)).IsStubRequired;
+        }
+
         private bool pInvokeMarshalingRequired(CORINFO_METHOD_STRUCT_* handle, CORINFO_SIG_INFO* callSiteSig)
         {
-            // TODO: Support for PInvoke calli with marshalling. For now, assume there is no marshalling required.
+            // calli is covered by convertPInvokeCalliToCall
             if (handle == null)
+            {
+#if DEBUG
+                MethodSignature methodSignature = (MethodSignature)HandleToObject((IntPtr)callSiteSig->pSig);
+
+                MethodDesc stub = _compilation.PInvokeILProvider.GetCalliStub(methodSignature);
+                Debug.Assert(!IsPInvokeStubRequired(stub));
+#endif
+
                 return false;
+            }
 
             MethodDesc method = HandleToObject(handle);
 
             if (method.IsRawPInvoke())
                 return false;
 
-            // TODO: Ideally, we would just give back the PInvoke stub IL to the JIT and let it inline it, without
-            // checking whether it is required upfront. Unfortunatelly, RyuJIT is not able to generate PInvoke
-            // transitions in inlined methods today (impCheckForPInvokeCall is not called for inlinees and number of other places
-            // depend on it). To get a decent code with this limitation, we mirror CoreCLR behavior: Check
-            // whether PInvoke stub is required here, and disable inlining of PInvoke methods in getMethodAttribsInternal.
-            return ((Internal.IL.Stubs.PInvokeILStubMethodIL)_compilation.GetMethodIL(method)).IsStubRequired;
+            // We could have given back the PInvoke stub IL to the JIT and let it inline it, without
+            // checking whether there is any stub required. Save the JIT from doing the inlining by checking upfront.
+            return IsPInvokeStubRequired(method);
         }
 
         private bool satisfiesMethodConstraints(CORINFO_CLASS_STRUCT_* parent, CORINFO_METHOD_STRUCT_* method)
@@ -1210,6 +1261,28 @@ namespace Internal.JitInterface
             return (byte*)GetPin(StringToUTF8(type.ToString()));
         }
 
+        private byte* getClassNameFromMetadata(CORINFO_CLASS_STRUCT_* cls, byte** namespaceName)
+        {
+            var type = HandleToObject(cls) as MetadataType;
+            if (type != null)
+            {
+                *namespaceName = (byte*)GetPin(type.Namespace);
+                return (byte*)GetPin(type.Name);
+            }
+
+            *namespaceName = null;
+            return null;
+        }
+        
+        private CORINFO_CLASS_STRUCT_* getTypeInstantiationArgument(CORINFO_CLASS_STRUCT_* cls, uint index)
+        {
+            TypeDesc type = HandleToObject(cls);
+            Instantiation inst = type.Instantiation;
+
+            return index < (uint)inst.Length ? ObjectToHandle(inst[(int)index]) : null;
+        }
+
+
         private int appendClassName(short** ppBuf, ref int pnBufLen, CORINFO_CLASS_STRUCT_* cls, bool fNamespace, bool fFullInst, bool fAssembly)
         {
             // We support enough of this to make SIMD work, but not much else.
@@ -1296,6 +1369,9 @@ namespace Internal.JitInterface
             if (type.IsDelegate)
                 result |= CorInfoFlag.CORINFO_FLG_DELEGATE;
 
+            if (_compilation.IsEffectivelySealed(type))
+                result |= CorInfoFlag.CORINFO_FLG_FINAL;
+
             if (metadataType != null)
             {
                 if (metadataType.ContainsGCPointers)
@@ -1303,9 +1379,6 @@ namespace Internal.JitInterface
 
                 if (metadataType.IsBeforeFieldInit)
                     result |= CorInfoFlag.CORINFO_FLG_BEFOREFIELDINIT;
-
-                if (metadataType.IsSealed)
-                    result |= CorInfoFlag.CORINFO_FLG_FINAL;
 
                 // Assume overlapping fields for explicit layout.
                 if (metadataType.IsExplicitLayout)
@@ -1351,7 +1424,7 @@ namespace Internal.JitInterface
         private uint getClassAlignmentRequirement(CORINFO_CLASS_STRUCT_* cls, bool fDoubleAlignHint)
         {
             DefType type = (DefType)HandleToObject(cls);
-            return (uint)type.InstanceByteAlignment.AsInt;
+            return (uint)type.InstanceFieldAlignment.AsInt;
         }
 
         private int GatherClassGCLayout(TypeDesc type, byte* gcPtrs)
@@ -1429,7 +1502,7 @@ namespace Internal.JitInterface
 
             int pointerSize = PointerSize;
 
-            int ptrsCount = AlignmentHelper.AlignUp(type.InstanceByteCount.AsInt, pointerSize) / pointerSize;
+            int ptrsCount = AlignmentHelper.AlignUp(type.InstanceFieldSize.AsInt, pointerSize) / pointerSize;
 
             // Assume no GC pointers at first
             for (int i = 0; i < ptrsCount; i++)
@@ -1694,10 +1767,10 @@ namespace Internal.JitInterface
                 return CorInfoInitClassResult.CORINFO_INITCLASS_NOT_REQUIRED;
             }
 
+            MetadataType typeToInit = (MetadataType)type;
+
             if (fd == null)
             {
-                MetadataType typeToInit = (MetadataType)type;
-
                 if (typeToInit.IsBeforeFieldInit)
                 {
                     // We can wait for field accesses to run .cctor
@@ -1726,15 +1799,53 @@ namespace Internal.JitInterface
                 }
             }
 
-            if (type.IsCanonicalSubtype(CanonicalFormKind.Any))
+            if (typeToInit.IsCanonicalSubtype(CanonicalFormKind.Any))
             {
                 // Shared generic code has to use helper. Moreover, tell JIT not to inline since
                 // inlining of generic dictionary lookups is not supported.
                 return CorInfoInitClassResult.CORINFO_INITCLASS_USE_HELPER | CorInfoInitClassResult.CORINFO_INITCLASS_DONT_INLINE;
             }
 
-            // TODO: before giving up and asking to generate a helper call, check to see if this is some pattern we can
-            //       prove doesn't need initclass anymore because we initialized it earlier.
+            //
+            // Try to prove that the initialization is not necessary because of nesting
+            //
+
+            if (fd == null)
+            {
+                // Handled above
+                Debug.Assert(!typeToInit.IsBeforeFieldInit);
+
+                // Note that jit has both methods the same if asking whether to emit cctor
+                // for a given method's code (as opposed to inlining codegen).
+                MethodDesc contextMethod = methodFromContext(context);
+                if (contextMethod != MethodBeingCompiled && typeToInit == MethodBeingCompiled.OwningType)
+                {
+                    // If we're inling a call to a method in our own type, then we should already
+                    // have triggered the .cctor when caller was itself called.
+                    return CorInfoInitClassResult.CORINFO_INITCLASS_NOT_REQUIRED;
+                }
+            }
+            else
+            {
+                // This optimization may cause static fields in reference types to be accessed without cctor being triggered
+                // for NULL "this" object. It does not conform with what the spec says. However, we have been historically 
+                // doing it for perf reasons.
+                if (!typeToInit.IsValueType && !typeToInit.IsBeforeFieldInit)
+                {
+                    if (typeToInit == typeFromContext(context) || typeToInit == MethodBeingCompiled.OwningType)
+                    {
+                        // The class will be initialized by the time we access the field.
+                        return CorInfoInitClassResult.CORINFO_INITCLASS_NOT_REQUIRED;
+                    }
+                }
+
+                // If we are currently compiling the class constructor for this static field access then we can skip the initClass 
+                if (MethodBeingCompiled.OwningType == typeToInit && MethodBeingCompiled.IsStaticConstructor)
+                {
+                    // The class will be initialized by the time we access the field.
+                    return CorInfoInitClassResult.CORINFO_INITCLASS_NOT_REQUIRED;
+                }
+            }
 
             return CorInfoInitClassResult.CORINFO_INITCLASS_USE_HELPER;
         }
@@ -1788,10 +1899,84 @@ namespace Internal.JitInterface
             return asCorInfoType(type);
         }
 
+        private CorInfoType getTypeForPrimitiveNumericClass(CORINFO_CLASS_STRUCT_* cls)
+        {
+            var type = HandleToObject(cls);
+
+            switch (type.Category)
+            {
+                case TypeFlags.Byte:
+                case TypeFlags.SByte:
+                case TypeFlags.UInt16:
+                case TypeFlags.Int16:
+                case TypeFlags.UInt32:
+                case TypeFlags.Int32:
+                case TypeFlags.UInt64:
+                case TypeFlags.Int64:
+                case TypeFlags.Single:
+                case TypeFlags.Double:
+                    return asCorInfoType(type);
+
+                default:
+                    return CorInfoType.CORINFO_TYPE_UNDEF;
+            }
+        }
+
         private bool canCast(CORINFO_CLASS_STRUCT_* child, CORINFO_CLASS_STRUCT_* parent)
         { throw new NotImplementedException("canCast"); }
         private bool areTypesEquivalent(CORINFO_CLASS_STRUCT_* cls1, CORINFO_CLASS_STRUCT_* cls2)
         { throw new NotImplementedException("areTypesEquivalent"); }
+
+        private TypeCompareState compareTypesForCast(CORINFO_CLASS_STRUCT_* fromClass, CORINFO_CLASS_STRUCT_* toClass)
+        {
+            // TODO: Implement
+            return TypeCompareState.May;
+        }
+
+        private TypeCompareState compareTypesForEquality(CORINFO_CLASS_STRUCT_* cls1, CORINFO_CLASS_STRUCT_* cls2)
+        {
+            TypeCompareState result = TypeCompareState.May;
+
+            TypeDesc type1 = HandleToObject(cls1);
+            TypeDesc type2 = HandleToObject(cls2);
+
+            // If neither type is a canonical subtype, type handle comparison suffices
+            if (!type1.IsCanonicalSubtype(CanonicalFormKind.Any) && !type2.IsCanonicalSubtype(CanonicalFormKind.Any))
+            {
+                result = (type1 == type2 ? TypeCompareState.Must : TypeCompareState.MustNot);
+            }
+            // If either or both types are canonical subtypes, we can sometimes prove inequality.
+            else
+            {
+                // If either is a value type then the types cannot
+                // be equal unless the type defs are the same.
+                if (type1.IsValueType || type2.IsValueType)
+                {
+                    if (!type1.IsCanonicalDefinitionType(CanonicalFormKind.Universal) && !type2.IsCanonicalDefinitionType(CanonicalFormKind.Universal))
+                    {
+                        if (!type1.HasSameTypeDefinition(type2))
+                        {
+                            result = TypeCompareState.MustNot;
+                        }
+                    }
+                }
+                // If we have two ref types that are not __Canon, then the
+                // types cannot be equal unless the type defs are the same.
+                else
+                {
+                    if (!type1.IsCanonicalDefinitionType(CanonicalFormKind.Any) && !type2.IsCanonicalDefinitionType(CanonicalFormKind.Any))
+                    {
+                        if (!type1.HasSameTypeDefinition(type2))
+                        {
+                            result = TypeCompareState.MustNot;
+                        }
+                    }
+                }
+            }
+
+            return result;
+        }
+
         private CORINFO_CLASS_STRUCT_* mergeClasses(CORINFO_CLASS_STRUCT_* cls1, CORINFO_CLASS_STRUCT_* cls2)
         { throw new NotImplementedException("mergeClasses"); }
         private CORINFO_CLASS_STRUCT_* getParentType(CORINFO_CLASS_STRUCT_* cls)
@@ -2295,7 +2480,7 @@ namespace Internal.JitInterface
         {
             // This method is completely handled by the C++ wrapper to the JIT-EE interface,
             // and should never reach the managed implementation.
-            Debug.Assert(false, "CorInfoImpl.FilterException should not be called");
+            Debug.Fail("CorInfoImpl.FilterException should not be called");
             throw new NotSupportedException("FilterException");
         }
 
@@ -2303,7 +2488,7 @@ namespace Internal.JitInterface
         {
             // This method is completely handled by the C++ wrapper to the JIT-EE interface,
             // and should never reach the managed implementation.
-            Debug.Assert(false, "CorInfoImpl.HandleException should not be called");
+            Debug.Fail("CorInfoImpl.HandleException should not be called");
             throw new NotSupportedException("HandleException");
         }
 
@@ -2311,7 +2496,7 @@ namespace Internal.JitInterface
         {
             // This method is completely handled by the C++ wrapper to the JIT-EE interface,
             // and should never reach the managed implementation.
-            Debug.Assert(false, "CorInfoImpl.runWithErrorTrap should not be called");
+            Debug.Fail("CorInfoImpl.runWithErrorTrap should not be called");
             throw new NotSupportedException("runWithErrorTrap");
         }
 
@@ -2331,13 +2516,16 @@ namespace Internal.JitInterface
                 //  m_RIP
                 //  m_FramePointer
                 //  m_pThread
-                //  m_dwFlags + align
+                //  m_Flags + align (no align for ARM64 that has 64 bit m_Flags)
                 //  m_PreserverRegs - RSP
                 //      No need to save other preserved regs because of the JIT ensures that there are
                 //      no live GC references in callee saved registers around the PInvoke callsite.
                 int size = 5 * this.PointerSize;
-                if (_compilation.TypeSystemContext.Target.Architecture == TargetArchitecture.ARM)
+
+                if (_compilation.TypeSystemContext.Target.Architecture == TargetArchitecture.ARM ||
+                    _compilation.TypeSystemContext.Target.Architecture == TargetArchitecture.ARMEL)
                     size += this.PointerSize; // m_ChainPointer
+
                 return (uint)size;
             }
         }
@@ -2419,9 +2607,25 @@ namespace Internal.JitInterface
 
         private byte* getMethodNameFromMetadata(CORINFO_METHOD_STRUCT_* ftn, byte** className, byte** namespaceName)
         {
-            // TODO: Implement JIT recognized intrinsics
-            // https://github.com/dotnet/corert/issues/4492
-            return null;
+            MethodDesc method = HandleToObject(ftn);
+
+            MetadataType owningType = method.OwningType as MetadataType;
+            if (owningType != null)
+            {
+                if (className != null)
+                    *className = (byte*)GetPin(StringToUTF8(owningType.Name));
+                if (namespaceName != null)
+                    *namespaceName = (byte*)GetPin(StringToUTF8(owningType.Namespace));
+            }
+            else
+            {
+                if (className != null)
+                    *className = null;
+                if (namespaceName != null)
+                    *namespaceName = null;
+            }
+
+            return (byte*)GetPin(StringToUTF8(method.Name));
         }
 
         private uint getMethodHash(CORINFO_METHOD_STRUCT_* ftn)
@@ -2483,6 +2687,7 @@ namespace Internal.JitInterface
                 case CorInfoHelpFunc.CORINFO_HELP_THROWDIVZERO: id = ReadyToRunHelper.ThrowDivZero; break;
                 case CorInfoHelpFunc.CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION: id = ReadyToRunHelper.ThrowArgumentOutOfRange; break;
                 case CorInfoHelpFunc.CORINFO_HELP_THROW_ARGUMENTEXCEPTION: id = ReadyToRunHelper.ThrowArgument; break;
+                case CorInfoHelpFunc.CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED: id = ReadyToRunHelper.ThrowPlatformNotSupported; break;
 
                 case CorInfoHelpFunc.CORINFO_HELP_ASSIGN_REF: id = ReadyToRunHelper.WriteBarrier; break;
                 case CorInfoHelpFunc.CORINFO_HELP_CHECKED_ASSIGN_REF: id = ReadyToRunHelper.CheckedWriteBarrier; break;
@@ -2584,6 +2789,7 @@ namespace Internal.JitInterface
                 entryPoint = GetHelperFtnUncached(ftnNum);
                 _helperCache.Add(ftnNum, entryPoint);
             }
+            ppIndirection = null;
             return (void*)ObjectToHandle(entryPoint);
         }
 
@@ -2723,6 +2929,7 @@ namespace Internal.JitInterface
 
                 if (pResolvedToken.tokenType == CorInfoTokenKind.CORINFO_TOKENKIND_NewObj
                         || pResolvedToken.tokenType == CorInfoTokenKind.CORINFO_TOKENKIND_Box
+                        || pResolvedToken.tokenType == CorInfoTokenKind.CORINFO_TOKENKIND_Constrained
                         || (pResolvedToken.tokenType == CorInfoTokenKind.CORINFO_TOKENKIND_Ldtoken && ConstructedEETypeNode.CreationAllowed(td)))
                 {
                     helperId = ReadyToRunHelperId.TypeHandle;
@@ -2837,6 +3044,14 @@ namespace Internal.JitInterface
             if (method.Signature.IsStatic && (flags & CORINFO_CALLINFO_FLAGS.CORINFO_CALLINFO_CALLVIRT) != 0)
             {
                 throw new BadImageFormatException();
+            }
+
+            // This block enforces the rule that methods with [NativeCallable] attribute
+            // can only be called from unmanaged code. The call from managed code is replaced
+            // with a stub that throws an InvalidProgramException
+            if (method.IsNativeCallable && (flags & CORINFO_CALLINFO_FLAGS.CORINFO_CALLINFO_LDFTN) == 0)
+            {
+                ThrowHelper.ThrowInvalidProgramException(ExceptionStringID.InvalidProgramNativeCallable, method);
             }
 
             TypeDesc exactType = HandleToObject(pResolvedToken.hClass);
@@ -3018,29 +3233,9 @@ namespace Internal.JitInterface
                     // (Note: The generic lookup in R2R is performed by a call to a helper at runtime, not by
                     // codegen emitted at crossgen time)
 
-                    MethodDesc contextMethod = methodFromContext(pResolvedToken.tokenContext);
-
-                    // Do not bother capturing the runtime determined context if we're inlining. The JIT is going
-                    // to abort the inlining attempt if the inlinee does any generic lookups.
-                    bool inlining = contextMethod != MethodBeingCompiled;
-
-                    // If we resolved a constrained call, calling GetRuntimeDeterminedObjectForToken below would
-                    // result in getting back the unresolved target. Don't capture runtime determined dependencies
-                    // in that case and rely on the dependency analysis computing them based on seeing a call to the
-                    // canonical method body.
-                    // Same applies to array address method (the method doesn't actually do any generic lookups).
-                    if (targetMethod.IsSharedByGenericInstantiations && !inlining && !resolvedConstraint && !referencingArrayAddressMethod)
-                    {
-                        MethodDesc runtimeDeterminedMethod = (MethodDesc)GetRuntimeDeterminedObjectForToken(ref pResolvedToken);
-                        pResult.codePointerOrStubLookup.constLookup = 
-                            CreateConstLookupToSymbol(_compilation.NodeFactory.RuntimeDeterminedMethod(runtimeDeterminedMethod));
-                    }
-                    else
-                    {
-                        Debug.Assert(!forceUseRuntimeLookup);
-                        pResult.codePointerOrStubLookup.constLookup = 
-                            CreateConstLookupToSymbol(_compilation.NodeFactory.MethodEntrypoint(targetMethod));
-                    }
+                    Debug.Assert(!forceUseRuntimeLookup);
+                    pResult.codePointerOrStubLookup.constLookup = 
+                        CreateConstLookupToSymbol(_compilation.NodeFactory.MethodEntrypoint(targetMethod));
                 }
                 else
                 {
@@ -3172,6 +3367,7 @@ namespace Internal.JitInterface
                 else
                 {
                     pResult.exactContextNeedsRuntimeLookup = false;
+                    targetMethod = targetMethod.GetCanonMethodTarget(CanonicalFormKind.Specific);
 
                     // Get the slot defining method to make sure our virtual method use tracking gets this right.
                     // For normal C# code the targetMethod will always be newslot.
@@ -3198,20 +3394,6 @@ namespace Internal.JitInterface
 
             pResult.methodFlags = getMethodAttribsInternal(targetMethod);
             Get_CORINFO_SIG_INFO(targetMethod, out pResult.sig, targetIsFatFunctionPointer);
-            if (targetMethod.IsIntrinsic)
-            {
-                // We only populate sigInst for intrinsic methods because most of the time,
-                // JIT doesn't care what the instantiation is and this is expensive.
-                Instantiation owningTypeInst = targetMethod.OwningType.Instantiation;
-                pResult.sig.sigInst.classInstCount = (uint)owningTypeInst.Length;
-                if (owningTypeInst.Length > 0)
-                {
-                    var classInst = new IntPtr[owningTypeInst.Length];
-                    for (int i = 0; i < owningTypeInst.Length; i++)
-                        classInst[i] = (IntPtr)ObjectToHandle(owningTypeInst[i]);
-                    pResult.sig.sigInst.classInst = (CORINFO_CLASS_STRUCT_**)GetPin(classInst);
-                }
-            }
 
             if ((flags & CORINFO_CALLINFO_FLAGS.CORINFO_CALLINFO_VERIFICATION) != 0)
             {
@@ -3270,14 +3452,47 @@ namespace Internal.JitInterface
         { throw new NotImplementedException("GetDelegateCtor"); }
         private void MethodCompileComplete(CORINFO_METHOD_STRUCT_* methHnd)
         { throw new NotImplementedException("MethodCompileComplete"); }
+
         private void* getTailCallCopyArgsThunk(CORINFO_SIG_INFO* pSig, CorInfoHelperTailCallSpecialHandling flags)
-        { throw new NotImplementedException("getTailCallCopyArgsThunk"); }
+        {
+            // Slow tailcalls are not supported yet
+            // https://github.com/dotnet/corert/issues/1683
+            return null;
+        }
+
+        private bool convertPInvokeCalliToCall(ref CORINFO_RESOLVED_TOKEN pResolvedToken, bool mustConvert)
+        {
+            var methodIL = (MethodIL)HandleToObject((IntPtr)pResolvedToken.tokenScope);
+            if (methodIL.OwningMethod.IsPInvoke)
+            {
+                return false;
+            }
+
+            MethodSignature signature = (MethodSignature)methodIL.GetObject((int)pResolvedToken.token);
+
+            CorInfoCallConv callConv = (CorInfoCallConv)(signature.Flags & MethodSignatureFlags.UnmanagedCallingConventionMask);
+            if (callConv != CorInfoCallConv.CORINFO_CALLCONV_C &&
+                callConv != CorInfoCallConv.CORINFO_CALLCONV_STDCALL &&
+                callConv != CorInfoCallConv.CORINFO_CALLCONV_THISCALL &&
+                callConv != CorInfoCallConv.CORINFO_CALLCONV_FASTCALL)
+            {
+                return false;
+            }
+
+            MethodDesc stub = _compilation.PInvokeILProvider.GetCalliStub(signature);
+            if (!mustConvert && !IsPInvokeStubRequired(stub))
+                return false;
+
+            pResolvedToken.hMethod = ObjectToHandle(stub);
+            pResolvedToken.hClass = ObjectToHandle(stub.OwningType);
+            return true;
+        }
 
         private void* getMemoryManager()
         {
             // This method is completely handled by the C++ wrapper to the JIT-EE interface,
             // and should never reach the managed implementation.
-            Debug.Assert(false, "CorInfoImpl.getMemoryManager should not be called");
+            Debug.Fail("CorInfoImpl.getMemoryManager should not be called");
             throw new NotSupportedException("getMemoryManager");
         }
 

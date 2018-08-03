@@ -21,9 +21,9 @@ namespace Internal.IL.Stubs.StartupCode
         private TypeDesc _owningType;
         private MainMethodWrapper _mainMethod;
         private MethodSignature _signature;
-        private IList<MethodDesc> _libraryInitializers;
+        private IReadOnlyCollection<MethodDesc> _libraryInitializers;
 
-        public StartupCodeMainMethod(TypeDesc owningType, MethodDesc mainMethod, IList<MethodDesc> libraryInitializers)
+        public StartupCodeMainMethod(TypeDesc owningType, MethodDesc mainMethod, IReadOnlyCollection<MethodDesc> libraryInitializers)
         {
             _owningType = owningType;
             _mainMethod = new MainMethodWrapper(owningType, mainMethod);
@@ -218,9 +218,7 @@ namespace Internal.IL.Stubs.StartupCode
                 ILEmitter emit = new ILEmitter();
                 ILCodeStream codeStream = emit.NewCodeStream();
 
-                // We only need the initial step over sequence point if there's any instructions before the call.
-                if (Signature.Length > 0)
-                    codeStream.MarkDebuggerStepThroughPoint();
+                codeStream.MarkDebuggerStepThroughPoint();
 
                 for (int i = 0; i < Signature.Length; i++)
                     codeStream.EmitLdArg(i);

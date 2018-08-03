@@ -84,6 +84,21 @@ namespace ILCompiler.DependencyAnalysis.X64
             {
                 Builder.EmitByte(0xE9);
                 Builder.EmitReloc(symbol, RelocType.IMAGE_REL_BASED_REL32);
+
+            }
+        }
+
+        public void EmitJE(ISymbolNode symbol)
+        {
+            if (symbol.RepresentsIndirectionCell)
+            {
+                throw new NotImplementedException();
+            }
+            else
+            {
+                Builder.EmitByte(0x0f);
+                Builder.EmitByte(0x84);
+                Builder.EmitReloc(symbol, RelocType.IMAGE_REL_BASED_REL32);
             }
         }
 

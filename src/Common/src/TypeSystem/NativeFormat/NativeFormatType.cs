@@ -68,7 +68,7 @@ namespace Internal.TypeSystem.NativeFormat
 
 #if DEBUG
             // Initialize name eagerly in debug builds for convenience
-            this.ToString();
+            InitializeName();
 #endif
         }
 
@@ -287,9 +287,9 @@ namespace Internal.TypeSystem.NativeFormat
                     flags |= TypeFlags.HasFinalizer;
             }
 
-            if ((mask & TypeFlags.IsByRefLikeComputed) != 0)
+            if ((mask & TypeFlags.AttributeCacheComputed) != 0)
             {
-                flags |= TypeFlags.IsByRefLikeComputed;
+                flags |= TypeFlags.AttributeCacheComputed;
 
                 if (IsValueType && HasCustomAttribute("System.Runtime.CompilerServices", "IsByRefLikeAttribute"))
                     flags |= TypeFlags.IsByRefLike;
@@ -540,11 +540,6 @@ namespace Internal.TypeSystem.NativeFormat
         {
             return MetadataReader.HasCustomAttribute(_typeDefinition.CustomAttributes,
                 attributeNamespace, attributeName);
-        }
-
-        public override string ToString()
-        {
-            return "[" + NativeFormatModule.GetName().Name + "]" + this.GetFullName();
         }
 
         public override ClassLayoutMetadata GetClassLayout()

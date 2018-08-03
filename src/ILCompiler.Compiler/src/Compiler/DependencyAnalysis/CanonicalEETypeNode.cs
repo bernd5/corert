@@ -45,7 +45,7 @@ namespace ILCompiler.DependencyAnalysis
 
             DefType closestDefType = _type.GetClosestDefType();
 
-            if (_type.RuntimeInterfaces.Length > 0)
+            if (InterfaceDispatchMapNode.MightHaveInterfaceDispatchMap(_type, factory))
                 dependencyList.Add(factory.InterfaceDispatchMap(_type), "Canonical interface dispatch map");
 
             dependencyList.Add(factory.VTable(closestDefType), "VTable");
@@ -55,7 +55,20 @@ namespace ILCompiler.DependencyAnalysis
 
             // Track generic virtual methods that will get added to the GVM tables
             if (TypeGVMEntriesNode.TypeNeedsGVMTableEntries(_type))
+            {
                 dependencyList.Add(new DependencyListEntry(factory.TypeGVMEntries(_type), "Type with generic virtual methods"));
+
+                AddDependenciesForUniversalGVMSupport(factory, _type, ref dependencyList);
+            }
+
+            // Keep track of the default constructor map dependency for this type if it has a default constructor
+            MethodDesc defaultCtor = closestDefType.GetDefaultConstructor();
+            if (defaultCtor != null)
+            {
+                dependencyList.Add(new DependencyListEntry(
+                    factory.MethodEntrypoint(defaultCtor, closestDefType.IsValueType),
+                    "DefaultConstructorNode"));
+            }
 
             return dependencyList;
         }
@@ -97,26 +110,24 @@ namespace ILCompiler.DependencyAnalysis
             }
         }
 
-        protected override void OutputBaseSize(ref ObjectDataBuilder objData)
+        protected override int BaseSize
         {
-            bool emitMinimumObjectSize = false;
-
-            if (_type.IsCanonicalSubtype(CanonicalFormKind.Universal) && _type.IsDefType)
+            get
             {
-                LayoutInt instanceByteCount = ((DefType)_type).InstanceByteCount;
-
-                if (instanceByteCount.IsIndeterminate)
+                if (_type.IsCanonicalSubtype(CanonicalFormKind.Universal) && _type.IsDefType)
                 {
-                    // For USG types, they may be of indeterminate size, and the size of the type may be meaningless. 
-                    // In that case emit a fixed constant.
-                    emitMinimumObjectSize = true;
-                }
-            }
+                    LayoutInt instanceByteCount = ((DefType)_type).InstanceByteCount;
 
-            if (emitMinimumObjectSize)
-                objData.EmitInt(MinimumObjectSize);
-            else
-                base.OutputBaseSize(ref objData);
+                    if (instanceByteCount.IsIndeterminate)
+                    {
+                        // For USG types, they may be of indeterminate size, and the size of the type may be meaningless. 
+                        // In that case emit a fixed constant.
+                        return MinimumObjectSize;
+                    }
+                }
+
+                return base.BaseSize;
+            }
         }
 
         protected override void ComputeValueTypeFieldPadding()
@@ -132,5 +143,7 @@ namespace ILCompiler.DependencyAnalysis
 
             base.ComputeValueTypeFieldPadding();
         }
+
+        public override int ClassCode => -1798018602;
     }
 }

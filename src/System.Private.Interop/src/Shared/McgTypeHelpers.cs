@@ -23,11 +23,10 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Text;
 using System.Runtime;
-using System.Diagnostics.Contracts;
 using Internal.NativeFormat;
 using System.Runtime.CompilerServices;
 
-#if !RHTESTCL && !CORECLR && !CORERT
+#if !RHTESTCL && PROJECTN
 using Internal.Runtime.Augments;
 using Internal.Runtime.TypeLoader;
 #endif
@@ -322,7 +321,7 @@ namespace System.Runtime.InteropServices
                 return;
             }
 
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             if (McgModuleManager.UseDynamicInterop)
             {
                 name = DynamicInteropTypeHelper.GetTypeName(typeHandle, out isWinRT);
@@ -456,7 +455,7 @@ namespace System.Runtime.InteropServices
                 bool isWinRT;
                 Type type = McgModuleManager.GetTypeFromName(name, out isWinRT);
 
-#if !RHTESTCL && !CORECLR && !CORERT
+#if !RHTESTCL && PROJECTN
                 if (type == null && McgModuleManager.UseDynamicInterop && nativeTypeKind == (int)TypeKind.Metadata)
                 {
                     type = DynamicInteropTypeHelper.GetTypeFromWinRTName(name, nativeTypeKind);
@@ -836,10 +835,12 @@ namespace System.Runtime.InteropServices
 
         internal static bool IsComClass(this RuntimeTypeHandle handle)
         {
+            //From Interop point, Delegates aren't treated as Class
 #if CORECLR
-            return InteropExtensions.IsClass(handle);        
+            return  InteropExtensions.IsClass(handle) && 
+                    !InteropExtensions.AreTypesAssignable(handle, typeof(Delegate).TypeHandle);
 #else
-            return !InteropExtensions.IsInterface(handle) &&
+            return  !InteropExtensions.IsInterface(handle) &&
                     !handle.IsValueType() &&
                     !InteropExtensions.AreTypesAssignable(handle, typeof(Delegate).TypeHandle);
 #endif
@@ -893,7 +894,7 @@ namespace System.Runtime.InteropServices
                 return !McgModuleManager.GetInterfaceDataByIndex(moduleIndex, interfaceIndex).DynamicAdapterClassType.IsNull(); ;
             }
 
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             if (McgModuleManager.UseDynamicInterop && interfaceType.IsGenericType())
                 return false;
 #endif
@@ -947,26 +948,16 @@ namespace System.Runtime.InteropServices
             return default(IntPtr);
         }
         static IntPtr[] SharedCCWList = new IntPtr[] {
-#if ENABLE_WINRT
+#if ENABLE_MIN_WINRT
             SharedCcw_IVector.GetVtable(),
             SharedCcw_IVectorView.GetVtable(),
             SharedCcw_IIterable.GetVtable(),
             SharedCcw_IIterator.GetVtable(),
-
-#if RHTESTCL || CORECLR
-            default(IntPtr),
-#else
             SharedCcw_AsyncOperationCompletedHandler.GetVtable(),
-#endif
             SharedCcw_IVector_Blittable.GetVtable(),
             SharedCcw_IVectorView_Blittable.GetVtable(),
-
-#if RHTESTCL || CORECLR
-            default(IntPtr)
-#else
             SharedCcw_IIterator_Blittable.GetVtable()
-#endif
-#endif //ENABLE_WINRT
+#endif //ENABLE_MIN_WINRT
         };
 
         internal static IntPtr GetCcwVtable(this RuntimeTypeHandle interfaceType)
@@ -1111,7 +1102,7 @@ namespace System.Runtime.InteropServices
                 return mcgGenericArgumentMarshalInfo.IteratorType;
             }
 
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             if (McgModuleManager.UseDynamicInterop)
                 return DynamicInteropTypeHelper.ReplaceOpenGenericTypeInGenericInstantiation(
                     interfaceType,
@@ -1129,7 +1120,7 @@ namespace System.Runtime.InteropServices
                 return mcgGenericArgumentMarshalInfo.ElementClassType;
             }
 
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             if (McgModuleManager.UseDynamicInterop)
             {
                 RuntimeTypeHandle[] genericTypeArgumentHandles;
@@ -1150,7 +1141,7 @@ namespace System.Runtime.InteropServices
                 return mcgGenericArgumentMarshalInfo.ElementInterfaceType;
             }
 
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             if (McgModuleManager.UseDynamicInterop)
             {
                 RuntimeTypeHandle[] genericTypeArgumentHandles;
@@ -1170,7 +1161,7 @@ namespace System.Runtime.InteropServices
                 return mcgGenericArgumentMarshalInfo.VectorViewType;
             }
 
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             if (McgModuleManager.UseDynamicInterop)
                 return DynamicInteropTypeHelper.ReplaceOpenGenericTypeInGenericInstantiation(
                     interfaceType,
@@ -1188,7 +1179,7 @@ namespace System.Runtime.InteropServices
                 return mcgGenericArgumentMarshalInfo.AsyncOperationType;
             }
 
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             if (McgModuleManager.UseDynamicInterop)
                 return DynamicInteropTypeHelper.ReplaceOpenGenericTypeInGenericInstantiation(
                     interfaceType,
@@ -1206,7 +1197,7 @@ namespace System.Runtime.InteropServices
                 return (int)mcgGenericArgumentMarshalInfo.ElementSize;
             }
 
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             if (McgModuleManager.UseDynamicInterop)
             {
                 RuntimeTypeHandle[] genericTypeArgumentHandles;
@@ -1222,14 +1213,14 @@ namespace System.Runtime.InteropServices
 #region "CCWTemplate Data"
         internal static string GetCCWRuntimeClassName(this RuntimeTypeHandle ccwType)
         {
-            // Special case for Object type to aligh with desktop behavior
+            // Special case for Object type to align with desktop behavior
             if (ccwType.Equals(typeof(Object).TypeHandle))
                 return default(string);
 
             string ccwRuntimeClassName;
             if (McgModuleManager.TryGetCCWRuntimeClassName(ccwType, out ccwRuntimeClassName))
                 return ccwRuntimeClassName;
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             if (McgModuleManager.UseDynamicInterop)
                 return DynamicInteropCCWTemplateHelper.GetCCWRuntimeClassName(ccwType);
 #endif
@@ -1340,7 +1331,7 @@ namespace System.Runtime.InteropServices
             }
         }
 
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
         private static void GetIIDsImpl_dynamic(RuntimeTypeHandle typeHandle, System.Collections.Generic.Internal.List<Guid> iids)
         {
             // Enumerate interfaces from itself and its baseclass
@@ -1372,7 +1363,7 @@ namespace System.Runtime.InteropServices
             }
 
             // if there isn't any data about this type, just return empty list
-#if !RHTESTCL && !CORECLR && !CORERT && ENABLE_WINRT
+#if !RHTESTCL && PROJECTN && ENABLE_WINRT
             if (McgModuleManager.UseDynamicInterop)
                 GetIIDsImpl_dynamic(ccwType, iids);
 #endif

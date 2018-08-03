@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
-using System.Diagnostics.Contracts;
 using System.Threading;
 
 namespace System.Globalization
@@ -20,9 +19,9 @@ namespace System.Globalization
                                    // be affected by the DateTime.MinValue;
         internal int maxEraYear;   // Max year value in this era. (== the year length of the era + 1)
 
-        internal String eraName;    // The era name
-        internal String abbrevEraName;  // Abbreviated Era Name
-        internal String englishEraName; // English era name
+        internal string eraName;    // The era name
+        internal string abbrevEraName;  // Abbreviated Era Name
+        internal string englishEraName; // English era name
 
         internal EraInfo(int era, int startYear, int startMonth, int startDay, int yearOffset, int minEraYear, int maxEraYear)
         {
@@ -34,7 +33,7 @@ namespace System.Globalization
         }
 
         internal EraInfo(int era, int startYear, int startMonth, int startDay, int yearOffset, int minEraYear, int maxEraYear,
-                          String eraName, String abbrevEraName, String englishEraName)
+                          string eraName, string abbrevEraName, string englishEraName)
         {
             this.era = era;
             this.yearOffset = yearOffset;
@@ -48,8 +47,8 @@ namespace System.Globalization
     }
 
     // This calendar recognizes two era values:
-    // 0 CurrentEra (AD) 
-    // 1 BeforeCurrentEra (BC) 
+    // 0 CurrentEra (AD)
+    // 1 BeforeCurrentEra (BC)
     internal class GregorianCalendarHelper
     {
         // 1 tick = 100ns = 10E-7 second
@@ -88,7 +87,7 @@ namespace System.Globalization
         //
         // This is the max Gregorian year can be represented by DateTime class.  The limitation
         // is derived from DateTime class.
-        // 
+        //
         internal int MaxYear
         {
             get
@@ -124,6 +123,83 @@ namespace System.Globalization
             m_minYear = m_EraInfo[0].minEraYear; ;
         }
 
+        // EraInfo.yearOffset:  The offset to Gregorian year when the era starts. Gregorian Year = Era Year + yearOffset
+        //                      Era Year = Gregorian Year - yearOffset
+        // EraInfo.minEraYear:  Min year value in this era. Generally, this value is 1, but this may be affected by the DateTime.MinValue;
+        // EraInfo.maxEraYear:  Max year value in this era. (== the year length of the era + 1)
+        private int GetYearOffset(int year, int era, bool throwOnError)
+        {
+            if (year < 0)
+            {
+                if (throwOnError)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(year), SR.ArgumentOutOfRange_NeedNonNegNum);
+                }
+                return -1;
+            }
+
+            if (era == Calendar.CurrentEra)
+            {
+                era = m_Cal.CurrentEraValue;
+            }
+
+            for (int i = 0; i < m_EraInfo.Length; i++)
+            {
+                if (era == m_EraInfo[i].era)
+                {
+                    if (year >= m_EraInfo[i].minEraYear)
+                    {
+                        if (year <= m_EraInfo[i].maxEraYear)
+                        {
+                            return m_EraInfo[i].yearOffset;
+                        }
+                        else if (!AppContextSwitches.EnforceJapaneseEraYearRanges)
+                        {
+                            // If we got the year number exceeding the era max year number, this still possible be valid as the date can be created before
+                            // introducing new eras after the era we are checking. we'll loop on the eras after the era we have and ensure the year
+                            // can exist in one of these eras. otherwise, we'll throw.
+                            // Note, we always return the offset associated with the requested era.
+                            //
+                            // Here is some example:
+                            // if we are getting the era number 4 (Heisei) and getting the year number 32. if the era 4 has year range from 1 to 31
+                            // then year 32 exceeded the range of era 4 and we'll try to find out if the years difference (32 - 31 = 1) would lay in
+                            // the subsequent eras (e.g era 5 and up)
+
+                            int remainingYears = year - m_EraInfo[i].maxEraYear;
+
+                            for (int j = i - 1; j >= 0; j--)
+                            {
+                                if (remainingYears <= m_EraInfo[j].maxEraYear)
+                                {
+                                    return m_EraInfo[i].yearOffset;
+                                }
+                                remainingYears -= m_EraInfo[j].maxEraYear;
+                            }
+                        }
+                    }
+
+                    if (throwOnError)
+                    {
+                        throw new ArgumentOutOfRangeException(
+                                    nameof(year),
+                                    string.Format(
+                                        CultureInfo.CurrentCulture,
+                                        SR.ArgumentOutOfRange_Range,
+                                        m_EraInfo[i].minEraYear,
+                                        m_EraInfo[i].maxEraYear));
+                    }
+
+                    break; // no need to iterate more on eras.
+                }
+            }
+
+            if (throwOnError)
+            {
+                throw new ArgumentOutOfRangeException(nameof(era), SR.ArgumentOutOfRange_InvalidEraValue);
+            }
+            return -1;
+        }
+
         /*=================================GetGregorianYear==========================
         **Action: Get the Gregorian year value for the specified year in an era.
         **Returns: The Gregorian year value.
@@ -136,64 +212,13 @@ namespace System.Globalization
 
         internal int GetGregorianYear(int year, int era)
         {
-            if (year < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(year),
-                    SR.ArgumentOutOfRange_NeedNonNegNum);
-            }
-            Contract.EndContractBlock();
-
-            if (era == Calendar.CurrentEra)
-            {
-                era = m_Cal.CurrentEraValue;
-            }
-
-            for (int i = 0; i < m_EraInfo.Length; i++)
-            {
-                if (era == m_EraInfo[i].era)
-                {
-                    if (year < m_EraInfo[i].minEraYear || year > m_EraInfo[i].maxEraYear)
-                    {
-                        throw new ArgumentOutOfRangeException(
-                                    nameof(year),
-                                    String.Format(
-                                        CultureInfo.CurrentCulture,
-                                        SR.ArgumentOutOfRange_Range,
-                                        m_EraInfo[i].minEraYear,
-                                        m_EraInfo[i].maxEraYear));
-                    }
-                    return (m_EraInfo[i].yearOffset + year);
-                }
-            }
-            throw new ArgumentOutOfRangeException(nameof(era), SR.ArgumentOutOfRange_InvalidEraValue);
+            return GetYearOffset(year, era, throwOnError: true) + year;
         }
 
         internal bool IsValidYear(int year, int era)
         {
-            if (year < 0)
-            {
-                return false;
-            }
-
-            if (era == Calendar.CurrentEra)
-            {
-                era = m_Cal.CurrentEraValue;
-            }
-
-            for (int i = 0; i < m_EraInfo.Length; i++)
-            {
-                if (era == m_EraInfo[i].era)
-                {
-                    if (year < m_EraInfo[i].minEraYear || year > m_EraInfo[i].maxEraYear)
-                    {
-                        return false;
-                    }
-                    return true;
-                }
-            }
-            return false;
+            return GetYearOffset(year, era, throwOnError: false) >= 0;
         }
-
 
         // Returns a given date part of this DateTime. This method is used
         // to compute the year, day-of-year, month, or day part.
@@ -299,7 +324,7 @@ namespace System.Globalization
                 {
                     throw new ArgumentOutOfRangeException(
                                 nameof(millisecond),
-                                String.Format(
+                                string.Format(
                                     CultureInfo.CurrentCulture,
                                     SR.ArgumentOutOfRange_Range,
                                     0,
@@ -317,13 +342,12 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             "time",
-                            String.Format(
+                            string.Format(
                                 CultureInfo.InvariantCulture,
                                 SR.ArgumentOutOfRange_CalendarRange,
                                 m_Cal.MinSupportedDateTime,
                                 m_Cal.MaxSupportedDateTime));
             }
-            Contract.EndContractBlock();
         }
 
         // Returns the DateTime resulting from adding the given number of
@@ -349,13 +373,12 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(months),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
                                 -120000,
                                 120000));
             }
-            Contract.EndContractBlock();
             CheckTicksRange(time.Ticks);
 
             int y = GetDatePart(time.Ticks, DatePartYear);
@@ -427,7 +450,6 @@ namespace System.Globalization
         // Returns the number of days in the month given by the year and
         // month arguments.
         //
-        [Pure]
         public int GetDaysInMonth(int year, int month, int era)
         {
             //
@@ -549,13 +571,12 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(day),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
                                 1,
                                 GetDaysInMonth(year, month, era)));
             }
-            Contract.EndContractBlock();
 
             if (!IsLeapYear(year, era))
             {
@@ -589,7 +610,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(month),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
                                 1,
@@ -633,7 +654,6 @@ namespace System.Globalization
                 throw new ArgumentOutOfRangeException(nameof(year),
                     SR.ArgumentOutOfRange_NeedPosNum);
             }
-            Contract.EndContractBlock();
 
             if (year < 100)
             {
@@ -645,7 +665,7 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(
                             nameof(year),
-                            String.Format(
+                            string.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range, m_minYear, m_maxYear));
             }

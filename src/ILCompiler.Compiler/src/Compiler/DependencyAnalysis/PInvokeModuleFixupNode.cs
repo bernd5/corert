@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for more information.
 
 using Internal.Text;
+using Internal.TypeSystem;
 
 namespace ILCompiler.DependencyAnalysis
 {
@@ -47,6 +48,13 @@ namespace ILCompiler.DependencyAnalysis
             builder.EmitPointerReloc(nameSymbol);
 
             return builder.ToObjectData();
+        }
+
+        public override int ClassCode => 159930099;
+
+        public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
+        {
+            return string.Compare(_moduleName, ((PInvokeModuleFixupNode)other)._moduleName);
         }
     }
 }

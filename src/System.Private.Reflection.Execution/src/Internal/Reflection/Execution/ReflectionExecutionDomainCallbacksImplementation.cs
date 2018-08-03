@@ -104,83 +104,14 @@ namespace Internal.Reflection.Execution
         {
             RuntimeTypeHandle declaringTypeHandle = default(RuntimeTypeHandle);
             QMethodDefinition methodHandle;
-            RuntimeTypeHandle[] genericMethodTypeArgumentHandles;
-            if (!ReflectionExecution.ExecutionEnvironment.TryGetMethodForOriginalLdFtnResult(methodStartAddress,
-                ref declaringTypeHandle, out methodHandle, out genericMethodTypeArgumentHandles))
+            if (!ReflectionExecution.ExecutionEnvironment.TryGetMethodForStartAddress(methodStartAddress,
+                ref declaringTypeHandle, out methodHandle))
             {
                 return null;
-            }
-
-            if (RuntimeAugments.IsGenericType(declaringTypeHandle))
-            {
-                declaringTypeHandle = RuntimeAugments.GetGenericDefinition(declaringTypeHandle);
             }
 
             // We don't use the type argument handles as we want the uninstantiated method info
             return ReflectionCoreExecution.ExecutionDomain.GetMethod(declaringTypeHandle, methodHandle, genericMethodTypeArgumentHandles: null);
-        }
-
-        public sealed override String GetMethodNameFromStartAddressIfAvailable(IntPtr methodStartAddress)
-        {
-            RuntimeTypeHandle declaringTypeHandle = default(RuntimeTypeHandle);
-            QMethodDefinition methodHandle;
-            RuntimeTypeHandle[] genericMethodTypeArgumentHandles;
-            if (!ReflectionExecution.ExecutionEnvironment.TryGetMethodForOriginalLdFtnResult(methodStartAddress,
-                ref declaringTypeHandle, out methodHandle, out genericMethodTypeArgumentHandles))
-            {
-                return null;
-            }
-
-            MethodBase methodBase = ReflectionCoreExecution.ExecutionDomain.GetMethod(
-                                        declaringTypeHandle, methodHandle, genericMethodTypeArgumentHandles);
-            if (methodBase == null || string.IsNullOrEmpty(methodBase.Name))
-                return null;
-
-            // get type name
-            string typeName = string.Empty;
-            Type declaringType = Type.GetTypeFromHandle(declaringTypeHandle);
-            if (declaringType != null)
-                typeName = declaringType.ToDisplayStringIfAvailable(null);
-            if (string.IsNullOrEmpty(typeName))
-                typeName = "<unknown>";
-
-            StringBuilder fullMethodName = new StringBuilder();
-            fullMethodName.Append(typeName);
-            fullMethodName.Append('.');
-            fullMethodName.Append(methodBase.Name);
-            fullMethodName.Append('(');
-
-            // get parameter list
-            ParameterInfo[] paramArr = methodBase.GetParametersNoCopy();
-            for (int i = 0; i < paramArr.Length; ++i)
-            {
-                if (i != 0)
-                    fullMethodName.Append(", ");
-
-                ParameterInfo param = paramArr[i];
-                string paramTypeName = string.Empty;
-                if (param.ParameterType != null)
-                    paramTypeName = param.ParameterType.ToDisplayStringIfAvailable(null);
-                if (string.IsNullOrEmpty(paramTypeName))
-                    paramTypeName = "<unknown>";
-                else
-                {
-                    // remove namespace from param type-name
-                    int idxSeparator = paramTypeName.IndexOf(".");
-                    if (idxSeparator >= 0)
-                        paramTypeName = paramTypeName.Remove(0, idxSeparator + 1);
-                }
-
-                string paramName = param.Name;
-                if (string.IsNullOrEmpty(paramName))
-                    paramName = "<unknown>";
-
-                fullMethodName.Append(paramTypeName);
-                fullMethodName.Append(' ');
-                fullMethodName.Append(paramName);
-            }
-            fullMethodName.Append(')');
-            return fullMethodName.ToString();
         }
 
         public sealed override IntPtr TryGetStaticClassConstructionContext(RuntimeTypeHandle runtimeTypeHandle)
@@ -299,13 +230,12 @@ namespace Internal.Reflection.Execution
         {
             defaultValue = null;
 
-            MethodBase methodInfo = defaultParametersContext as MethodBase;
-            if (methodInfo == null)
+            if (!(defaultParametersContext is MethodBase methodBase))
             {
                 return false;
             }
 
-            ParameterInfo parameterInfo = methodInfo.GetParametersNoCopy()[argIndex];
+            ParameterInfo parameterInfo = methodBase.GetParametersNoCopy()[argIndex];
             if (!parameterInfo.HasDefaultValue)
             {
                 // If the parameter is optional, with no default value and we're asked for its default value,

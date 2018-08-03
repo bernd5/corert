@@ -62,6 +62,7 @@ GSCookie**,IntPtr**,void**
 
 BOOL*,[MarshalAs(UnmanagedType.Bool)] ref bool,int*
 bool*,[MarshalAs(UnmanagedType.U1)] ref bool
+BoolStar,byte*,bool*
 ULONG*,ref uint,unsigned long*
 void **,ref void*
 VOIDSTARSTAR,void **,void **
@@ -127,6 +128,7 @@ CORINFO_CALLINFO_FLAGS,,int
 CorJitAllocMemFlag,,int
 CorJitFuncKind,,int
 CorJitResult,,int
+TypeCompareState,,int
 
 ; Handle types
 CORINFO_MODULE_HANDLE,CORINFO_MODULE_STRUCT_*,void*
@@ -171,8 +173,10 @@ FUNCTIONS
     CORINFO_MODULE_HANDLE getMethodModule(        CORINFO_METHOD_HANDLE       method        );
     void getMethodVTableOffset(        CORINFO_METHOD_HANDLE       method,        unsigned*                   offsetOfIndirection,        unsigned*                   offsetAfterIndirection, bool*                       isRelative);
     CORINFO_METHOD_HANDLE resolveVirtualMethod(            CORINFO_METHOD_HANDLE       virtualMethod,          CORINFO_CLASS_HANDLE        implementingClass,            CORINFO_CONTEXT_HANDLE      ownerType);
+    CORINFO_METHOD_HANDLE getUnboxedEntry(CORINFO_METHOD_HANDLE ftn, BoolStar requiresInstMethodTableArg);
+    CORINFO_CLASS_HANDLE getDefaultEqualityComparerClass(CORINFO_CLASS_HANDLE elemType);
     void expandRawHandleIntrinsic(CORINFO_RESOLVED_TOKEN *        pResolvedToken, CORINFO_GENERICHANDLE_RESULT *  pResult);
-    CorInfoIntrinsics getIntrinsicID(        CORINFO_METHOD_HANDLE       method        , bool * pMustExpand);
+    CorInfoIntrinsics getIntrinsicID(        CORINFO_METHOD_HANDLE       method        , BoolStar pMustExpand);
     bool isInSIMDModule(           CORINFO_CLASS_HANDLE        classHnd );
     CorInfoUnmanagedCallConv getUnmanagedCallConv(        CORINFO_METHOD_HANDLE       method        );
     BOOL pInvokeMarshalingRequired(        CORINFO_METHOD_HANDLE       method,        CORINFO_SIG_INFO*           callSiteSig        );
@@ -195,6 +199,8 @@ FUNCTIONS
     BOOL shouldEnforceCallvirtRestriction(CORINFO_MODULE_HANDLE scope)
     CorInfoType asCorInfoType(CORINFO_CLASS_HANDLE cls)
     const char* getClassName(CORINFO_CLASS_HANDLE cls)
+    const char* getClassNameFromMetadata(CORINFO_CLASS_HANDLE cls, const char **namespaceName)
+    CORINFO_CLASS_HANDLE getTypeInstantiationArgument(CORINFO_CLASS_HANDLE cls, unsigned index)
     int appendClassName(WCHAR** ppBuf, int* pnBufLen, CORINFO_CLASS_HANDLE cls, BOOL fNamespace, BOOL fFullInst, BOOL fAssembly)
     BOOL isValueClass(CORINFO_CLASS_HANDLE cls)
     BOOL canInlineTypeCheckWithObjectVTable(CORINFO_CLASS_HANDLE cls)
@@ -227,8 +233,11 @@ FUNCTIONS
     void classMustBeLoadedBeforeCodeIsRun(CORINFO_CLASS_HANDLE cls)
     CORINFO_CLASS_HANDLE getBuiltinClass(CorInfoClassId classId)
     CorInfoType getTypeForPrimitiveValueClass(CORINFO_CLASS_HANDLE cls)
+    CorInfoType getTypeForPrimitiveNumericClass(CORINFO_CLASS_HANDLE cls)
     BOOL canCast(CORINFO_CLASS_HANDLE child, CORINFO_CLASS_HANDLE parent)
     BOOL areTypesEquivalent(CORINFO_CLASS_HANDLE cls1, CORINFO_CLASS_HANDLE cls2)
+    TypeCompareState compareTypesForCast(CORINFO_CLASS_HANDLE fromClass, CORINFO_CLASS_HANDLE toClass)
+    TypeCompareState compareTypesForEquality(CORINFO_CLASS_HANDLE cls1, CORINFO_CLASS_HANDLE cls2)
     CORINFO_CLASS_HANDLE mergeClasses(CORINFO_CLASS_HANDLE cls1, CORINFO_CLASS_HANDLE cls2)
     CORINFO_CLASS_HANDLE getParentType(CORINFO_CLASS_HANDLE cls)
     CorInfoType getChildType(CORINFO_CLASS_HANDLE clsHnd, CORINFO_CLASS_HANDLE* clsRet)
@@ -305,6 +314,7 @@ FUNCTIONS
     CORINFO_METHOD_HANDLE GetDelegateCtor(CORINFO_METHOD_HANDLE  methHnd, CORINFO_CLASS_HANDLE   clsHnd, CORINFO_METHOD_HANDLE  targetMethodHnd, DelegateCtorArgs *     pCtorData);
     void MethodCompileComplete(CORINFO_METHOD_HANDLE methHnd);
     void* getTailCallCopyArgsThunk (CORINFO_SIG_INFO       *pSig, CorInfoHelperTailCallSpecialHandling flags);
+    bool convertPInvokeCalliToCall(CORINFO_RESOLVED_TOKEN * pResolvedToken, bool mustConvert);
     [ManualNativeWrapper] IEEMemoryManager* getMemoryManager();
     void allocMem(        ULONG               hotCodeSize,    ULONG               coldCodeSize,     ULONG               roDataSize,             ULONG               xcptnsCount,            CorJitAllocMemFlag  flag,        void**             hotCodeBlock,           void**             coldCodeBlock,          void**             roDataBlock             );
     void reserveUnwindInfo(BOOL isFunclet, BOOL isColdCode, ULONG unwindSize)

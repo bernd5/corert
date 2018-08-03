@@ -72,14 +72,18 @@ namespace Internal.IL.Stubs
             }
         }
 
+        public override bool IsNoInlining
+        {
+            get
+            {
+                // This method does not have real IL body. NoInlining stops the JIT asking for it.
+                return true;
+            }
+        }
+
         public override PInvokeMetadata GetPInvokeMethodMetadata()
         {
             return _declMethod.GetPInvokeMethodMetadata();
-        }
-
-        public override string ToString()
-        {
-            return "[EXTERNAL]" + Name;
         }
     }
 }
