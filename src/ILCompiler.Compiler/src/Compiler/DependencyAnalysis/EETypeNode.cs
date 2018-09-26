@@ -56,7 +56,7 @@ namespace ILCompiler.DependencyAnalysis
     ///                 |
     /// [Pointer Size]  | Pointer to the generic argument and variance info (optional)
     /// </summary>
-    public partial class EETypeNode : ObjectNode, IExportableSymbolNode, IEETypeNode, ISymbolDefinitionNode
+    public partial class EETypeNode : ObjectNode, IExportableSymbolNode, IEETypeNode, ISymbolDefinitionNode, ISymbolNodeWithLinkage
     {
         protected TypeDesc _type;
         internal EETypeOptionalFieldsBuilder _optionalFieldsBuilder = new EETypeOptionalFieldsBuilder();
@@ -90,9 +90,9 @@ namespace ILCompiler.DependencyAnalysis
             return false;
         }
 
-        public override ObjectNode NodeForLinkage(NodeFactory factory)
+        public virtual ISymbolNode NodeForLinkage(NodeFactory factory)
         {
-            return (ObjectNode)factory.NecessaryTypeSymbol(_type);
+            return factory.NecessaryTypeSymbol(_type);
         }
 
         public ExportForm GetExportForm(NodeFactory factory) => factory.CompilationModuleGroup.GetExportTypeForm(Type);
@@ -424,6 +424,13 @@ namespace ILCompiler.DependencyAnalysis
                             "Ensure all methods on type due to CompilationModuleGroup policy");
                     }
                 }
+            }
+
+            if (!ConstructedEETypeNode.CreationAllowed(_type))
+            {
+                // If necessary EEType is the highest load level for this type, ask the metadata manager
+                // if we have any dependencies due to reflectability.
+                factory.MetadataManager.GetDependenciesDueToReflectability(ref dependencies, factory, _type);
             }
 
             return dependencies;

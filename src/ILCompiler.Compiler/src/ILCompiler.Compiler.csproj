@@ -46,6 +46,9 @@
     <Compile Include="..\..\Common\src\TypeSystem\Ecma\EcmaSignatureEncoder.cs">
       <Link>Ecma\EcmaSignatureEncoder.cs</Link>
     </Compile>
+    <Compile Include="..\..\Common\src\TypeSystem\IL\CoreRTILProvider.cs">
+      <Link>IL\CoreRTILProvider.cs</Link>
+    </Compile>
     <Compile Include="..\..\Common\src\TypeSystem\IL\ILImporter.cs">
       <Link>IL\ILImporter.cs</Link>
     </Compile>
@@ -130,6 +133,7 @@
     <Compile Include="Compiler\DependencyAnalysis\LoopHijackFlagNode.cs" />
     <Compile Include="Compiler\DevirtualizationManager.cs" />
     <Compile Include="Compiler\DictionaryLayoutProvider.cs" />
+    <Compile Include="Compiler\DynamicInvokeThunkGenerationPolicy.cs" />
     <Compile Include="Compiler\EmptyInteropStubManager.cs" />
     <Compile Include="Compiler\DependencyAnalysis\ISortableNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\SortableDependencyNode.cs" />
@@ -403,9 +407,6 @@
     </Compile>
     <Compile Include="..\..\Common\src\TypeSystem\IL\ILProvider.cs">
       <Link>IL\ILProvider.cs</Link>
-    </Compile>
-    <Compile Include="..\..\Common\src\TypeSystem\IL\McgInteropSupport.cs">
-      <Link>IL\McgInteropSupport.cs</Link>
     </Compile>
     <Compile Include="..\..\Common\src\TypeSystem\IL\Stubs\AddrOfIntrinsic.cs">
       <Link>IL\Stubs\AddrOfIntrinsic.cs</Link>

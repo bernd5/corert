@@ -179,19 +179,14 @@
     <Compile Include="System\Reflection\Emit\ReflectionEmitThrower.cs" />
     <Compile Include="System\Reflection\Emit\SignatureHelper.cs" />
     <Compile Include="System\Reflection\Emit\TypeBuilder.cs" />
-    <Compile Include="System\Reflection\ExceptionHandlingClause.cs" />
     <Compile Include="System\Reflection\FieldInfo.CoreRT.cs" />
     <Compile Include="System\Reflection\LegacyCustomAttributeApis.cs" />
-    <Compile Include="System\Reflection\LocalVariableInfo.cs" />
     <Compile Include="System\Reflection\MethodBase.CoreRT.cs" />
-    <Compile Include="System\Reflection\MethodBody.cs" />
     <Compile Include="System\Reflection\Runtime\CustomAttributes\RuntimeImplementedCustomAttributeData.cs" />
     <Compile Include="System\Resources\FileBasedResourceGroveler.cs" />
     <Compile Include="System\Resources\IResourceGroveler.cs" />
     <Compile Include="System\Resources\ManifestBasedResourceGroveler.cs" />
     <Compile Include="System\Resources\ResourceManager.cs" />
-    <Compile Include="System\Resources\ResourceReader.cs" />
-    <Compile Include="System\Resources\ResourceSet.cs" />
     <Compile Include="System\Runtime\InteropServices\CriticalHandle.cs" />
     <Compile Include="System\Text\CodePageDataItem.cs" />
     <Compile Include="System\__Canon.cs" Condition="'$(IsProjectNLibrary)' == 'true'" />
@@ -239,7 +234,6 @@
     <Compile Include="System\MathF.CoreRT.cs" />
     <Compile Include="System\MissingMemberException.CoreRT.cs" />
     <Compile Include="System\MulticastDelegate.cs" />
-    <Compile Include="System\Number.CoreRT.cs" />
     <Compile Include="System\Object.cs" />
     <Compile Include="System\Reflection\MissingMetadataException.cs" />
     <Compile Include="System\RuntimeArgumentHandle.cs" />
@@ -305,7 +299,6 @@
     <Compile Include="System\Threading\Monitor.cs" />
     <Compile Include="System\Threading\ObjectHeader.cs" Condition="'$(UseSyncTable)' == 'true'" />
     <Compile Include="System\Threading\Overlapped.cs" />
-    <Compile Include="System\Threading\SpinLock.cs" />
     <Compile Include="System\Threading\SynchronizationContext.cs" />
     <Compile Include="System\Threading\SynchronizationContext.WinRT.cs" Condition="'$(EnableWinRT)' == 'true'" />
     <Compile Include="System\Threading\SynchronizationContext.Dummy.cs" Condition="'$(EnableWinRT)' != 'true'" />
@@ -322,7 +315,6 @@
     <Compile Include="System\Threading\Tasks\TaskFactory.cs" />
     <Compile Include="System\Threading\Tasks\TaskScheduler.cs" />
     <Compile Include="System\Threading\Tasks\ThreadPoolTaskScheduler.cs" />
-    <Compile Include="System\Threading\ThreadLocal.cs" />
     <Compile Include="System\Threading\ThreadPool.cs" />
     <Compile Include="System\Threading\ThreadPoolCallbackWrapper.cs" />
     <Compile Include="System\Threading\Timer.cs" />
@@ -352,48 +344,6 @@
     <Compile Include="System\WeakReferenceOfT.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetsWindows)'=='true' and '$(EnableWinRT)'!='true'">
-    <Compile Include="Microsoft\Win32\SafeHandles\SafeRegistryHandle.cs" />
-    <Compile Include="Microsoft\Win32\SafeHandles\SafeRegistryHandle.Windows.cs" />
-    <Compile Include="Microsoft\Win32\Registry.cs" />
-    <Compile Include="Microsoft\Win32\RegistryHive.cs" />
-    <Compile Include="Microsoft\Win32\RegistryKey.cs" />
-    <Compile Include="Microsoft\Win32\RegistryKey.Windows.cs" />
-    <Compile Include="Microsoft\Win32\RegistryOptions.cs" />
-    <Compile Include="Microsoft\Win32\ThrowHelper.cs" />
-    <Compile Include="System\Security\AccessControl\RegistryRights.cs" />
-    <Compile Include="..\..\Common\src\Interop\Windows\advapi32\Interop.RegDeleteValue.cs">
-      <Link>Interop\Windows\advapi32\Interop.RegDeleteValue.cs</Link>
-    </Compile>
-    <Compile Include="..\..\Common\src\Interop\Windows\advapi32\Interop.RegSetValueEx.cs">
-      <Link>Interop\Windows\advapi32\Interop.RegSetValueEx.cs</Link>
-    </Compile>
-    <Compile Include="..\..\Common\src\Interop\Windows\mincore\Interop.RegistryOptions.cs">
-      <Link>Interop\Windows\mincore\Interop.RegistryOptions.cs</Link>
-    </Compile>
-    <Compile Include="..\..\Common\src\Interop\Windows\mincore\Interop.RegCloseKey.cs">
-      <Link>Interop\Windows\mincore\Interop.RegCloseKey.cs</Link>
-    </Compile>
-    <Compile Include="..\..\Common\src\Interop\Windows\mincore\Interop.RegCreateKeyEx.cs">
-      <Link>Interop\Windows\mincore\Interop.RegCreateKeyEx.cs</Link>
-    </Compile>
-    <Compile Include="..\..\Common\src\Interop\Windows\mincore\Interop.RegEnumKeyEx.cs">
-      <Link>Interop\Windows\mincore\Interop.RegEnumKeyEx.cs</Link>
-    </Compile>
-    <Compile Include="..\..\Common\src\Interop\Windows\mincore\Interop.RegEnumValue.cs">
-      <Link>Interop\Windows\mincore\Interop.RegEnumValue.cs</Link>
-    </Compile>
-    <Compile Include="..\..\Common\src\Interop\Windows\mincore\Interop.RegFlushKey.cs">
-      <Link>Interop\Windows\mincore\Interop.RegFlushKey.cs</Link>
-    </Compile>
-    <Compile Include="..\..\Common\src\Interop\Windows\mincore\Interop.RegOpenKeyEx.cs">
-      <Link>Interop\Windows\mincore\Interop.RegOpenKeyEx.cs</Link>
-    </Compile>
-    <Compile Include="..\..\Common\src\Interop\Windows\mincore\Interop.RegQueryInfoKey.cs">
-      <Link>Interop\Windows\mincore\Interop.RegQueryInfoKey.cs</Link>
-    </Compile>
-    <Compile Include="..\..\Common\src\Interop\Windows\mincore\Interop.RegQueryValueEx.cs">
-      <Link>Interop\Windows\mincore\Interop.RegQueryValueEx.cs</Link>
-    </Compile>
     <Compile Include="..\..\Common\src\Interop\Windows\Kernel32\Interop.ExitProcess.cs">
       <Link>Interop\Windows\mincore\Interop.ExitProcess.cs</Link>
     </Compile>
@@ -404,7 +354,6 @@
     <Compile Condition="'$(EnableWinRT)' == 'true'" Include="System\TimeZoneInfo.WinRT.cs" />
     <Compile Include="System\AppContext.Windows.cs" />
     <Compile Include="System\DateTime.Windows.CoreRT.cs" />
-    <Compile Include="System\Number.Windows.cs" />
     <Compile Include="System\Runtime\InteropServices\PInvokeMarshal.Windows.cs" />
     <Compile Include="System\Runtime\MemoryFailPoint.cs" />
     <Compile Include="..\..\Common\src\Interop\Windows\kernel32\Interop.ExpandEnvironmentStrings.cs">
@@ -454,6 +403,12 @@
     </Compile>
     <Compile Include="..\..\Common\src\Interop\Windows\ole32\Interop.CoTaskMemAllocFree.cs">
       <Link>Interop\Windows\ole32\Interop.CoTaskMemAllocFree.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Common\src\Interop\Windows\ole32\Interop.CoInitializeEx.cs">
+      <Link>Interop\Windows\ole32\Interop.CoInitializeEx.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Common\src\Interop\Windows\ole32\Interop.CoUninitialize.cs">
+      <Link>Interop\Windows\ole32\Interop.CoUninitialize.cs</Link>
     </Compile>
     <Compile Include="..\..\Common\src\Interop\Windows\ole32\Interop.CoGetApartmentType.cs">
       <Link>Interop\Windows\ole32\Interop.CoGetApartmentType.cs</Link>
@@ -552,7 +507,6 @@
     <Compile Include="System\AppContext.Unix.cs" />
     <Compile Include="System\DateTime.Unix.CoreRT.cs" />
     <Compile Include="System\Environment.Unix.cs" />
-    <Compile Include="System\Number.Unix.cs" />
     <Compile Include="System\HighPerformanceCounter.Unix.cs" />
     <Compile Include="System\Runtime\InteropServices\PInvokeMarshal.Unix.cs" />
     <Compile Include="System\Threading\EventWaitHandle.Unix.cs" />
@@ -599,9 +553,6 @@
     <Compile Include="..\..\Common\src\Interop\Unix\System.Private.CoreLib.Native\Interop.SchedGetCpu.cs">
       <Link>Interop\Unix\System.Private.CoreLib.Native\Interop.SchedGetCpu.cs</Link>
     </Compile>
-    <Compile Include="..\..\Common\src\Interop\Unix\System.Private.CoreLib.Native\Interop.Number.cs">
-      <Link>Interop\Unix\System.Private.CoreLib.Native\Interop.Number.cs</Link>
-    </Compile>
     <Compile Include="..\..\Common\src\Interop\Unix\System.Private.CoreLib.Native\Interop.DynamicLoad.cs">
       <Link>Interop\Unix\System.Private.CoreLib.Native\Interop.DynamicLoad.cs</Link>
     </Compile>
@@ -610,6 +561,9 @@
     </Compile>
     <Compile Include="..\..\Common\src\Interop\Unix\System.Private.CoreLib.Native\Interop.ErrNo.cs">
       <Link>Interop\Unix\System.Private.CoreLib.Native\Interop.ErrNo.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Common\src\Interop\Unix\System.Private.CoreLib.Native\Interop.GetEnviron.cs">
+      <Link>Interop\Unix\System.Private.CoreLib.Native\Interop.GetEnviron.cs</Link>
     </Compile>
   </ItemGroup>
   <ItemGroup>
