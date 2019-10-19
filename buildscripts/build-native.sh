@@ -11,8 +11,15 @@ check_native_prereqs()
 {
     echo "Checking pre-requisites..."
 
-    # Check presence of CMake on the path
-    hash cmake 2>/dev/null || { echo >&2 "Please install cmake before running this script"; exit 1; }
+    # resolve cmake version to use, prefer cmake3 if there is one
+    if [ "$CMAKE" == "" ] ; then
+        if ! CMAKE=$(command -v cmake3 || command -v cmake)
+        then
+            echo >&2 "Please install cmake before running this script";
+            exit 1
+        fi
+        export CMAKE
+    fi
 
     # Check for clang
     hash clang-$__ClangMajorVersion.$__ClangMinorVersion 2>/dev/null ||  hash clang$__ClangMajorVersion$__ClangMinorVersion 2>/dev/null ||  hash clang 2>/dev/null || { echo >&2 "Please install clang before running this script"; exit 1; }
@@ -76,10 +83,11 @@ build_native_corert()
     else
         make install -j $NumProc $__UnprocessedBuildArgs
     fi
-    if [ $? != 0 ]; then
+    EXITCODE=$?
+    if [ $EXITCODE != 0 ]; then
         echo "Failed to build corert native components."
         popd
-        exit $?
+        exit $EXITCODE
     fi
 
     echo "CoreRT native components successfully built."

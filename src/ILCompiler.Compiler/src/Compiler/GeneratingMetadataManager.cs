@@ -14,6 +14,8 @@ using Internal.Metadata.NativeFormat.Writer;
 using ILCompiler.Metadata;
 using ILCompiler.DependencyAnalysis;
 
+using DependencyList = ILCompiler.DependencyAnalysisFramework.DependencyNodeCore<ILCompiler.DependencyAnalysis.NodeFactory>.DependencyList;
+
 namespace ILCompiler
 {
     /// <summary>
@@ -128,11 +130,14 @@ namespace ILCompiler
                     typeMappings.Add(new MetadataMapping<MetadataType>(definition, writer.GetRecordHandle(record)));
             }
 
+            HashSet<MethodDesc> canonicalGenericMethods = new HashSet<MethodDesc>();
             foreach (var method in GetCompiledMethods())
             {
-                if (method.IsCanonicalMethod(CanonicalFormKind.Specific))
+                if ((method.HasInstantiation && method.IsCanonicalMethod(CanonicalFormKind.Specific))
+                    || (!method.HasInstantiation && method.GetCanonMethodTarget(CanonicalFormKind.Specific) != method))
                 {
-                    // Canonical methods are not interesting.
+                    // Methods that are not in their canonical form are not interesting with the exception
+                    // of generic methods: their dictionaries convey their identity.
                     continue;
                 }
 
@@ -142,17 +147,38 @@ namespace ILCompiler
                 if ((GetMetadataCategory(method) & MetadataCategory.RuntimeMapping) == 0)
                     continue;
 
+                // If we already added a canonically equivalent generic method, skip this one.
+                if (method.HasInstantiation && !canonicalGenericMethods.Add(method.GetCanonMethodTarget(CanonicalFormKind.Specific)))
+                    continue;
+
                 MetadataRecord record = transformed.GetTransformedMethodDefinition(method.GetTypicalMethodDefinition());
 
                 if (record != null)
                     methodMappings.Add(new MetadataMapping<MethodDesc>(method, writer.GetRecordHandle(record)));
             }
 
+            HashSet<FieldDesc> canonicalFields = new HashSet<FieldDesc>();
             foreach (var field in GetFieldsWithRuntimeMapping())
             {
-                Field record = transformed.GetTransformedFieldDefinition(field.GetTypicalFieldDefinition());
+                FieldDesc fieldToAdd = field;
+                if (!field.IsStatic)
+                {
+                    TypeDesc canonOwningType = field.OwningType.ConvertToCanonForm(CanonicalFormKind.Specific);
+                    if (canonOwningType != field.OwningType)
+                    {
+                        FieldDesc canonField = _typeSystemContext.GetFieldForInstantiatedType(field.GetTypicalFieldDefinition(), (InstantiatedType)canonOwningType);
+
+                        // If we already added a canonically equivalent field, skip this one.
+                        if (!canonicalFields.Add(canonField))
+                            continue;
+
+                        fieldToAdd = canonField;
+                    }
+                }
+
+                Field record = transformed.GetTransformedFieldDefinition(fieldToAdd.GetTypicalFieldDefinition());
                 if (record != null)
-                    fieldMappings.Add(new MetadataMapping<FieldDesc>(field, writer.GetRecordHandle(record)));
+                    fieldMappings.Add(new MetadataMapping<FieldDesc>(fieldToAdd, writer.GetRecordHandle(record)));
             }
 
             // Generate stack trace metadata mapping
@@ -178,6 +204,62 @@ namespace ILCompiler
             MethodDesc thunk = _typeSystemContext.GetDynamicInvokeThunk(lookupSig);
 
             return InstantiateCanonicalDynamicInvokeMethodForMethod(thunk, method);
+        }
+
+        protected sealed override void GetDependenciesDueToMethodCodePresence(ref DependencyList dependencies, NodeFactory factory, MethodDesc method)
+        {
+            GetDependenciesDueToTemplateTypeLoader(ref dependencies, factory, method);
+            GetDependenciesDueToMethodCodePresenceInternal(ref dependencies, factory, method);
+        }
+
+        protected virtual void GetDependenciesDueToMethodCodePresenceInternal(ref DependencyList dependencies, NodeFactory factory, MethodDesc method)
+        {
+        }
+
+        protected virtual void GetDependenciesDueToTemplateTypeLoader(ref DependencyList dependencies, NodeFactory factory, MethodDesc method)
+        {
+            // TODO-SIZE: this is overly generous in the templates we create
+
+            if (method.HasInstantiation)
+            {
+                GenericMethodsTemplateMap.GetTemplateMethodDependencies(ref dependencies, factory, method);
+            }
+            else
+            {
+                TypeDesc owningTemplateType = method.OwningType;
+
+                // Unboxing and Instantiating stubs use a different type as their template
+                if (factory.TypeSystemContext.IsSpecialUnboxingThunk(method))
+                    owningTemplateType = factory.TypeSystemContext.GetTargetOfSpecialUnboxingThunk(method).OwningType;
+
+                GenericTypesTemplateMap.GetTemplateTypeDependencies(ref dependencies, factory, owningTemplateType);
+            }
+        }
+
+        protected override void GetDependenciesDueToEETypePresence(ref DependencyList dependencies, NodeFactory factory, TypeDesc type)
+        {
+            if (!ConstructedEETypeNode.CreationAllowed(type))
+            {
+                // Both EETypeNode and ConstructedEETypeNode call into this logic. EETypeNode will only call for unconstructable
+                // EETypes. We don't have templates for those.
+                return;
+            }
+
+            DefType closestDefType = type.GetClosestDefType();
+
+            // TODO-SIZE: this is overly generous in the templates we create
+            if (closestDefType.HasInstantiation)
+            {
+                TypeDesc canonType = type.ConvertToCanonForm(CanonicalFormKind.Specific);
+                TypeDesc canonClosestDefType = closestDefType.ConvertToCanonForm(CanonicalFormKind.Specific);
+
+                // Add a dependency on the template for this type, if the canonical type should be generated into this binary.
+                // If the type is an array type, the check should be on its underlying Array<T> type. This is because a copy of
+                // an array type gets placed into each module but the Array<T> type only exists in the defining module and only 
+                // one template is needed for the Array<T> type by the dynamic type loader.
+                if (canonType.IsCanonicalSubtype(CanonicalFormKind.Any) && !factory.NecessaryTypeSymbol(canonClosestDefType).RepresentsIndirectionCell)
+                    dependencies.Add(factory.NativeLayout.TemplateTypeLayout(canonType), "Template Type Layout");
+            }
         }
     }
 }

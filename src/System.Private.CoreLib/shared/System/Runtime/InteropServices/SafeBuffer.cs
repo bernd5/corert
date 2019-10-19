@@ -65,8 +65,6 @@
 // static variable (perhaps using Interlocked.CompareExchange).  Of course,
 // assignments in a static class constructor are under a lock implicitly.
 
-using System;
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Internal.Runtime.CompilerServices;
 using Microsoft.Win32.SafeHandles;
@@ -110,13 +108,7 @@ namespace System.Runtime.InteropServices
         [CLSCompliant(false)]
         public void Initialize(uint numElements, uint sizeOfEachElement)
         {
-            if (IntPtr.Size == 4 && numElements * sizeOfEachElement > uint.MaxValue)
-                throw new ArgumentOutOfRangeException("numBytes", SR.ArgumentOutOfRange_AddressSpace);
-
-            if (numElements * sizeOfEachElement >= (ulong)Uninitialized)
-                throw new ArgumentOutOfRangeException(nameof(numElements), SR.ArgumentOutOfRange_UIntPtrMax);
-
-            _numBytes = checked((UIntPtr)(numElements * sizeOfEachElement));
+            Initialize((ulong)numElements * sizeOfEachElement);
         }
 
         /// <summary>
@@ -152,7 +144,7 @@ namespace System.Runtime.InteropServices
         /// Obtain the pointer from a SafeBuffer for a block of code,
         /// with the express responsibility for bounds checking and calling
         /// ReleasePointer later to ensure the pointer can be freed later.
-        /// This method either completes successfully or throws an exception 
+        /// This method either completes successfully or throws an exception
         /// and returns with pointer set to null.
         /// </summary>
         /// <param name="pointer">A byte*, passed by reference, to receive
@@ -243,13 +235,10 @@ namespace System.Runtime.InteropServices
 
                 if (count > 0)
                 {
-                    unsafe
+                    fixed (byte* pStructure = &Unsafe.As<T, byte>(ref array[index]))
                     {
-                        fixed (byte* pStructure = &Unsafe.As<T, byte>(ref array[index]))
-                        {
-                            for (int i = 0; i < count; i++)
-                                Buffer.Memmove(pStructure + sizeofT * i, ptr + alignedSizeofT * i, sizeofT);
-                        }
+                        for (int i = 0; i < count; i++)
+                            Buffer.Memmove(pStructure + sizeofT * i, ptr + alignedSizeofT * i, sizeofT);
                     }
                 }
             }
@@ -322,7 +311,6 @@ namespace System.Runtime.InteropServices
 
                 if (count > 0)
                 {
-                    unsafe
                     {
                         fixed (byte* pStructure = &Unsafe.As<T, byte>(ref array[index]))
                         {
@@ -388,7 +376,7 @@ namespace System.Runtime.InteropServices
                 return size;
             }
 
-            return (uint)(((size + 3) & (~3)));
+            return (uint)((size + 3) & (~3));
         }
 
         /// <summary>

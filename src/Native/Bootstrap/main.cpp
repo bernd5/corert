@@ -45,11 +45,30 @@ __declspec(allocate(".modules$Z")) void * __modules_z[] = { nullptr };
 //
 #pragma comment(linker, "/merge:.unbox=.text")
 
-extern "C" void __managedcode_a();
-extern "C" void __managedcode_z();
+char _bookend_a;
+char _bookend_z;
 
-extern "C" void __unbox_a();
-extern "C" void __unbox_z();
+//
+// Generate bookends for the managed code section.
+// We give them unique bodies to prevent folding.
+//
+
+#pragma code_seg(".managedcode$A")
+void* __managedcode_a() { return &_bookend_a; }
+#pragma code_seg(".managedcode$Z")
+void* __managedcode_z() { return &_bookend_z; }
+#pragma code_seg()
+
+//
+// Generate bookends for the unboxing stub section.
+// We give them unique bodies to prevent folding.
+//
+
+#pragma code_seg(".unbox$A")
+void* __unbox_a() { return &_bookend_a; }
+#pragma code_seg(".unbox$Z")
+void* __unbox_z() { return &_bookend_z; }
+#pragma code_seg()
 
 #else // _MSC_VER
 
@@ -93,8 +112,8 @@ static char& __unbox_z = __stop___unbox;
 
 extern "C" Object * RhNewObject(MethodTable * pMT);
 extern "C" Object * RhNewArray(MethodTable * pMT, int32_t elements);
-extern "C" void * RhTypeCast_IsInstanceOf(void * pObject, MethodTable * pMT);
-extern "C" void * RhTypeCast_CheckCast(void * pObject, MethodTable * pMT);
+extern "C" void * RhTypeCast_IsInstanceOf(MethodTable * pMT, void* pObject);
+extern "C" void * RhTypeCast_CheckCast(MethodTable * pMT, void* pObject);
 extern "C" void RhpStelemRef(void * pArray, int index, void * pObj);
 extern "C" void * RhpLdelemaRef(void * pArray, int index, MethodTable * pMT);
 extern "C" __NORETURN void RhpThrowEx(void * pEx);
@@ -110,14 +129,14 @@ extern "C" Object * __allocate_array(size_t elements, MethodTable * pMT)
     return RhNewArray(pMT, (int32_t)elements); // TODO: type mismatch
 }
 
-extern "C" Object * __castclass(void * obj, MethodTable * pTargetMT)
+extern "C" Object * __castclass(MethodTable * pTargetMT, void* obj)
 {
-    return (Object *)RhTypeCast_CheckCast(obj, pTargetMT);
+    return (Object *)RhTypeCast_CheckCast(pTargetMT, obj);
 }
 
-extern "C" Object * __isinst(void * obj, MethodTable * pTargetMT)
+extern "C" Object * __isinst(MethodTable * pTargetMT, void* obj)
 {
-    return (Object *)RhTypeCast_IsInstanceOf(obj, pTargetMT);
+    return (Object *)RhTypeCast_IsInstanceOf(pTargetMT, obj);
 }
 
 extern "C" void __stelem_ref(void * pArray, unsigned idx, void * obj)

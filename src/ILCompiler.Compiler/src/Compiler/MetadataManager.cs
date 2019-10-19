@@ -46,16 +46,18 @@ namespace ILCompiler
         protected readonly DynamicInvokeThunkGenerationPolicy _dynamicInvokeThunkGenerationPolicy;
 
         private List<NonGCStaticsNode> _cctorContextsGenerated = new List<NonGCStaticsNode>();
-        private HashSet<TypeDesc> _typesWithEETypesGenerated = new HashSet<TypeDesc>();
-        private HashSet<TypeDesc> _typesWithConstructedEETypesGenerated = new HashSet<TypeDesc>();
+        private readonly HashSet<TypeDesc> _typesWithEETypesGenerated = new HashSet<TypeDesc>();
+        private readonly HashSet<TypeDesc> _typesWithConstructedEETypesGenerated = new HashSet<TypeDesc>();
         private HashSet<MethodDesc> _methodsGenerated = new HashSet<MethodDesc>();
         private HashSet<GenericDictionaryNode> _genericDictionariesGenerated = new HashSet<GenericDictionaryNode>();
         private HashSet<IMethodBodyNode> _methodBodiesGenerated = new HashSet<IMethodBodyNode>();
         private List<TypeGVMEntriesNode> _typeGVMEntries = new List<TypeGVMEntriesNode>();
+        private HashSet<DefType> _typesWithDelegateMarshalling = new HashSet<DefType>();
+        private HashSet<DefType> _typesWithStructMarshalling = new HashSet<DefType>();
+        private HashSet<MethodDesc> _dynamicInvokeTemplates = new HashSet<MethodDesc>();
 
         internal NativeLayoutInfoNode NativeLayoutInfo { get; private set; }
         internal DynamicInvokeTemplateDataNode DynamicInvokeTemplateData { get; private set; }
-        public virtual bool SupportsReflection => true;
 
         public MetadataManager(CompilerTypeSystemContext typeSystemContext, MetadataBlockingPolicy blockingPolicy,
             ManifestResourceBlockingPolicy resourceBlockingPolicy, DynamicInvokeThunkGenerationPolicy dynamicInvokeThunkGenerationPolicy)
@@ -209,6 +211,21 @@ namespace ILCompiler
             {
                 _genericDictionariesGenerated.Add(dictionaryNode);
             }
+
+            if (obj is StructMarshallingDataNode structMarshallingDataNode)
+            {
+                _typesWithStructMarshalling.Add(structMarshallingDataNode.Type);
+            }
+
+            if (obj is DelegateMarshallingDataNode delegateMarshallingDataNode)
+            {
+                _typesWithDelegateMarshalling.Add(delegateMarshallingDataNode.Type);
+            }
+
+            if (obj is DynamicInvokeTemplateNode dynamicInvokeTemplate)
+            {
+                _dynamicInvokeTemplates.Add(dynamicInvokeTemplate.Method);
+            }
         }
 
         /// <summary>
@@ -283,6 +300,13 @@ namespace ILCompiler
         /// </summary>
         public void GetDependenciesDueToReflectability(ref DependencyList dependencies, NodeFactory factory, MethodDesc method)
         {
+            if (method.HasInstantiation)
+            {
+                ExactMethodInstantiationsNode.GetExactMethodInstantiationDependenciesForMethod(ref dependencies, factory, method);
+            }
+
+            GetDependenciesDueToMethodCodePresence(ref dependencies, factory, method);
+
             MetadataCategory category = GetMetadataCategory(method);
 
             if ((category & MetadataCategory.Description) != 0)
@@ -342,6 +366,8 @@ namespace ILCompiler
                 // have one, since we got this callback). But check if a child wants to do something extra.
                 GetRuntimeMappingDependenciesDueToReflectability(ref dependencies, factory, type);
             }
+
+            GetDependenciesDueToEETypePresence(ref dependencies, factory, type);
         }
 
         protected virtual void GetMetadataDependenciesDueToReflectability(ref DependencyList dependencies, NodeFactory factory, TypeDesc type)
@@ -355,6 +381,11 @@ namespace ILCompiler
         {
             // MetadataManagers can override this to provide additional dependencies caused by the emission of a runtime
             // mapping for a type.
+        }
+
+        protected virtual void GetDependenciesDueToEETypePresence(ref DependencyList dependencies, NodeFactory factory, TypeDesc type)
+        {
+            // MetadataManagers can override this to provide additional dependencies caused by the emission of an EEType.
         }
 
         /// <summary>
@@ -373,6 +404,15 @@ namespace ILCompiler
         {
             // MetadataManagers can override this to provide additional dependencies caused by the presence of a
             // RuntimeFieldHandle data structure.
+        }
+
+        /// <summary>
+        /// This method is an extension point that can provide additional metadata-based dependencies to generated method bodies.
+        /// </summary>
+        protected virtual void GetDependenciesDueToMethodCodePresence(ref DependencyList dependencies, NodeFactory factory, MethodDesc method)
+        {
+            // MetadataManagers can override this to provide additional dependencies caused by the presence of a
+            // compiled method body.
         }
 
         /// <summary>
@@ -567,7 +607,17 @@ namespace ILCompiler
             return _genericDictionariesGenerated;
         }
 
-        internal IEnumerable<MethodDesc> GetCompiledMethods()
+        internal IEnumerable<DefType> GetTypesWithStructMarshalling()
+        {
+            return _typesWithStructMarshalling;
+        }
+
+        internal IEnumerable<DefType> GetTypesWithDelegateMarshalling()
+        {
+            return _typesWithDelegateMarshalling;
+        }
+
+        public IEnumerable<MethodDesc> GetCompiledMethods()
         {
             return _methodsGenerated;
         }
@@ -590,6 +640,11 @@ namespace ILCompiler
         internal IEnumerable<TypeDesc> GetTypesWithConstructedEETypes()
         {
             return _typesWithConstructedEETypesGenerated;
+        }
+
+        internal IEnumerable<MethodDesc> GetDynamicInvokeTemplateMethods()
+        {
+            return _dynamicInvokeTemplates;
         }
 
         public bool IsReflectionBlocked(TypeDesc type)

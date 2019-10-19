@@ -117,10 +117,15 @@ namespace Internal.JitInterface
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_Pow, "Pow", "System", "MathF");
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_Exp, "Exp", "System", "Math");
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_Exp, "Exp", "System", "MathF");
+#if !READYTORUN
+            // These are normally handled via the SSE4.1 instructions ROUNDSS/ROUNDSD.
+            // However, we don't know the ISAs the target machine supports so we should
+            // fallback to the method call implementation instead.
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_Ceiling, "Ceiling", "System", "Math");
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_Ceiling, "Ceiling", "System", "MathF");
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_Floor, "Floor", "System", "Math");
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_Floor, "Floor", "System", "MathF");
+#endif
             // table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_GetChar, null, null, null); // unused
             // table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_Array_GetDimLength, "GetLength", "System", "Array"); // not handled
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_Array_Get, "Get", null, null);
@@ -129,11 +134,11 @@ namespace Internal.JitInterface
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_StringGetChar, "get_Chars", "System", "String");
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_StringLength, "get_Length", "System", "String");
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_InitializeArray, "InitializeArray", "System.Runtime.CompilerServices", "RuntimeHelpers");
-            //table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_GetTypeFromHandle, "GetTypeFromHandle", "System", "Type"); // RuntimeTypeHandle has to be RuntimeType
+            table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_GetTypeFromHandle, "GetTypeFromHandle", "System", "Type");
             table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_RTH_GetValueInternal, "GetValueInternal", "System", "RuntimeTypeHandle");
-            //table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_TypeEQ, "op_Equality", "System", "Type"); // https://github.com/dotnet/corert/issues/5180
-            //table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_TypeNEQ, "op_Inequality", "System", "Type"); // https://github.com/dotnet/corert/issues/5180
-            //table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_Object_GetType, "GetType", "System", "Object"); // https://github.com/dotnet/corert/issues/5180
+            table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_TypeEQ, "op_Equality", "System", "Type");
+            table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_TypeNEQ, "op_Inequality", "System", "Type");
+            table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_Object_GetType, "GetType", "System", "Object");
             // table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_StubHelpers_GetStubContext, "GetStubContext", "System.StubHelpers", "StubHelpers"); // interop-specific
             // table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr, "GetStubContextAddr", "System.StubHelpers", "StubHelpers"); // interop-specific
             // table.Add(CorInfoIntrinsics.CORINFO_INTRINSIC_StubHelpers_GetNDirectTarget, "GetNDirectTarget", "System.StubHelpers", "StubHelpers"); // interop-specific
@@ -230,7 +235,9 @@ namespace Internal.JitInterface
                     break;
 
                 case CorInfoIntrinsics.CORINFO_INTRINSIC_RTH_GetValueInternal:
+#if !READYTORUN
                 case CorInfoIntrinsics.CORINFO_INTRINSIC_InitializeArray:
+#endif
                 case CorInfoIntrinsics.CORINFO_INTRINSIC_ByReference_Ctor:
                 case CorInfoIntrinsics.CORINFO_INTRINSIC_ByReference_Value:
                     if (pMustExpand != null)
@@ -240,6 +247,16 @@ namespace Internal.JitInterface
                 case CorInfoIntrinsics.CORINFO_INTRINSIC_GetRawHandle:
                     if (pMustExpand != null)
                         *pMustExpand = 1;
+                    break;
+
+                case CorInfoIntrinsics.CORINFO_INTRINSIC_Span_GetItem:
+                case CorInfoIntrinsics.CORINFO_INTRINSIC_ReadOnlySpan_GetItem:
+                    {
+                        // RyuJIT handles integer overload only
+                        var argumentTypeCategory = method.Signature[0].Category;
+                        if (argumentTypeCategory != TypeFlags.Int32)
+                            return CorInfoIntrinsics.CORINFO_INTRINSIC_Illegal;
+                    }
                     break;
 
                 default:

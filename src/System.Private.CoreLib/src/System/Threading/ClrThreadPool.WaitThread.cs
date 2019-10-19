@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
-using Internal.Runtime.Augments;
 using System.Runtime.InteropServices;
 
 namespace System.Threading
@@ -175,7 +174,7 @@ namespace System.Threading
             public WaitThread()
             {
                 _waitHandles[0] = _changeHandlesEvent;
-                RuntimeThread waitThread = RuntimeThread.Create(WaitThreadStart);
+                Thread waitThread = new Thread(WaitThreadStart);
                 waitThread.IsBackground = true;
                 waitThread.Start();
             }
@@ -224,7 +223,7 @@ namespace System.Threading
                         }
                     }
 
-                    int signaledHandleIndex = WaitHandle.WaitAny(_waitHandles, numUserWaits + 1, timeoutDurationMs);
+                    int signaledHandleIndex = WaitHandle.WaitAny(new ReadOnlySpan<WaitHandle>(_waitHandles, 0, numUserWaits + 1), timeoutDurationMs);
 
                     if (signaledHandleIndex == 0) // If we were woken up for a change in our handles, continue.
                     {
@@ -337,9 +336,9 @@ namespace System.Threading
             /// Process the completion of a user-registered wait (call the callback).
             /// </summary>
             /// <param name="state">A <see cref="CompletedWaitHandle"/> object representing the wait completion.</param>
-            private void CompleteWait(object state)
+            private void CompleteWait(object? state)
             {
-                CompletedWaitHandle handle = (CompletedWaitHandle)state;
+                CompletedWaitHandle handle = (CompletedWaitHandle)state!;
                 handle.CompletedHandle.PerformCallback(handle.TimedOut);
             }
 

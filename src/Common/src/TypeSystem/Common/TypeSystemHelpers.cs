@@ -66,6 +66,11 @@ namespace Internal.TypeSystem
             return paramType.ParameterType;
         }
 
+        public static bool HasLayout(this MetadataType mdType)
+        {
+            return mdType.IsSequentialLayout || mdType.IsExplicitLayout;
+        }
+
         public static LayoutInt GetElementSize(this TypeDesc type)
         {
             if (type.IsValueType)
@@ -363,6 +368,48 @@ namespace Internal.TypeSystem
             while (result == null && currentType != null);
 
             return result;
+        }
+
+        public static bool ContainsSignatureVariables(this TypeDesc thisType)
+        {
+            switch (thisType.Category)
+            {
+                case TypeFlags.Array:
+                case TypeFlags.SzArray:
+                case TypeFlags.ByRef:
+                case TypeFlags.Pointer:
+                    return ((ParameterizedType)thisType).ParameterType.ContainsSignatureVariables();
+
+                case TypeFlags.FunctionPointer:
+
+                    var fptr = (FunctionPointerType)thisType;
+                    if (fptr.Signature.ReturnType.ContainsSignatureVariables())
+                        return true;
+
+                    for (int i = 0; i < fptr.Signature.Length; i++)
+                    {
+                        if (fptr.Signature[i].ContainsSignatureVariables())
+                            return true;
+                    }
+                    return false;
+
+                case TypeFlags.SignatureMethodVariable:
+                case TypeFlags.SignatureTypeVariable:
+                    return true;
+
+                case TypeFlags.GenericParameter:
+                    throw new ArgumentException();
+
+                default:
+                    Debug.Assert(thisType is DefType);
+                    foreach (TypeDesc arg in thisType.Instantiation)
+                    {
+                        if (arg.ContainsSignatureVariables())
+                            return true;
+                    }
+
+                    return false;
+            }
         }
     }
 }

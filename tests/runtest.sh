@@ -9,6 +9,7 @@ usage()
     echo "    -corefx       : Download and run the CoreFX repo tests"
     echo "    -coreclr      : Download and run the CoreCLR repo tests"
     echo "    -multimodule  : Compile the framework as a .so and link tests against it (ryujit only)"
+    echo "    -singlethread : Run tests on a single thread (avoid parallel execution)"
     echo "    -coredumps    : [For CI use] Enables core dump generation, and analyzes and possibly stores/uploads"
     echo "                      dumps collected during test run."
     echo ""
@@ -100,9 +101,27 @@ download_and_unzip_coreclr_tests_artifacts()
         mkdir -p ${location}
     
         local_zip=${location}/tests.zip
-        curl --retry 10 --retry-delay 5 -sSL -o ${local_zip} ${url}
+
+        # Use curl if available, otherwise use wget
+        if command -v curl > /dev/null; then
+            curl --retry 10 --retry-delay 5 -sSL -o ${local_zip} ${url}
+        else
+            wget -q -O ${local_zip} ${url} --tries=10
+        fi
+
+        local __exitcode=$?
+        if [ ${__exitcode} != 0 ]; then
+            echo "Failed to download CoreCLR tests artifacts."
+            exit ${__exitcode}
+        fi
 
         unzip -q ${local_zip} -d ${location}
+        __exitcode=$?
+        # Exit code 1 indicates that a warning was encountered but unzipping completed successfully
+        if [ ${__exitcode} != 0 ] && [ ${__exitcode} != 1 ]; then
+            echo "Failed to unzip CoreCLR tests artifacts."
+            exit ${__exitcode}
+        fi
 
         echo "CoreCLR tests artifacts restored from ${url}" >> ${semaphore}
     fi
@@ -154,21 +173,15 @@ download_and_unzip_corefx_tests_artifacts()
 restore_coreclr_tests()
 {
     CoreRT_Test_Download_Semaphore=${CoreRT_TestExtRepo}/init-tests.completed
-    CoreRT_NativeArtifact_Download_Semaphore=${CoreRT_TestExtRepo}/init-native-artifact.completed
 
-    if [ -e ${CoreRT_Test_Download_Semaphore} ] && [ -e ${CoreRT_NativeArtifact_Download_Semaphore} ]; then
+    if [ -e ${CoreRT_Test_Download_Semaphore} ]; then
         echo "Tests are already initialized."
         return 0
     fi
-    TESTS_REMOTE_URL=$(<${CoreRT_TestRoot}/CoreCLRTestsURL.txt)
-    NATIVE_REMOTE_URL=$(<${CoreRT_TestRoot}/CoreCLRTestsNativeArtifacts_${CoreRT_BuildOS}.txt)
-    CoreRT_NativeArtifactRepo=${CoreRT_TestExtRepo}/native
+    TESTS_REMOTE_URL=$(<${CoreRT_TestRoot}/CoreCLRTestsURL_${CoreRT_BuildOS}.txt)
 
     echo "Restoring tests (this may take a few minutes).."
     download_and_unzip_coreclr_tests_artifacts ${TESTS_REMOTE_URL}  ${CoreRT_TestExtRepo} ${CoreRT_Test_Download_Semaphore}
-
-    echo "Restoring native test artifacts..."
-    download_and_unzip_coreclr_tests_artifacts ${NATIVE_REMOTE_URL}  ${CoreRT_NativeArtifactRepo} ${CoreRT_NativeArtifact_Download_Semaphore}
 }
 
 run_coreclr_tests()
@@ -185,16 +198,19 @@ run_coreclr_tests()
     fi
 
     XunitTestBinBase=${CoreRT_TestExtRepo}
-    pushd ${CoreRT_TestRoot}/CoreCLR/runtest
+    CLRCustomTestLauncher=${CoreRT_TestRoot}/CoreCLR/build-and-run-test.sh
+
+    pushd ${CoreRT_TestRoot}/CoreCLR
 
     export CoreRT_TestRoot
     export CoreRT_EnableCoreDumps
+    export CLRCustomTestLauncher
 
     CoreRT_TestSelectionArg=
     if [ "$SelectedTests" = "top200" ]; then
-        CoreRT_TestSelectionArg="--playlist=${CoreRT_TestRoot}/Top200.unix.txt"
+        CoreRT_TestSelectionArg="-test_filter_path ${CoreRT_TestRoot}/Top200.CoreCLR.issues.targets"
     elif [ "$SelectedTests" = "interop" ]; then
-        CoreRT_TestSelectionArg="--playlist=${CoreRT_TestRoot}/Interop.unix.txt"
+        CoreRT_TestSelectionArg="-test_filter_path ${CoreRT_TestRoot}/Interop.CoreCLR.issues.targets"
     elif [ "$SelectedTests" = "knowngood" ]; then
         # Todo: Build the list of tests that pass
         CoreRT_TestSelectionArg=
@@ -202,8 +218,8 @@ run_coreclr_tests()
         CoreRT_TestSelectionArg=
     fi
 
-    echo ./runtest.sh --testRootDir=${CoreRT_TestExtRepo} --coreOverlayDir=${CoreRT_TestRoot}/CoreCLR ${CoreRT_TestSelectionArg} --logdir=$__LogDir --disableEventLogging
-    ./runtest.sh --testRootDir=${CoreRT_TestExtRepo} --coreOverlayDir=${CoreRT_TestRoot}/CoreCLR ${CoreRT_TestSelectionArg} --logdir=$__LogDir --disableEventLogging
+    echo python runtest.py -test_native_bin_location ${CoreRT_TestExtRepo}/native/tests -test_location ${CoreRT_TestRoot}/CoreCLR -core_root ${CoreRT_TestExtRepo}/Tests/Core_Root -coreclr_repo_location ${CoreRT_TestRoot}/.. ${CoreRT_TestSelectionArg}    
+    python runtest.py -test_native_bin_location ${CoreRT_TestExtRepo}/native/tests -test_location ${CoreRT_TestRoot}/CoreCLR -core_root ${CoreRT_TestExtRepo}/Tests/Core_Root -coreclr_repo_location ${CoreRT_TestRoot}/.. ${CoreRT_TestSelectionArg}
 }
 
 run_corefx_tests()
@@ -217,6 +233,8 @@ run_corefx_tests()
     export CoreRT_TestExtRepo_CoreFX
     export CoreRT_TestingUtilitiesOutputDir
     export CoreRT_CliBinDir
+
+    export CoreRT_SingleThreaded
 
     if [ ! -d "${CoreRT_TestExtRepo_CoreFX}" ]; then
         mkdir -p ${CoreRT_TestExtRepo_CoreFX}
@@ -291,6 +309,7 @@ CoreRT_CrossLinkerFlags=
 CoreRT_CrossBuild=0
 CoreRT_EnableCoreDumps=0
 CoreRT_TestName=*
+CoreRT_SingleThreaded=
 
 while [ "$1" != "" ]; do
         lowerI="$(echo $1 | awk '{print tolower($0)}')"
@@ -349,7 +368,8 @@ while [ "$1" != "" ]; do
         -coreclr)
             CoreRT_RunCoreCLRTests=true;
             shift
-            SelectedTests=$1
+            # Convert the name of the selected test set to lower case
+            SelectedTests="$(echo $1 | awk '{print tolower($0)}')"
 
             if [ -z ${SelectedTests} ]; then
                 SelectedTests=top200
@@ -360,10 +380,12 @@ while [ "$1" != "" ]; do
             ;;
         -corefx)
             CoreRT_RunCoreFXTests=true;
-            shift
             ;;
         -multimodule)
             CoreRT_MultiFileConfiguration=MultiModule;
+            ;;
+        -singlethread)
+            CoreRT_SingleThreaded=1;
             ;;
         -coredumps)
             CoreRT_EnableCoreDumps=1
@@ -521,18 +543,10 @@ fi
 if [ ${__CppTotalTests} == 0 ] && [ "${CoreRT_TestCompileMode}" != "wasm" ]; then
     exit 1
 fi
-if [ ${__WasmTotalTests} == 0 ] && [ "${CoreRT_TestCompileMode}" = "wasm" ]; then
+if [ ${__WasmTotalTests} == 0 ] && [ "${CoreRT_TestCompileMode}" == "wasm" ]; then
     exit 1
 fi 
-
-if [ ${__JitTotalTests} -gt ${__JitPassedTests} ]; then
+if [ ${__FailedTests} -gt 0 ]; then
     exit 1
 fi
-if [ ${__CppTotalTests} -gt ${__CppPassedTests} ]; then
-    exit 1
-fi
-if [ ${__WasmTotalTests} -gt ${__WasmPassedTests} ]; then
-    exit 1
-fi
-
 exit 0

@@ -74,8 +74,7 @@ namespace ILCompiler.DependencyAnalysis
 
                     if (canonMethodTarget != instantiatedMethod)
                     {
-                        // Dependency includes the generic method dictionary of the instantiation, and all its dependencies. This is done by adding the 
-                        // ShadowConcreteMethod to the list of dynamic dependencies. The generic dictionary will be reported as a dependency of the ShadowConcreteMethod
+                        // Dependency includes the generic method dictionary of the instantiation, and all its dependencies.
                         Debug.Assert(!instantiatedMethod.IsCanonicalMethod(CanonicalFormKind.Any));
 
                         if (context.TypeSystemContext.SupportsUniversalCanon && instantiatedMethod.IsGenericDepthGreaterThan(UniversalCanonGVMDepthHeuristic_NonCanonDepth))
@@ -84,7 +83,9 @@ namespace ILCompiler.DependencyAnalysis
                             return dependencies;
                         }
 
-                        dependencies.Add(context.ShadowConcreteMethod(instantiatedMethod), "GVM Dependency - Dictionary");
+                        dependencies.Add(context.MethodGenericDictionary(instantiatedMethod), "GVM Dependency - Dictionary");
+                        dependencies.Add(context.NativeLayout.TemplateMethodEntry(canonMethodTarget), "GVM Dependency - Template entry");
+                        dependencies.Add(context.NativeLayout.TemplateMethodLayout(canonMethodTarget), "GVM Dependency - Template");
                     }
                 }
             }
@@ -117,12 +118,6 @@ namespace ILCompiler.DependencyAnalysis
             Debug.Assert(_method.IsVirtual && _method.HasInstantiation);
 
             List<CombinedDependencyListEntry> dynamicDependencies = new List<CombinedDependencyListEntry>();
-
-            // Disable dependence tracking for ProjectN
-            if ((factory.Target.Abi == TargetAbi.ProjectN) && !ProjectNDependencyBehavior.EnableFullAnalysis)
-            {
-                return dynamicDependencies;
-            }
 
             for (int i = firstNode; i < markedNodes.Count; i++)
             {

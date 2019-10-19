@@ -72,7 +72,7 @@ namespace ILCompiler
 
                 foreach (TypeDesc type in ((EcmaModule)assembly).GetAllTypes())
                 {
-                    RootType(rootProvider, type);
+                    RootingHelpers.TryRootType(rootProvider, type, "RD.XML root");
                 }
             }
 
@@ -102,8 +102,8 @@ namespace ILCompiler
             {
                 if (dynamicDegreeAttribute.Value != "Required All")
                     throw new NotSupportedException();
-                
-                RootType(rootProvider, type);
+
+                RootingHelpers.RootType(rootProvider, type, "RD.XML root");
             }
 
             foreach (var element in typeElement.Elements())
@@ -150,52 +150,7 @@ namespace ILCompiler
                 method = method.MakeInstantiatedMethod(methodInst);
             }
 
-            RootMethod(rootProvider, method);
-        }
-
-        private void RootType(IRootingServiceProvider rootProvider, TypeDesc type)
-        {
-            rootProvider.AddCompilationRoot(type, "RD.XML root");
-
-            if (type.IsGenericDefinition)
-                return;
-            
-            if (type.IsDefType)
-            {
-                foreach (var method in type.GetMethods())
-                {
-                    // We don't know what to instantiate generic methods over
-                    if (method.HasInstantiation)
-                        continue;
-
-                    RootMethod(rootProvider, method);
-                }
-            }
-        }
-
-        private void RootMethod(IRootingServiceProvider rootProvider, MethodDesc method)
-        {
-            try
-            {
-                LibraryRootProvider.CheckCanGenerateMethod(method);
-
-                // Virtual methods should be rooted as if they were called virtually
-                if (method.IsVirtual)
-                    rootProvider.RootVirtualMethodForReflection(method, "RD.XML root");
-
-                if (!method.IsAbstract)
-                    rootProvider.AddCompilationRoot(method, "RD.XML root");
-            }
-            catch (TypeSystemException)
-            {
-                // TODO: fail compilation if a switch was passed
-
-                // Individual methods can fail to load types referenced in their signatures.
-                // Skip them in library mode since they're not going to be callable.
-                return;
-
-                // TODO: Log as a warning
-            }
+            RootingHelpers.TryRootMethod(rootProvider, method, "RD.XML root");
         }
     }
 }

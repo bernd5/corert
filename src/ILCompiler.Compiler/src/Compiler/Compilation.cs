@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
+using System.Runtime.InteropServices;
 
 using ILCompiler.DependencyAnalysis;
 using ILCompiler.DependencyAnalysisFramework;
@@ -31,7 +32,7 @@ namespace ILCompiler
         public NodeFactory NodeFactory => _nodeFactory;
         public CompilerTypeSystemContext TypeSystemContext => NodeFactory.TypeSystemContext;
         public Logger Logger => _logger;
-        internal PInvokeILProvider PInvokeILProvider { get; }
+        public PInvokeILProvider PInvokeILProvider { get; }
 
         private readonly TypeGetTypeMethodThunkCache _typeGetTypeMethodThunks;
         private readonly AssemblyGetExecutingAssemblyMethodThunkCache _assemblyGetExecutingAssemblyMethodThunks;
@@ -55,7 +56,7 @@ namespace ILCompiler
             _dependencyGraph.ComputeDependencyRoutine += ComputeDependencyNodeDependencies;
             NodeFactory.AttachToDependencyGraph(_dependencyGraph);
 
-            var rootingService = new RootingServiceProvider(dependencyGraph, nodeFactory);
+            var rootingService = new RootingServiceProvider(nodeFactory, _dependencyGraph.AddRoot);
             foreach (var rootProvider in compilationRoots)
                 rootProvider.AddCompilationRoots(rootingService);
 
@@ -64,15 +65,9 @@ namespace ILCompiler
             _assemblyGetExecutingAssemblyMethodThunks = new AssemblyGetExecutingAssemblyMethodThunkCache(globalModuleGeneratedType);
             _methodBaseGetCurrentMethodThunks = new MethodBaseGetCurrentMethodThunkCache();
 
-            if (!(nodeFactory.InteropStubManager is EmptyInteropStubManager))
+            PInvokeILProvider = _nodeFactory.InteropStubManager.CreatePInvokeILProvider();
+            if (PInvokeILProvider != null)
             {
-                bool? forceLazyPInvokeResolution = null;
-                // TODO: Workaround lazy PInvoke resolution not working with CppCodeGen yet
-                // https://github.com/dotnet/corert/issues/2454
-                // https://github.com/dotnet/corert/issues/2149
-                if (nodeFactory.IsCppCodegenTemporaryWorkaround) forceLazyPInvokeResolution = false;
-                PInvokeILProvider = new PInvokeILProvider(new PInvokeILEmitterConfiguration(forceLazyPInvokeResolution), nodeFactory.InteropStubManager.InteropStateManager);
-
                 ilProvider = new CombinedILProvider(ilProvider, PInvokeILProvider);
             }
 
@@ -81,7 +76,7 @@ namespace ILCompiler
 
         private ILCache _methodILCache;
 
-        public MethodIL GetMethodIL(MethodDesc method)
+        public virtual MethodIL GetMethodIL(MethodDesc method)
         {
             // Flush the cache when it grows too big
             if (_methodILCache.Count > 1000)
@@ -93,6 +88,11 @@ namespace ILCompiler
         protected abstract void ComputeDependencyNodeDependencies(List<DependencyNodeCore<NodeFactory>> obj);
 
         protected abstract void CompileInternal(string outputFile, ObjectDumper dumper);
+
+        public bool CanInline(MethodDesc caller, MethodDesc callee)
+        {
+            return NodeFactory.CompilationModuleGroup.CanInline(caller, callee);
+        }
 
         public DelegateCreationInfo GetDelegateCtor(TypeDesc delegateType, MethodDesc target, bool followVirtualDispatch)
         {
@@ -108,13 +108,37 @@ namespace ILCompiler
         /// <summary>
         /// Gets an object representing the static data for RVA mapped fields from the PE image.
         /// </summary>
-        public ObjectNode GetFieldRvaData(FieldDesc field)
+        public virtual ISymbolNode GetFieldRvaData(FieldDesc field)
         {
             if (field.GetType() == typeof(PInvokeLazyFixupField))
             {
                 var pInvokeFixup = (PInvokeLazyFixupField)field;
                 PInvokeMetadata metadata = pInvokeFixup.PInvokeMetadata;
-                return NodeFactory.PInvokeMethodFixup(metadata.Module, metadata.Name, metadata.Flags);
+                ModuleDesc callingModule = ((MetadataType)pInvokeFixup.TargetMethod.OwningType).Module;
+                DllImportSearchPath? dllImportSearchPath = default;
+                if (callingModule.Assembly is EcmaAssembly asm)
+                {
+                    // We look for [assembly:DefaultDllImportSearchPaths(...)]
+                    var attrHandle = asm.MetadataReader.GetCustomAttributeHandle(asm.AssemblyDefinition.GetCustomAttributes(),
+                        "System.Runtime.InteropServices", "DefaultDllImportSearchPathsAttribute");
+                    if (!attrHandle.IsNil)
+                    {
+                        var attr = asm.MetadataReader.GetCustomAttribute(attrHandle);
+                        var decoded = attr.DecodeValue(new CustomAttributeTypeProvider(asm));
+                        if (decoded.FixedArguments.Length == 1 &&
+                            decoded.FixedArguments[0].Value is int searchPath)
+                        {
+                            dllImportSearchPath = (DllImportSearchPath)searchPath;
+                        }
+                    }
+                }
+
+                PInvokeModuleData moduleData = new PInvokeModuleData(metadata.Module, dllImportSearchPath, callingModule);
+                return NodeFactory.PInvokeMethodFixup(moduleData, metadata.Name, metadata.Flags);
+            }
+            else if (field is ExternSymbolMappedField externField)
+            {
+                return NodeFactory.ExternSymbol(externField.SymbolName);
             }
             else
             {
@@ -215,6 +239,7 @@ namespace ILCompiler
                 case ReadyToRunHelperId.TypeHandle:
                 case ReadyToRunHelperId.NecessaryTypeHandle:
                 case ReadyToRunHelperId.DefaultConstructor:
+                case ReadyToRunHelperId.TypeHandleForCasting:
                     return ((TypeDesc)targetOfLookup).IsRuntimeDeterminedSubtype;
 
                 case ReadyToRunHelperId.MethodDictionary:
@@ -239,6 +264,13 @@ namespace ILCompiler
                     return NodeFactory.ConstructedTypeSymbol((TypeDesc)targetOfLookup);
                 case ReadyToRunHelperId.NecessaryTypeHandle:
                     return NodeFactory.NecessaryTypeSymbol((TypeDesc)targetOfLookup);
+                case ReadyToRunHelperId.TypeHandleForCasting:
+                    {
+                        var type = (TypeDesc)targetOfLookup;
+                        if (type.IsNullable)
+                            targetOfLookup = type.Instantiation[0];
+                        return NodeFactory.NecessaryTypeSymbol((TypeDesc)targetOfLookup);
+                    }
                 case ReadyToRunHelperId.MethodDictionary:
                     return NodeFactory.MethodGenericDictionary((MethodDesc)targetOfLookup);
                 case ReadyToRunHelperId.MethodEntry:
@@ -283,6 +315,32 @@ namespace ILCompiler
                 contextSource = GenericContextSource.ThisObject;
             }
 
+            //
+            // Some helpers represent logical concepts that might not be something that can be looked up in a dictionary
+            //
+
+            // Downgrade type handle for casting to a normal type handle if possible
+            if (lookupKind == ReadyToRunHelperId.TypeHandleForCasting)
+            {
+                var type = (TypeDesc)targetOfLookup;
+                if (!type.IsRuntimeDeterminedType ||
+                    (!((RuntimeDeterminedType)type).CanonicalType.IsCanonicalDefinitionType(CanonicalFormKind.Universal) &&
+                    !((RuntimeDeterminedType)type).CanonicalType.IsNullable))
+                {
+                    if (type.IsNullable)
+                    {
+                        targetOfLookup = type.Instantiation[0];
+                    }
+                    lookupKind = ReadyToRunHelperId.NecessaryTypeHandle;
+                }
+            }
+
+            // We don't have separate entries for necessary type handles to avoid possible duplication
+            if (lookupKind == ReadyToRunHelperId.NecessaryTypeHandle)
+            {
+                lookupKind = ReadyToRunHelperId.TypeHandle;
+            }
+
             // Can we do a fixed lookup? Start by checking if we can get to the dictionary.
             // Context source having a vtable with fixed slots is a prerequisite.
             if (contextSource == GenericContextSource.MethodParameter
@@ -320,7 +378,21 @@ namespace ILCompiler
             }
 
             // Fixed lookup not possible - use helper.
-            return GenericDictionaryLookup.CreateHelperLookup(contextSource);
+            return GenericDictionaryLookup.CreateHelperLookup(contextSource, lookupKind, targetOfLookup);
+        }
+
+        /// <summary>
+        /// Gets the type of System.Type descendant that implements runtime types.
+        /// </summary>
+        public virtual TypeDesc GetTypeOfRuntimeType()
+        {
+            ModuleDesc reflectionCoreModule = TypeSystemContext.GetModuleForSimpleName("System.Private.Reflection.Core", false);
+            if (reflectionCoreModule != null)
+            {
+                return reflectionCoreModule.GetKnownType("System.Reflection.Runtime.TypeInfos", "RuntimeTypeInfo");
+            }
+
+            return null;
         }
 
         CompilationResults ICompilation.Compile(string outputFile, ObjectDumper dumper)
@@ -330,8 +402,6 @@ namespace ILCompiler
                 dumper.Begin();
             }
 
-            // In multi-module builds, set the compilation unit prefix to prevent ambiguous symbols in linked object files
-            NameMangler.CompilationUnitPrefix = _nodeFactory.CompilationModuleGroup.IsSingleFileCompilation ? "" : Path.GetFileNameWithoutExtension(outputFile);
             CompileInternal(outputFile, dumper);
 
             if (dumper != null)
@@ -340,102 +410,6 @@ namespace ILCompiler
             }
 
             return new CompilationResults(_dependencyGraph, _nodeFactory);
-        }
-
-        private class RootingServiceProvider : IRootingServiceProvider
-        {
-            private DependencyAnalyzerBase<NodeFactory> _graph;
-            private NodeFactory _factory;
-
-            public RootingServiceProvider(DependencyAnalyzerBase<NodeFactory> graph, NodeFactory factory)
-            {
-                _graph = graph;
-                _factory = factory;
-            }
-
-            public void AddCompilationRoot(MethodDesc method, string reason, string exportName = null)
-            {
-                IMethodNode methodEntryPoint = _factory.CanonicalEntrypoint(method);
-                _graph.AddRoot(methodEntryPoint, reason);
-
-                if (exportName != null)
-                    _factory.NodeAliases.Add(methodEntryPoint, exportName);
-            }
-
-            public void AddCompilationRoot(TypeDesc type, string reason)
-            {
-                _graph.AddRoot(_factory.MaximallyConstructableType(type), reason);
-            }
-
-            public void RootThreadStaticBaseForType(TypeDesc type, string reason)
-            {
-                Debug.Assert(!type.IsGenericDefinition);
-
-                MetadataType metadataType = type as MetadataType;
-                if (metadataType != null && metadataType.ThreadGcStaticFieldSize.AsInt > 0)
-                {
-                    _graph.AddRoot(_factory.TypeThreadStaticIndex(metadataType), reason);
-
-                    // Also explicitly root the non-gc base if we have a lazy cctor
-                    if(_factory.TypeSystemContext.HasLazyStaticConstructor(type))
-                        _graph.AddRoot(_factory.TypeNonGCStaticsSymbol(metadataType), reason);
-                }
-            }
-
-            public void RootGCStaticBaseForType(TypeDesc type, string reason)
-            {
-                Debug.Assert(!type.IsGenericDefinition);
-
-                MetadataType metadataType = type as MetadataType;
-                if (metadataType != null && metadataType.GCStaticFieldSize.AsInt > 0)
-                {
-                    _graph.AddRoot(_factory.TypeGCStaticsSymbol(metadataType), reason);
-
-                    // Also explicitly root the non-gc base if we have a lazy cctor
-                    if (_factory.TypeSystemContext.HasLazyStaticConstructor(type))
-                        _graph.AddRoot(_factory.TypeNonGCStaticsSymbol(metadataType), reason);
-                }
-            }
-
-            public void RootNonGCStaticBaseForType(TypeDesc type, string reason)
-            {
-                Debug.Assert(!type.IsGenericDefinition);
-
-                MetadataType metadataType = type as MetadataType;
-                if (metadataType != null && (metadataType.NonGCStaticFieldSize.AsInt > 0 || _factory.TypeSystemContext.HasLazyStaticConstructor(type)))
-                {
-                    _graph.AddRoot(_factory.TypeNonGCStaticsSymbol(metadataType), reason);
-                }
-            }
-
-            public void RootVirtualMethodForReflection(MethodDesc method, string reason)
-            {
-                Debug.Assert(method.IsVirtual);
-
-                // Virtual method use is tracked on the slot defining method only.
-                MethodDesc slotDefiningMethod = MetadataVirtualMethodAlgorithm.FindSlotDefiningMethodForVirtualMethod(method);
-                if (!_factory.VTable(slotDefiningMethod.OwningType).HasFixedSlots)
-                    _graph.AddRoot(_factory.VirtualMethodUse(slotDefiningMethod), reason);
-
-                if (method.IsAbstract)
-                {
-                    _graph.AddRoot(_factory.ReflectableMethod(method), reason);
-                }
-            }
-
-            public void RootModuleMetadata(ModuleDesc module, string reason)
-            {
-                // RootModuleMetadata is kind of a hack - this is pretty much only used to force include
-                // type forwarders from assemblies metadata generator would normally not look at.
-                // This will go away when the temporary RD.XML parser goes away.
-                if (_factory.MetadataManager is UsageBasedMetadataManager)
-                    _graph.AddRoot(_factory.ModuleMetadata(module), reason);
-            }
-
-            public void RootReadOnlyDataBlob(byte[] data, int alignment, string reason, string exportName)
-            {
-                _graph.AddRoot(_factory.ReadOnlyDataBlob(exportName, data, alignment), reason);
-            }
         }
 
         private sealed class ILCache : LockFreeReaderHashtable<MethodDesc, ILCache.MethodILData>
@@ -506,7 +480,7 @@ namespace ILCompiler
     public class CompilationResults
     {
         private readonly DependencyAnalyzerBase<NodeFactory> _graph;
-        private readonly NodeFactory _factory;
+        protected readonly NodeFactory _factory;
 
         protected ImmutableArray<DependencyNodeCore<NodeFactory>> MarkedNodes
         {

@@ -26,11 +26,6 @@ namespace Internal.IL
         private MethodDesc _getThunkMethod;
         private DelegateThunkCollection _thunks;
 
-        public static bool SupportsDynamicInvoke(TypeSystemContext context)
-        {
-            return DynamicInvokeMethodThunk.SupportsDynamicInvoke(context);
-        }
-
         /// <summary>
         /// Gets the synthetic methods that support this delegate type.
         /// </summary>
@@ -124,7 +119,6 @@ namespace Internal.IL
         private MethodDesc _openStaticThunk;
         private MethodDesc _multicastThunk;
         private MethodDesc _closedStaticThunk;
-        private MethodDesc _invokeThunk;
         private MethodDesc _closedInstanceOverGeneric;
         private MethodDesc _reversePInvokeThunk;
         private MethodDesc _invokeObjectArrayThunk;
@@ -158,12 +152,12 @@ namespace Internal.IL
                     break;
                 }
             }
-            TypeDesc normalizedReturnType = delegateSignature.ReturnType;
-            if (normalizedReturnType.IsByRef)
-                normalizedReturnType = ((ByRefType)normalizedReturnType).ParameterType;
-            if (!normalizedReturnType.IsSignatureVariable && normalizedReturnType.IsByRefLike)
+            TypeDesc returnType = delegateSignature.ReturnType;
+            if (returnType.IsByRef)
                 generateObjectArrayThunk = false;
-            if (normalizedReturnType.IsPointer || normalizedReturnType.IsFunctionPointer)
+            if (!returnType.IsSignatureVariable && returnType.IsByRefLike)
+                generateObjectArrayThunk = false;
+            if (returnType.IsPointer || returnType.IsFunctionPointer)
                 generateObjectArrayThunk = false;
 
             if ((owningDelegate.SupportedFeatures & DelegateFeature.ObjectArrayThunk) != 0 && generateObjectArrayThunk)
@@ -180,7 +174,7 @@ namespace Internal.IL
             // Check whether we have an open instance thunk
             //
 
-            if (delegateSignature.Length > 0)
+            if ((owningDelegate.SupportedFeatures & DelegateFeature.OpenInstanceThunk) != 0 && delegateSignature.Length > 0)
             {
                 TypeDesc firstParam = delegateSignature[0];
 
@@ -214,17 +208,6 @@ namespace Internal.IL
                 {
                     _openInstanceThunk = new DelegateInvokeOpenInstanceThunk(owningDelegate);
                 }
-            }
-
-            //
-            // Check whether we have a dynamic invoke stub
-            //
-
-            if ((owningDelegate.SupportedFeatures & DelegateFeature.DynamicInvoke) != 0 &&
-                DynamicInvokeMethodThunk.SupportsSignature(delegateSignature))
-            {
-                var sig = new DynamicInvokeMethodSignature(delegateSignature);
-                _invokeThunk = owningDelegate.Type.Context.GetDynamicInvokeThunk(sig);
             }
         }
 
@@ -289,8 +272,6 @@ namespace Internal.IL
                         return _multicastThunk;
                     case DelegateThunkKind.ClosedStaticThunk:
                         return _closedStaticThunk;
-                    case DelegateThunkKind.DelegateInvokeThunk:
-                        return _invokeThunk;
                     case DelegateThunkKind.ClosedInstanceThunkOverGenericMethod:
                         return _closedInstanceOverGeneric;
                     case DelegateThunkKind.ReversePinvokeThunk:
@@ -324,5 +305,8 @@ namespace Internal.IL
     {
         DynamicInvoke = 0x1,
         ObjectArrayThunk = 0x2,
+        OpenInstanceThunk = 0x4,
+
+        All = 0x7,
     }
 }

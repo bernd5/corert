@@ -53,6 +53,7 @@ struct JitInterfaceCallbacks
     void* (* getTypeInstantiationArgument)(void * thisHandle, CorInfoException** ppException, void* cls, unsigned index);
     int (* appendClassName)(void * thisHandle, CorInfoException** ppException, wchar_t** ppBuf, int* pnBufLen, void* cls, int fNamespace, int fFullInst, int fAssembly);
     int (* isValueClass)(void * thisHandle, CorInfoException** ppException, void* cls);
+    int (* canInlineTypeCheck)(void * thisHandle, CorInfoException** ppException, void* cls, int source);
     int (* canInlineTypeCheckWithObjectVTable)(void * thisHandle, CorInfoException** ppException, void* cls);
     unsigned int (* getClassAttribs)(void * thisHandle, CorInfoException** ppException, void* cls);
     int (* isStructRequiringStackAllocRetBuf)(void * thisHandle, CorInfoException** ppException, void* cls);
@@ -63,12 +64,14 @@ struct JitInterfaceCallbacks
     void (* LongLifetimeFree)(void * thisHandle, CorInfoException** ppException, void* obj);
     size_t (* getClassModuleIdForStatics)(void * thisHandle, CorInfoException** ppException, void* cls, void* pModule, void** ppIndirection);
     unsigned (* getClassSize)(void * thisHandle, CorInfoException** ppException, void* cls);
+    unsigned (* getHeapClassSize)(void * thisHandle, CorInfoException** ppException, void* cls);
+    int (* canAllocateOnStack)(void * thisHandle, CorInfoException** ppException, void* cls);
     unsigned (* getClassAlignmentRequirement)(void * thisHandle, CorInfoException** ppException, void* cls, int fDoubleAlignHint);
     unsigned (* getClassGClayout)(void * thisHandle, CorInfoException** ppException, void* cls, unsigned char* gcPtrs);
     unsigned (* getClassNumInstanceFields)(void * thisHandle, CorInfoException** ppException, void* cls);
     void* (* getFieldInClass)(void * thisHandle, CorInfoException** ppException, void* clsHnd, int num);
     int (* checkMethodModifier)(void * thisHandle, CorInfoException** ppException, void* hMethod, const char* modifier, int fOptional);
-    int (* getNewHelper)(void * thisHandle, CorInfoException** ppException, void* pResolvedToken, void* callerHandle);
+    int (* getNewHelper)(void * thisHandle, CorInfoException** ppException, void* pResolvedToken, void* callerHandle, bool* pHasSideEffects);
     int (* getNewArrHelper)(void * thisHandle, CorInfoException** ppException, void* arrayCls);
     int (* getCastingHelper)(void * thisHandle, CorInfoException** ppException, void* pResolvedToken, bool fThrowing);
     int (* getSharedCCtorHelper)(void * thisHandle, CorInfoException** ppException, void* clsHnd);
@@ -89,6 +92,7 @@ struct JitInterfaceCallbacks
     int (* compareTypesForCast)(void * thisHandle, CorInfoException** ppException, void* fromClass, void* toClass);
     int (* compareTypesForEquality)(void * thisHandle, CorInfoException** ppException, void* cls1, void* cls2);
     void* (* mergeClasses)(void * thisHandle, CorInfoException** ppException, void* cls1, void* cls2);
+    int (* isMoreSpecificType)(void * thisHandle, CorInfoException** ppException, void* cls1, void* cls2);
     void* (* getParentType)(void * thisHandle, CorInfoException** ppException, void* cls);
     int (* getChildType)(void * thisHandle, CorInfoException** ppException, void* clsHnd, void* clsRet);
     int (* satisfiesClassConstraints)(void * thisHandle, CorInfoException** ppException, void* cls);
@@ -124,7 +128,7 @@ struct JitInterfaceCallbacks
     const wchar_t* (* getJitTimeLogFilename)(void * thisHandle, CorInfoException** ppException);
     unsigned int (* getMethodDefFromMethod)(void * thisHandle, CorInfoException** ppException, void* hMethod);
     const char* (* getMethodName)(void * thisHandle, CorInfoException** ppException, void* ftn, const char** moduleName);
-    const char* (* getMethodNameFromMetadata)(void * thisHandle, CorInfoException** ppException, void* ftn, const char** className, const char** namespaceName);
+    const char* (* getMethodNameFromMetadata)(void * thisHandle, CorInfoException** ppException, void* ftn, const char** className, const char** namespaceName, const char** enclosingClassName);
     unsigned (* getMethodHash)(void * thisHandle, CorInfoException** ppException, void* ftn);
     size_t (* findNameOfToken)(void * thisHandle, CorInfoException** ppException, void* moduleHandle, unsigned int token, char* szFQName, size_t FQNameCapacity);
     bool (* getSystemVAmd64PassStructInRegisterDescriptor)(void * thisHandle, CorInfoException** ppException, void* structHnd, void* structPassInRegDescPtr);
@@ -154,6 +158,7 @@ struct JitInterfaceCallbacks
     int (* isRIDClassDomainID)(void * thisHandle, CorInfoException** ppException, void* cls);
     unsigned (* getClassDomainID)(void * thisHandle, CorInfoException** ppException, void* cls, void** ppIndirection);
     void* (* getFieldAddress)(void * thisHandle, CorInfoException** ppException, void* field, void** ppIndirection);
+    void* (* getStaticFieldCurrentClass)(void * thisHandle, CorInfoException** ppException, void* field, bool* pIsSpeculative);
     void* (* getVarArgsHandle)(void * thisHandle, CorInfoException** ppException, void* pSig, void** ppIndirection);
     bool (* canGetVarArgsHandle)(void * thisHandle, CorInfoException** ppException, void* pSig);
     int (* constructStringLiteral)(void * thisHandle, CorInfoException** ppException, void* module, unsigned int metaTok, void** ppValue);
@@ -176,8 +181,8 @@ struct JitInterfaceCallbacks
     int (* logMsg)(void * thisHandle, CorInfoException** ppException, unsigned level, const char* fmt, va_list args);
     int (* doAssert)(void * thisHandle, CorInfoException** ppException, const char* szFile, int iLine, const char* szExpr);
     void (* reportFatalError)(void * thisHandle, CorInfoException** ppException, int result);
-    int (* allocBBProfileBuffer)(void * thisHandle, CorInfoException** ppException, unsigned int count, void** profileBuffer);
-    int (* getBBProfileData)(void * thisHandle, CorInfoException** ppException, void* ftnHnd, unsigned long* count, void** profileBuffer, unsigned long* numRuns);
+    int (* allocMethodBlockCounts)(void * thisHandle, CorInfoException** ppException, unsigned int count, void** pBlockCounts);
+    int (* getMethodBlockCounts)(void * thisHandle, CorInfoException** ppException, void* ftnHnd, unsigned int* pCount, void** pBlockCounts, unsigned int* pNumRuns);
     void (* recordCallSite)(void * thisHandle, CorInfoException** ppException, unsigned int instrOffset, void* callSig, void* methodHandle);
     void (* recordRelocation)(void * thisHandle, CorInfoException** ppException, void* location, void* target, unsigned short fRelocType, unsigned short slotNum, int addlDelta);
     unsigned short (* getRelocTypeHint)(void * thisHandle, CorInfoException** ppException, void* target);
@@ -571,6 +576,15 @@ public:
         return _ret;
     }
 
+    virtual int canInlineTypeCheck(void* cls, int source)
+    {
+        CorInfoException* pException = nullptr;
+        int _ret = _callbacks->canInlineTypeCheck(_thisHandle, &pException, cls, source);
+        if (pException != nullptr)
+            throw pException;
+        return _ret;
+    }
+
     virtual int canInlineTypeCheckWithObjectVTable(void* cls)
     {
         CorInfoException* pException = nullptr;
@@ -660,6 +674,24 @@ public:
         return _ret;
     }
 
+    virtual unsigned getHeapClassSize(void* cls)
+    {
+        CorInfoException* pException = nullptr;
+        unsigned _ret = _callbacks->getHeapClassSize(_thisHandle, &pException, cls);
+        if (pException != nullptr)
+            throw pException;
+        return _ret;
+    }
+
+    virtual int canAllocateOnStack(void* cls)
+    {
+        CorInfoException* pException = nullptr;
+        int _ret = _callbacks->canAllocateOnStack(_thisHandle, &pException, cls);
+        if (pException != nullptr)
+            throw pException;
+        return _ret;
+    }
+
     virtual unsigned getClassAlignmentRequirement(void* cls, int fDoubleAlignHint)
     {
         CorInfoException* pException = nullptr;
@@ -705,10 +737,10 @@ public:
         return _ret;
     }
 
-    virtual int getNewHelper(void* pResolvedToken, void* callerHandle)
+    virtual int getNewHelper(void* pResolvedToken, void* callerHandle, bool* pHasSideEffects)
     {
         CorInfoException* pException = nullptr;
-        int _ret = _callbacks->getNewHelper(_thisHandle, &pException, pResolvedToken, callerHandle);
+        int _ret = _callbacks->getNewHelper(_thisHandle, &pException, pResolvedToken, callerHandle, pHasSideEffects);
         if (pException != nullptr)
             throw pException;
         return _ret;
@@ -887,6 +919,15 @@ public:
     {
         CorInfoException* pException = nullptr;
         void* _ret = _callbacks->mergeClasses(_thisHandle, &pException, cls1, cls2);
+        if (pException != nullptr)
+            throw pException;
+        return _ret;
+    }
+
+    virtual int isMoreSpecificType(void* cls1, void* cls2)
+    {
+        CorInfoException* pException = nullptr;
+        int _ret = _callbacks->isMoreSpecificType(_thisHandle, &pException, cls1, cls2);
         if (pException != nullptr)
             throw pException;
         return _ret;
@@ -1174,10 +1215,10 @@ public:
         return _ret;
     }
 
-    virtual const char* getMethodNameFromMetadata(void* ftn, const char** className, const char** namespaceName)
+    virtual const char* getMethodNameFromMetadata(void* ftn, const char** className, const char** namespaceName, const char** enclosingClassName)
     {
         CorInfoException* pException = nullptr;
-        const char* _ret = _callbacks->getMethodNameFromMetadata(_thisHandle, &pException, ftn, className, namespaceName);
+        const char* _ret = _callbacks->getMethodNameFromMetadata(_thisHandle, &pException, ftn, className, namespaceName, enclosingClassName);
         if (pException != nullptr)
             throw pException;
         return _ret;
@@ -1430,6 +1471,15 @@ public:
         return _ret;
     }
 
+    virtual void* getStaticFieldCurrentClass(void* field, bool* pIsSpeculative)
+    {
+        CorInfoException* pException = nullptr;
+        void* _ret = _callbacks->getStaticFieldCurrentClass(_thisHandle, &pException, field, pIsSpeculative);
+        if (pException != nullptr)
+            throw pException;
+        return _ret;
+    }
+
     virtual void* getVarArgsHandle(void* pSig, void** ppIndirection)
     {
         CorInfoException* pException = nullptr;
@@ -1610,19 +1660,19 @@ public:
             throw pException;
     }
 
-    virtual int allocBBProfileBuffer(unsigned int count, void** profileBuffer)
+    virtual int allocMethodBlockCounts(unsigned int count, void** pBlockCounts)
     {
         CorInfoException* pException = nullptr;
-        int _ret = _callbacks->allocBBProfileBuffer(_thisHandle, &pException, count, profileBuffer);
+        int _ret = _callbacks->allocMethodBlockCounts(_thisHandle, &pException, count, pBlockCounts);
         if (pException != nullptr)
             throw pException;
         return _ret;
     }
 
-    virtual int getBBProfileData(void* ftnHnd, unsigned long* count, void** profileBuffer, unsigned long* numRuns)
+    virtual int getMethodBlockCounts(void* ftnHnd, unsigned int* pCount, void** pBlockCounts, unsigned int* pNumRuns)
     {
         CorInfoException* pException = nullptr;
-        int _ret = _callbacks->getBBProfileData(_thisHandle, &pException, ftnHnd, count, profileBuffer, numRuns);
+        int _ret = _callbacks->getMethodBlockCounts(_thisHandle, &pException, ftnHnd, pCount, pBlockCounts, pNumRuns);
         if (pException != nullptr)
             throw pException;
         return _ret;

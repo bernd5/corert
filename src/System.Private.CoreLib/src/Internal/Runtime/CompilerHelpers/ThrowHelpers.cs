@@ -12,7 +12,6 @@ namespace Internal.Runtime.CompilerHelpers
     /// These methods are used to throw exceptions from generated code. The type and methods
     /// need to be public as they constitute a public contract with the .NET Native toolchain.
     /// </summary>
-    [System.Runtime.CompilerServices.DependencyReductionRoot] /* keep rooted as code gen may add references to these */
     public static class ThrowHelpers
     {
         public static void ThrowOverflowException()
@@ -43,6 +42,11 @@ namespace Internal.Runtime.CompilerHelpers
         public static void ThrowPlatformNotSupportedException()
         {
             throw new PlatformNotSupportedException();
+        }
+
+        public static void ThrowNotImplementedException()
+        {
+            throw NotImplemented.ByDesign;
         }
 
         public static void ThrowNotSupportedException()

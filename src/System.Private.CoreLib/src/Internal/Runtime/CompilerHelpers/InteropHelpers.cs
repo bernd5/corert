@@ -4,10 +4,14 @@
 
 using System;
 using System.Diagnostics;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Loader;
 using System.Text;
 using System.Threading;
+
+using Internal.Runtime.Augments;
 
 namespace Internal.Runtime.CompilerHelpers
 {
@@ -26,6 +30,29 @@ namespace Internal.Runtime.CompilerHelpers
             return PInvokeMarshal.AnsiStringToString(buffer);
         }
 
+        internal static unsafe byte* StringToUTF8String(string str)
+        {
+            if (str == null)
+                return null;
+
+            fixed (char* charsPtr = str)
+            {
+                int length = Encoding.UTF8.GetByteCount(str) + 1;
+                byte* bytesPtr = (byte*)PInvokeMarshal.CoTaskMemAlloc((System.UIntPtr)length);
+                int bytes = Encoding.UTF8.GetBytes(charsPtr, str.Length, bytesPtr, length);
+                Debug.Assert(bytes + 1 == length);
+                bytesPtr[length - 1] = 0;
+                return bytesPtr;
+            }
+        }
+
+        public static unsafe string UTF8StringToString(byte* buffer)
+        {
+            if (buffer == null)
+                return null;
+
+            return Encoding.UTF8.GetString(buffer, string.strlen(buffer));
+        }
 
         internal static unsafe void StringToByValAnsiString(string str, byte* pNative, int charCount, bool bestFit, bool throwOnUnmappableChar)
         {
@@ -224,50 +251,6 @@ namespace Internal.Runtime.CompilerHelpers
             return pCell->Target;
         }
 
-        internal static unsafe IntPtr TryResolveModule(string moduleName)
-        {
-            IntPtr hModule = IntPtr.Zero;
-
-            // Try original name first
-            hModule = LoadLibrary(moduleName);
-            if (hModule != IntPtr.Zero) return hModule;
-
-#if PLATFORM_UNIX
-            const string PAL_SHLIB_PREFIX = "lib";
-#if PLATFORM_OSX
-            const string PAL_SHLIB_SUFFIX = ".dylib";
-#else
-            const string PAL_SHLIB_SUFFIX = ".so";
-#endif
-
-             // Try prefix+name+suffix
-            hModule = LoadLibrary(PAL_SHLIB_PREFIX + moduleName + PAL_SHLIB_SUFFIX);
-            if (hModule != IntPtr.Zero) return hModule;
-
-            // Try name+suffix
-            hModule = LoadLibrary(moduleName + PAL_SHLIB_SUFFIX);
-            if (hModule != IntPtr.Zero) return hModule;
-
-            // Try prefix+name
-            hModule = LoadLibrary(PAL_SHLIB_PREFIX + moduleName);
-            if (hModule != IntPtr.Zero) return hModule;
-#endif
-            return IntPtr.Zero;
-        }
-
-        internal static unsafe IntPtr LoadLibrary(string moduleName)
-        {
-            IntPtr hModule;
-
-#if !PLATFORM_UNIX
-            hModule = Interop.mincore.LoadLibraryEx(moduleName, IntPtr.Zero, 0);
-#else
-            hModule = Interop.Sys.LoadLibrary(moduleName);
-#endif
-
-            return hModule;
-        }
-
         internal static unsafe void FreeLibrary(IntPtr hModule)
         {
 #if !PLATFORM_UNIX
@@ -280,25 +263,56 @@ namespace Internal.Runtime.CompilerHelpers
         private static unsafe string GetModuleName(ModuleFixupCell* pCell)
         {
             byte* pModuleName = (byte*)pCell->ModuleName;
-            return Encoding.UTF8.GetString(pModuleName, strlen(pModuleName));
+            return Encoding.UTF8.GetString(pModuleName, string.strlen(pModuleName));
         }
 
         internal static unsafe void FixupModuleCell(ModuleFixupCell* pCell)
         {
             string moduleName = GetModuleName(pCell);
-            IntPtr hModule = TryResolveModule(moduleName);
-            if (hModule != IntPtr.Zero)
+
+            uint dllImportSearchPath = 0;
+            bool hasDllImportSearchPath = (pCell->DllImportSearchPathAndCookie & InteropDataConstants.HasDllImportSearchPath) != 0;
+            if (hasDllImportSearchPath)
             {
-                var oldValue = Interlocked.CompareExchange(ref pCell->Handle, hModule, IntPtr.Zero);
-                if (oldValue != IntPtr.Zero)
+                dllImportSearchPath = pCell->DllImportSearchPathAndCookie & ~InteropDataConstants.HasDllImportSearchPath;
+            }
+
+            Assembly callingAssembly = RuntimeAugments.Callbacks.GetAssemblyForHandle(new RuntimeTypeHandle(pCell->CallingAssemblyType));
+
+            // First check if there's a NativeLibrary callback and call it to attempt the resolution
+            IntPtr hModule = NativeLibrary.LoadLibraryCallbackStub(moduleName, callingAssembly, hasDllImportSearchPath, dllImportSearchPath);
+            if (hModule == IntPtr.Zero)
+            {
+                // NativeLibrary callback didn't resolve the library. Use built-in rules.
+                NativeLibrary.LoadLibErrorTracker loadLibErrorTracker = default;
+
+                hModule = NativeLibrary.LoadLibraryModuleBySearch(
+                    callingAssembly,
+                    searchAssemblyDirectory: false,
+                    dllImportSearchPathFlags: 0,
+                    ref loadLibErrorTracker,
+                    moduleName);
+
+                if (hModule == IntPtr.Zero)
                 {
-                    // Some other thread won the race to fix it up.
-                    FreeLibrary(hModule);
+                    // Built-in rules didn't resolve the library. Use AssemblyLoadContext as a last chance attempt.
+                    AssemblyLoadContext loadContext = AssemblyLoadContext.GetLoadContext(callingAssembly);
+                    hModule = loadContext.GetResolvedUnmanagedDll(callingAssembly, moduleName);
+                }
+
+                if (hModule == IntPtr.Zero)
+                {
+                    // If the module is still unresolved, this is an error.
+                    loadLibErrorTracker.Throw(moduleName);
                 }
             }
-            else
+
+            Debug.Assert(hModule != IntPtr.Zero);
+            var oldValue = Interlocked.CompareExchange(ref pCell->Handle, hModule, IntPtr.Zero);
+            if (oldValue != IntPtr.Zero)
             {
-                throw new DllNotFoundException(SR.Format(SR.Arg_DllNotFoundExceptionParameterized, moduleName));
+                // Some other thread won the race to fix it up.
+                FreeLibrary(hModule);
             }
         }
 
@@ -313,7 +327,7 @@ namespace Internal.Runtime.CompilerHelpers
 #endif
             if (pCell->Target == IntPtr.Zero)
             {
-                string entryPointName = Encoding.UTF8.GetString(methodName, strlen(methodName));
+                string entryPointName = Encoding.UTF8.GetString(methodName, string.strlen(methodName));
                 throw new EntryPointNotFoundException(SR.Format(SR.Arg_EntryPointNotFoundExceptionParameterized, entryPointName, GetModuleName(pCell->Module)));
             }
         }
@@ -332,7 +346,7 @@ namespace Internal.Runtime.CompilerHelpers
                 return exactMatch;
             }
 
-            int nameLength = strlen(methodName);
+            int nameLength = string.strlen(methodName);
 
             // We need to add an extra byte for the suffix, and an extra byte for the null terminator
             byte* probedMethodName = stackalloc byte[nameLength + 2];
@@ -355,13 +369,6 @@ namespace Internal.Runtime.CompilerHelpers
             return exactMatch;
         }
 #endif
-
-        internal static unsafe int strlen(byte* pString)
-        {
-            byte* p = pString;
-            while (*p != 0) p++;
-            return checked((int)(p - pString));
-        }
 
         internal unsafe static void* CoTaskMemAllocAndZeroMemory(global::System.IntPtr size)
         {
@@ -406,11 +413,66 @@ namespace Internal.Runtime.CompilerHelpers
             return PInvokeMarshal.GetCurrentCalleeDelegate<T>();
         }
 
+        internal static int AsAnyGetNativeSize(object o)
+        {
+            // Array, string and StringBuilder are not implemented.
+            if (o.EETypePtr.IsArray ||
+                o is string ||
+                o is StringBuilder)
+            {
+                throw new PlatformNotSupportedException();
+            }
+
+            // Assume that this is a type with layout.
+            return Marshal.SizeOf(o.GetType());
+        }
+
+        internal static void AsAnyMarshalManagedToNative(object o, IntPtr address)
+        {
+            // Array, string and StringBuilder are not implemented.
+            if (o.EETypePtr.IsArray ||
+                o is string ||
+                o is StringBuilder)
+            {
+                throw new PlatformNotSupportedException();
+            }
+
+            Marshal.StructureToPtr(o, address, fDeleteOld: false);
+        }
+
+        internal static void AsAnyMarshalNativeToManaged(IntPtr address, object o)
+        {
+            // Array, string and StringBuilder are not implemented.
+            if (o.EETypePtr.IsArray ||
+                o is string ||
+                o is StringBuilder)
+            {
+                throw new PlatformNotSupportedException();
+            }
+
+            Marshal.PtrToStructureImpl(address, o);
+        }
+
+        internal static void AsAnyCleanupNative(IntPtr address, object o)
+        {
+            // Array, string and StringBuilder are not implemented.
+            if (o.EETypePtr.IsArray ||
+                o is string ||
+                o is StringBuilder)
+            {
+                throw new PlatformNotSupportedException();
+            }
+
+            Marshal.DestroyStructure(address, o.GetType());
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         internal unsafe struct ModuleFixupCell
         {
             public IntPtr Handle;
             public IntPtr ModuleName;
+            public EETypePtr CallingAssemblyType;
+            public uint DllImportSearchPathAndCookie;
         }
 
         [StructLayout(LayoutKind.Sequential)]

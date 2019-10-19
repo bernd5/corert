@@ -149,60 +149,18 @@ namespace ILCompiler.DependencyAnalysis
             {
                 return _cache.GetOrAdd(key, _creator);
             }
+
+            public TValue GetOrAdd(TKey key, Func<TKey, TValue> creator)
+            {
+                return _cache.GetOrAdd(key, creator);
+            }
         }
 
         private void CreateNodeCaches()
         {
-            _typeSymbols = new NodeCache<TypeDesc, IEETypeNode>((TypeDesc type) =>
-            {
-                Debug.Assert(!_compilationModuleGroup.ShouldReferenceThroughImportTable(type));
-                if (_compilationModuleGroup.ContainsType(type))
-                {
-                    if (type.IsGenericDefinition)
-                    {
-                        return new GenericDefinitionEETypeNode(this, type);
-                    }
-                    else if (type.IsCanonicalDefinitionType(CanonicalFormKind.Any))
-                    {
-                        return new CanonicalDefinitionEETypeNode(this, type);
-                    }
-                    else if (type.IsCanonicalSubtype(CanonicalFormKind.Any))
-                    {
-                        return new NecessaryCanonicalEETypeNode(this, type);
-                    }
-                    else
-                    {
-                        return new EETypeNode(this, type);
-                    }
-                }
-                else
-                {
-                    return new ExternEETypeSymbolNode(this, type);
-                }
-            });
+            _typeSymbols = new NodeCache<TypeDesc, IEETypeNode>(CreateNecessaryTypeNode);
 
-            _constructedTypeSymbols = new NodeCache<TypeDesc, IEETypeNode>((TypeDesc type) =>
-            {
-                // Canonical definition types are *not* constructed types (call NecessaryTypeSymbol to get them)
-                Debug.Assert(!type.IsCanonicalDefinitionType(CanonicalFormKind.Any));
-                Debug.Assert(!_compilationModuleGroup.ShouldReferenceThroughImportTable(type));
-
-                if (_compilationModuleGroup.ContainsType(type))
-                {
-                    if (type.IsCanonicalSubtype(CanonicalFormKind.Any))
-                    {
-                        return new CanonicalEETypeNode(this, type);
-                    }
-                    else
-                    {
-                        return new ConstructedEETypeNode(this, type);
-                    }
-                }
-                else
-                {
-                    return new ExternEETypeSymbolNode(this, type);
-                }
-            });
+            _constructedTypeSymbols = new NodeCache<TypeDesc, IEETypeNode>(CreateConstructedTypeNode);
 
             _clonedTypeSymbols = new NodeCache<TypeDesc, IEETypeNode>((TypeDesc type) =>
             {
@@ -277,12 +235,12 @@ namespace ILCompiler.DependencyAnalysis
                 return new ExternSymbolNode(name);
             });
 
-            _pInvokeModuleFixups = new NodeCache<string, PInvokeModuleFixupNode>((string name) =>
+            _pInvokeModuleFixups = new NodeCache<PInvokeModuleData, PInvokeModuleFixupNode>((PInvokeModuleData moduleData) =>
             {
-                return new PInvokeModuleFixupNode(name);
+                return new PInvokeModuleFixupNode(moduleData);
             });
 
-            _pInvokeMethodFixups = new NodeCache<Tuple<string, string, PInvokeFlags>, PInvokeMethodFixupNode>((Tuple<string, string, PInvokeFlags> key) =>
+            _pInvokeMethodFixups = new NodeCache<Tuple<PInvokeModuleData, string, PInvokeFlags>, PInvokeMethodFixupNode>((Tuple<PInvokeModuleData, string, PInvokeFlags> key) =>
             {
                 return new PInvokeMethodFixupNode(key.Item1, key.Item2, key.Item3);
             });
@@ -311,6 +269,11 @@ namespace ILCompiler.DependencyAnalysis
                 return new TypeGVMEntriesNode(type);
             });
 
+            _dynamicInvokeTemplates = new NodeCache<MethodDesc, DynamicInvokeTemplateNode>(method =>
+            {
+                return new DynamicInvokeTemplateNode(method);
+            });
+
             _reflectableMethods = new NodeCache<MethodDesc, ReflectableMethodNode>(method =>
             {
                 return new ReflectableMethodNode(method);
@@ -330,12 +293,6 @@ namespace ILCompiler.DependencyAnalysis
                 }
             });
 
-            _runtimeDeterminedMethods = new NodeCache<MethodDesc, IMethodNode>(method =>
-            {
-                return new RuntimeDeterminedMethodNode(method,
-                    MethodEntrypoint(method.GetCanonMethodTarget(CanonicalFormKind.Specific)));
-            });
-
             _virtMethods = new NodeCache<MethodDesc, VirtualMethodUseNode>((MethodDesc method) =>
             {
                 // We don't need to track virtual method uses for types that have a vtable with a known layout.
@@ -347,15 +304,8 @@ namespace ILCompiler.DependencyAnalysis
 
             _readyToRunHelpers = new NodeCache<ReadyToRunHelperKey, ISymbolNode>(CreateReadyToRunHelperNode);
 
-            _genericReadyToRunHelpersFromDict = new NodeCache<ReadyToRunGenericHelperKey, ISymbolNode>(data =>
-            {
-                return new ReadyToRunGenericLookupFromDictionaryNode(this, data.HelperId, data.Target, data.DictionaryOwner);
-            });
-
-            _genericReadyToRunHelpersFromType = new NodeCache<ReadyToRunGenericHelperKey, ISymbolNode>(data =>
-            {
-                return new ReadyToRunGenericLookupFromTypeNode(this, data.HelperId, data.Target, data.DictionaryOwner);
-            });
+            _genericReadyToRunHelpersFromDict = new NodeCache<ReadyToRunGenericHelperKey, ISymbolNode>(CreateGenericLookupFromDictionaryNode);
+            _genericReadyToRunHelpersFromType = new NodeCache<ReadyToRunGenericHelperKey, ISymbolNode>(CreateGenericLookupFromTypeNode);
 
             _indirectionNodes = new NodeCache<ISortableSymbolNode, ISymbolNode>(indirectedNode =>
             {
@@ -414,9 +364,14 @@ namespace ILCompiler.DependencyAnalysis
                 return EagerCctorTable.NewNode(MethodEntrypoint(method));
             });
 
-            _namedJumpStubNodes = new NodeCache<Tuple<string, ISymbolNode>, NamedJumpStubNode>((Tuple<string, ISymbolNode> id) =>
+            _delegateMarshalingDataNodes = new NodeCache<DefType, DelegateMarshallingDataNode>(type =>
             {
-                return new NamedJumpStubNode(id.Item1, id.Item2);
+                return new DelegateMarshallingDataNode(type);
+            });
+
+            _structMarshalingDataNodes = new NodeCache<DefType, StructMarshallingDataNode>(type =>
+            {
+                return new StructMarshallingDataNode(type);
             });
 
             _vTableNodes = new NodeCache<TypeDesc, VTableSliceNode>((TypeDesc type ) =>
@@ -481,6 +436,67 @@ namespace ILCompiler.DependencyAnalysis
 
             NativeLayout = new NativeLayoutHelper(this);
             WindowsDebugData = new WindowsDebugDataHelper(this);
+        }
+
+        protected virtual ISymbolNode CreateGenericLookupFromDictionaryNode(ReadyToRunGenericHelperKey helperKey)
+        {
+            return new ReadyToRunGenericLookupFromDictionaryNode(this, helperKey.HelperId, helperKey.Target, helperKey.DictionaryOwner);
+        }
+
+        protected virtual ISymbolNode CreateGenericLookupFromTypeNode(ReadyToRunGenericHelperKey helperKey)
+        {
+            return new ReadyToRunGenericLookupFromTypeNode(this, helperKey.HelperId, helperKey.Target, helperKey.DictionaryOwner);
+        }
+
+        protected virtual IEETypeNode CreateNecessaryTypeNode(TypeDesc type)
+        {
+            Debug.Assert(!_compilationModuleGroup.ShouldReferenceThroughImportTable(type));
+            if (_compilationModuleGroup.ContainsType(type))
+            {
+                if (type.IsGenericDefinition)
+                {
+                    return new GenericDefinitionEETypeNode(this, type);
+                }
+                else if (type.IsCanonicalDefinitionType(CanonicalFormKind.Any))
+                {
+                    return new CanonicalDefinitionEETypeNode(this, type);
+                }
+                else if (type.IsCanonicalSubtype(CanonicalFormKind.Any))
+                {
+                    return new NecessaryCanonicalEETypeNode(this, type);
+                }
+                else
+                {
+                    return new EETypeNode(this, type);
+                }
+            }
+            else
+            {
+                return new ExternEETypeSymbolNode(this, type);
+            }
+        }
+
+        protected virtual IEETypeNode CreateConstructedTypeNode(TypeDesc type)
+        {
+            // Canonical definition types are *not* constructed types (call NecessaryTypeSymbol to get them)
+            Debug.Assert(!type.IsCanonicalDefinitionType(CanonicalFormKind.Any));
+            Debug.Assert(!_compilationModuleGroup.ShouldReferenceThroughImportTable(type));
+
+            if (_compilationModuleGroup.ContainsType(type))
+            {
+                if (type.IsCanonicalSubtype(CanonicalFormKind.Any))
+                {
+                    return new CanonicalEETypeNode(this, type);
+                }
+                else
+                {
+                    return new ConstructedEETypeNode(this, type);
+                }
+            }
+            else
+            {
+                return new ExternEETypeSymbolNode(this, type);
+            }
         }
 
         protected abstract IMethodNode CreateMethodEntrypointNode(MethodDesc method);
@@ -676,18 +692,18 @@ namespace ILCompiler.DependencyAnalysis
             return _externSymbols.GetOrAdd(name);
         }
 
-        private NodeCache<string, PInvokeModuleFixupNode> _pInvokeModuleFixups;
+        private NodeCache<PInvokeModuleData, PInvokeModuleFixupNode> _pInvokeModuleFixups;
 
-        public ISymbolNode PInvokeModuleFixup(string moduleName)
+        public ISymbolNode PInvokeModuleFixup(PInvokeModuleData moduleData)
         {
-            return _pInvokeModuleFixups.GetOrAdd(moduleName);
+            return _pInvokeModuleFixups.GetOrAdd(moduleData);
         }
 
-        private NodeCache<Tuple<string, string, PInvokeFlags>, PInvokeMethodFixupNode> _pInvokeMethodFixups;
+        private NodeCache<Tuple<PInvokeModuleData, string, PInvokeFlags>, PInvokeMethodFixupNode> _pInvokeMethodFixups;
 
-        public PInvokeMethodFixupNode PInvokeMethodFixup(string moduleName, string entryPointName, PInvokeFlags flags)
+        public PInvokeMethodFixupNode PInvokeMethodFixup(PInvokeModuleData moduleData, string entryPointName, PInvokeFlags flags)
         {
-            return _pInvokeMethodFixups.GetOrAdd(Tuple.Create(moduleName, entryPointName, flags));
+            return _pInvokeMethodFixups.GetOrAdd(Tuple.Create(moduleData, entryPointName, flags));
         }
 
         private NodeCache<TypeDesc, VTableSliceNode> _vTableNodes;
@@ -721,7 +737,7 @@ namespace ILCompiler.DependencyAnalysis
             return _stringAllocators.GetOrAdd(stringConstructor);
         }
 
-        private NodeCache<MethodDesc, IMethodNode> _methodEntrypoints;
+        protected NodeCache<MethodDesc, IMethodNode> _methodEntrypoints;
         private NodeCache<MethodDesc, IMethodNode> _unboxingStubs;
         private NodeCache<IMethodNode, MethodAssociatedDataNode> _methodAssociatedData;
 
@@ -783,16 +799,16 @@ namespace ILCompiler.DependencyAnalysis
             return _reflectableMethods.GetOrAdd(method);
         }
 
+        private NodeCache<MethodDesc, DynamicInvokeTemplateNode> _dynamicInvokeTemplates;
+        internal DynamicInvokeTemplateNode DynamicInvokeTemplate(MethodDesc method)
+        {
+            return _dynamicInvokeTemplates.GetOrAdd(method);
+        }
+
         private NodeCache<MethodKey, IMethodNode> _shadowConcreteMethods;
         public IMethodNode ShadowConcreteMethod(MethodDesc method, bool isUnboxingStub = false)
         {
             return _shadowConcreteMethods.GetOrAdd(new MethodKey(method, isUnboxingStub));
-        }
-
-        private NodeCache<MethodDesc, IMethodNode> _runtimeDeterminedMethods;
-        public IMethodNode RuntimeDeterminedMethod(MethodDesc method)
-        {
-            return _runtimeDeterminedMethods.GetOrAdd(method);
         }
 
         private static readonly string[][] s_helperEntrypointNames = new string[][] {
@@ -980,13 +996,20 @@ namespace ILCompiler.DependencyAnalysis
             return ReadOnlyDataBlob(symbolName, stringBytes, 1);
         }
 
-        private NodeCache<Tuple<string, ISymbolNode>, NamedJumpStubNode> _namedJumpStubNodes;
+        private NodeCache<DefType, DelegateMarshallingDataNode> _delegateMarshalingDataNodes;
 
-        public ISymbolNode NamedJumpStub(string name, ISymbolNode target)
+        public DelegateMarshallingDataNode DelegateMarshallingData(DefType type)
         {
-            return _namedJumpStubNodes.GetOrAdd(new Tuple<string, ISymbolNode>(name, target));
+            return _delegateMarshalingDataNodes.GetOrAdd(type);
         }
-        
+
+        private NodeCache<DefType, StructMarshallingDataNode> _structMarshalingDataNodes;
+
+        public StructMarshallingDataNode StructMarshallingData(DefType type)
+        {
+            return _structMarshalingDataNodes.GetOrAdd(type);
+        }
+
         /// <summary>
         /// Returns alternative symbol name that object writer should produce for given symbols
         /// in addition to the regular one.
@@ -1051,15 +1074,6 @@ namespace ILCompiler.DependencyAnalysis
             graph.AddRoot(DispatchMapTable, "DispatchMapTable is always generated");
             graph.AddRoot(FrozenSegmentRegion, "FrozenSegmentRegion is always generated");
             graph.AddRoot(InterfaceDispatchCellSection, "Interface dispatch cell section is always generated");
-            if (Target.IsWindows)
-            {
-                // We need 2 delimiter symbols to bound the unboxing stubs region on Windows platforms (these symbols are
-                // accessed using extern "C" variables in the bootstrapper)
-                // On non-Windows platforms, the linker emits special symbols with special names at the begining/end of a section
-                // so we do not need to emit them ourselves.
-                graph.AddRoot(new WindowsUnboxingStubsRegionNode(false), "UnboxingStubsRegion delimiter for Windows platform");
-                graph.AddRoot(new WindowsUnboxingStubsRegionNode(true), "UnboxingStubsRegion delimiter for Windows platform");
-            }
 
             ReadyToRunHeader.Add(ReadyToRunSectionType.GCStaticRegion, GCStaticsRegion, GCStaticsRegion.StartSymbol, GCStaticsRegion.EndSymbol);
             ReadyToRunHeader.Add(ReadyToRunSectionType.ThreadStaticRegion, ThreadStaticsRegion, ThreadStaticsRegion.StartSymbol, ThreadStaticsRegion.EndSymbol);

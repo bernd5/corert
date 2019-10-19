@@ -97,6 +97,9 @@ namespace System.Runtime
             RhWaitForPendingFinalizers(allowReentrantWait ? 1 : 0);
         }
 
+        [DllImport(RuntimeLibrary, ExactSpelling = true)]
+        internal static extern void RhInitializeFinalizerThread();
+
         // Get maximum GC generation number.
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhGetMaxGcGeneration")]
@@ -153,7 +156,11 @@ namespace System.Runtime
 
         [MethodImpl(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhpRegisterFrozenSegment")]
-        internal static extern bool RhpRegisterFrozenSegment(IntPtr pSegmentStart, int length);
+        internal static extern IntPtr RhpRegisterFrozenSegment(IntPtr pSegmentStart, IntPtr length);
+
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        [RuntimeImport(RuntimeLibrary, "RhpUnregisterFrozenSegment")]
+        internal static extern void RhpUnregisterFrozenSegment(IntPtr pSegmentHandle);
 
         [MethodImpl(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhRegisterForFullGCNotification")]
@@ -190,6 +197,26 @@ namespace System.Runtime
         [MethodImpl(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhGetAllocatedBytesForCurrentThread")]
         internal static extern long RhGetAllocatedBytesForCurrentThread();
+
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        [RuntimeImport(RuntimeLibrary, "RhGetTotalAllocatedBytes")]
+        internal static extern long RhGetTotalAllocatedBytes();
+
+        [DllImport(RuntimeLibrary, ExactSpelling = true, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern long RhGetTotalAllocatedBytesPrecise();
+
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        [RuntimeImport(RuntimeLibrary, "RhGetMemoryInfo")]
+        internal static extern void RhGetMemoryInfo(out ulong highMemLoadThresholdBytes,
+                                                    out ulong totalAvailableMemoryBytes,
+                                                    out ulong lastRecordedMemLoadBytes,
+                                                    out uint lastRecordedMemLoadPct,
+                                                    // The next two are size_t
+                                                    out UIntPtr lastRecordedHeapSizeBytes,
+                                                    out UIntPtr lastRecordedFragmentationBytes);
+
+        [DllImport(RuntimeLibrary, ExactSpelling = true)]
+        internal static unsafe extern void RhAllocateUninitializedArray(IntPtr pArrayEEType, uint numElements, void* pResult);
 
         [MethodImpl(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhCompareObjectContentsAndPadding")]
@@ -312,15 +339,15 @@ namespace System.Runtime
 
         [MethodImpl(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhTypeCast_IsInstanceOf")]
-        internal static extern object IsInstanceOf(object obj, EETypePtr pTargetType);
+        internal static extern object IsInstanceOf(EETypePtr pTargetType, object obj);
 
         [MethodImpl(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhTypeCast_IsInstanceOfClass")]
-        internal static extern object IsInstanceOfClass(object obj, EETypePtr pTargetType);
+        internal static extern object IsInstanceOfClass(EETypePtr pTargetType, object obj);
 
         [MethodImpl(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhTypeCast_IsInstanceOfInterface")]
-        internal static extern object IsInstanceOfInterface(object obj, EETypePtr pTargetType);
+        internal static extern object IsInstanceOfInterface(EETypePtr pTargetType, object obj);
 
         //
         // calls to runtime for allocation
@@ -558,7 +585,6 @@ namespace System.Runtime
         [RuntimeImport(RuntimeLibrary, "RhGetThreadStaticFieldAddress")]
         internal static extern unsafe byte* RhGetThreadStaticFieldAddress(EETypePtr pEEType, int threadStaticsBlockOffset, int fieldOffset);
 
-#if !PROJECTN
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhGetThreadStaticStorageForModule")]
         internal static unsafe extern object[] RhGetThreadStaticStorageForModule(int moduleIndex);
@@ -570,7 +596,6 @@ namespace System.Runtime
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhCurrentNativeThreadId")]
         internal static unsafe extern IntPtr RhCurrentNativeThreadId();
-#endif
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhCurrentOSThreadId")]
@@ -731,7 +756,6 @@ namespace System.Runtime
         [RuntimeImport(RuntimeLibrary, "RhpEtwExceptionThrown")]
         internal extern static unsafe void RhpEtwExceptionThrown(char* exceptionTypeName, char* exceptionMessage, IntPtr faultingIP, long hresult);
 
-#if !PROJECTN
         //
         // Interlocked helpers
         //
@@ -762,26 +786,18 @@ namespace System.Runtime
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "RhpMemoryBarrier")]
         internal extern static void MemoryBarrier();
-#endif // !PROJECTN
 
         [Intrinsic]
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "fabs")]
         internal static extern double fabs(double x);
 
-#if PROJECTN
-        [Intrinsic]
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        [RuntimeImport(RuntimeLibrary, "fabsf")]
-        internal static extern float fabsf(float x);
-#else
         [Intrinsic]
         internal static float fabsf(float x)
         {
             // fabsf is not a real export for some architectures
             return (float)fabs(x);
         }
-#endif
 
         [Intrinsic]
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
@@ -925,6 +941,16 @@ namespace System.Runtime
 
         [Intrinsic]
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        [RuntimeImport(RuntimeLibrary, "log2")]
+        internal static extern double log2(double x);
+
+        [Intrinsic]
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        [RuntimeImport(RuntimeLibrary, "log2f")]
+        internal static extern float log2f(float x);
+
+        [Intrinsic]
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "log10")]
         internal static extern double log10(double x);
 
@@ -942,6 +968,16 @@ namespace System.Runtime
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "powf")]
         internal static extern float powf(float x, float y);
+
+        [Intrinsic]
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        [RuntimeImport(RuntimeLibrary, "scalbn")]
+        internal static extern double scalbn(double x, int n);
+
+        [Intrinsic]
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        [RuntimeImport(RuntimeLibrary, "scalbnf")]
+        internal static extern float scalbnf(float x, int n);
 
         [Intrinsic]
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
@@ -1002,6 +1038,26 @@ namespace System.Runtime
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [RuntimeImport(RuntimeLibrary, "fmodf")]
         internal static extern float fmodf(float x, float y);
+
+        [Intrinsic]
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        [RuntimeImport(RuntimeLibrary, "fma")]
+        internal static extern double fma(double x, double y, double z);
+
+        [Intrinsic]
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        [RuntimeImport(RuntimeLibrary, "fmaf")]
+        internal static extern float fmaf(float x, float y, float z);
+
+        [Intrinsic]
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        [RuntimeImport(RuntimeLibrary, "ilogb")]
+        internal static extern int ilogb(double x);
+
+        [Intrinsic]
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        [RuntimeImport(RuntimeLibrary, "ilogbf")]
+        internal static extern int ilogbf(float x);
 
         [Intrinsic]
         [MethodImplAttribute(MethodImplOptions.InternalCall)]

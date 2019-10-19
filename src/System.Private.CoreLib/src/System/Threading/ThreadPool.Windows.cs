@@ -4,6 +4,8 @@
 
 using Microsoft.Win32.SafeHandles;
 using System.Diagnostics;
+using System.Runtime;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace System.Threading
@@ -60,8 +62,9 @@ namespace System.Threading
             RegisteredWaitHandle registeredWaitHandle = (RegisteredWaitHandle)handle.Target;
             Debug.Assert((handle == registeredWaitHandle._gcHandle) && (wait == registeredWaitHandle._tpWait));
 
-            bool timedOut = (waitResult == (uint)Interop.Constants.WaitTimeout);
+            bool timedOut = (waitResult == (uint)Interop.Kernel32.WAIT_TIMEOUT);
             registeredWaitHandle.PerformCallback(timedOut);
+            ThreadPool.IncrementCompletedWorkItemCount();
             wrapper.Exit();
         }
 
@@ -136,7 +139,7 @@ namespace System.Threading
 
                     // Should we wait for callbacks synchronously? Note that we treat the zero handle as the asynchronous case.
                     SafeWaitHandle safeWaitHandle = waitObject?.SafeWaitHandle;
-                    bool blocking = ((safeWaitHandle != null) && (safeWaitHandle.DangerousGetHandle() == Interop.InvalidHandleValue));
+                    bool blocking = ((safeWaitHandle != null) && (safeWaitHandle.DangerousGetHandle() == new IntPtr(-1)));
 
                     if (blocking)
                     {
@@ -244,6 +247,18 @@ namespace System.Threading
 
         private static IntPtr s_work;
 
+        private static readonly ThreadBooleanCounter s_threadCounter = new ThreadBooleanCounter();
+
+        // The number of threads executing work items in the Dispatch method
+        private static readonly ThreadBooleanCounter s_workingThreadCounter = new ThreadBooleanCounter();
+
+        private static readonly ThreadInt64PersistentCounter s_completedWorkItemCounter = new ThreadInt64PersistentCounter();
+
+        internal static void InitializeForThreadPoolThread() => s_threadCounter.Set();
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static void IncrementCompletedWorkItemCount() => s_completedWorkItemCounter.Increment();
+
         public static bool SetMaxThreads(int workerThreads, int completionPortThreads)
         {
             // Not supported at present
@@ -273,11 +288,27 @@ namespace System.Threading
         public static void GetAvailableThreads(out int workerThreads, out int completionPortThreads)
         {
             // Make sure we return a non-negative value if thread pool defaults are changed
-            int availableThreads = Math.Max(MaxThreadCount - ThreadPoolGlobals.workQueue.numWorkingThreads, 0);
+            int availableThreads = Math.Max(MaxThreadCount - s_workingThreadCounter.Count, 0);
 
             workerThreads = availableThreads;
             completionPortThreads = availableThreads;
         }
+
+        /// <summary>
+        /// Gets the number of thread pool threads that currently exist.
+        /// </summary>
+        /// <remarks>
+        /// For a thread pool implementation that may have different types of threads, the count includes all types.
+        /// </remarks>
+        public static int ThreadCount => s_threadCounter.Count;
+
+        /// <summary>
+        /// Gets the number of work items that have been processed so far.
+        /// </summary>
+        /// <remarks>
+        /// For a thread pool implementation that may have different types of work items, the count includes all types.
+        /// </remarks>
+        public static long CompletedWorkItemCount => s_completedWorkItemCounter.Count;
 
         internal static bool KeepDispatching(int startTickCount)
         {
@@ -287,12 +318,13 @@ namespace System.Threading
             return ((uint)(Environment.TickCount - startTickCount) < DispatchQuantum);
         }
 
-        internal static void NotifyWorkItemProgress()
-        {
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static void NotifyWorkItemProgress() => IncrementCompletedWorkItemCount();
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static bool NotifyWorkItemComplete()
         {
+            IncrementCompletedWorkItemCount();
             return true;
         }
 
@@ -301,7 +333,10 @@ namespace System.Threading
         {
             var wrapper = ThreadPoolCallbackWrapper.Enter();
             Debug.Assert(s_work == work);
+            ThreadBooleanCounter workingThreadCounter = s_workingThreadCounter;
+            workingThreadCounter.Set();
             ThreadPoolWorkQueue.Dispatch();
+            workingThreadCounter.Clear();
             // We reset the thread after executing each callback
             wrapper.Exit(resetThread: false);
         }

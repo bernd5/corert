@@ -18,22 +18,28 @@ class Program
         TestDelegateToCanonMethods.Run();
         TestVirtualMethodUseTracking.Run();
         TestSlotsInHierarchy.Run();
-        TestReflectionInvoke.Run();
         TestDelegateVirtualMethod.Run();
         TestDelegateInterfaceMethod.Run();
         TestThreadStaticFieldAccess.Run();
         TestConstrainedMethodCalls.Run();
         TestInstantiatingUnboxingStubs.Run();
-        TestMDArrayAddressMethod.Run();
         TestNameManglingCollisionRegression.Run();
         TestSimpleGVMScenarios.Run();
         TestGvmDelegates.Run();
         TestGvmDependencies.Run();
-        TestFieldAccess.Run();
-        TestNativeLayoutGeneration.Run();
         TestInterfaceVTableTracking.Run();
         TestClassVTableTracking.Run();
-
+        TestReflectionInvoke.Run();
+        TestFieldAccess.Run();
+        TestDevirtualization.Run();
+        TestGenericInlining.Run();
+#if !CODEGEN_CPP
+        TestNullableCasting.Run();
+        TestVariantCasting.Run();
+        TestMDArrayAddressMethod.Run();
+        TestNativeLayoutGeneration.Run();
+        TestByRefLikeVTables.Run();
+#endif
         return 100;
     }
 
@@ -1009,7 +1015,7 @@ class Program
         public static void Run()
         {
             var foo1 = new Foo<Atom1>();
-            bool result = DoFrob<Foo<Atom1>, Atom1>(ref foo1, new Atom1[0,0,0]);
+            bool result = DoFrob<Foo<Atom1>, Atom1>(ref foo1, new Atom1[0, 0, 0]);
 
             // If the FrobbedValue doesn't change when we frob, we must have done box+interface call.
             if (foo1.FrobbedValue != 12345)
@@ -1187,7 +1193,7 @@ class Program
         {
             string IFoo<int>.IMethod1<T>(T t1, T t2) { return "SuperDerived.IFoo<int>.IMethod1<" + typeof(T) + ">(" + t1 + "," + t2 + ")"; }
         }
-        
+
 
         class GenBase<A> : IFoo<string>, IFoo<int>
         {
@@ -1603,7 +1609,7 @@ class Program
             public T _t;
 
             [MethodImpl(MethodImplOptions.NoInlining)]
-            public DynamicBase() {}
+            public DynamicBase() { }
 
             [MethodImpl(MethodImplOptions.NoInlining)]
             public int SimpleMethod()
@@ -1643,7 +1649,7 @@ class Program
         public class DynamicDerived<T> : DynamicBase<T>
         {
             [MethodImpl(MethodImplOptions.NoInlining)]
-            public DynamicDerived() {}
+            public DynamicDerived() { }
 
             [MethodImpl(MethodImplOptions.NoInlining)]
             public override string VirtualMethod(T t)
@@ -1699,7 +1705,7 @@ class Program
 
             var fooDynamicOfClassType = typeof(Foo<>).MakeGenericType(typeof(ClassType)).GetTypeInfo();
             var fooDynamicOfClassType2 = typeof(Foo<>).MakeGenericType(typeof(ClassType2)).GetTypeInfo();
-            
+
             FieldInfo fi = fooDynamicOfClassType.GetDeclaredField("s_intField");
             FieldInfo fi2 = fooDynamicOfClassType2.GetDeclaredField("s_intField");
             fi.SetValue(null, 1111);
@@ -2104,7 +2110,7 @@ class Program
         {
             public Array Frob()
             {
-                return new Gen<T>[1,1];
+                return new Gen<T>[1, 1];
             }
         }
 
@@ -2144,6 +2150,306 @@ class Program
         {
             // This only really tests whether we can compile this.
             Call<object>();
+        }
+    }
+
+    class TestNullableCasting
+    {
+        struct Mine<T> { }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static bool CallWithNullable<T>(object m)
+        {
+            return m is T;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static bool CallWithReferenceType<T>(object m)
+        {
+            return m is Nullable<Mine<T>>;
+        }
+
+        public static void Run()
+        {
+            if (!CallWithNullable<Nullable<Mine<object>>>(new Mine<object>()))
+                throw new Exception();
+
+            if (CallWithNullable<Nullable<Mine<object>>>(new Mine<string>()))
+                throw new Exception();
+
+            if (!CallWithReferenceType<object>(new Mine<object>()))
+                throw new Exception();
+
+            if (CallWithReferenceType<object>(new Mine<string>()))
+                throw new Exception();
+
+            if (!(((object)new Mine<object>()) is Nullable<Mine<object>>))
+                throw new Exception();
+        }
+    }
+
+    class TestVariantCasting
+    {
+        private delegate T GenericDelegate<out T>();
+
+        class Base { }
+        class Derived : Base { }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static bool IsInstanceOfGenericDelegateOf<T>(object o)
+        {
+            return o is GenericDelegate<T>;
+        }
+
+        public static void Run()
+        {
+            GenericDelegate<Derived> del = () => null;
+            if (!IsInstanceOfGenericDelegateOf<Base>(del))
+                throw new Exception();
+        }
+    }
+
+    class TestByRefLikeVTables
+    {
+        class Atom<T> { }
+
+        ref struct RefStruct<T>
+        {
+            public override bool Equals(object o) => o is Atom<T[]>;
+            public override int GetHashCode() => 0;
+
+            public override string ToString()
+            {
+                return typeof(T).ToString();
+            }
+        }
+
+        public static void Run()
+        {
+            // This is a regression test making sure we can build a vtable for the byref-like type.
+            // The vtable is necessary for a generic dictionary lookup in the ToString method.
+            // Method bodies of Equals and GetHashCode become reachable through the magical
+            // "unboxing" thunks we generate for byref-like types, and only through them.
+            RefStruct<string> r = default;
+            if (r.ToString() != "System.String")
+                throw new Exception();
+        }
+    }
+
+    class TestDevirtualization
+    {
+        interface IDevirt
+        {
+            int GetAndSet(int x);
+        }
+
+        struct Devirt : IDevirt
+        {
+            public int X;
+
+            public int GetAndSet(int x)
+            {
+                int result = X;
+                X = x;
+                return result;
+            }
+        }
+
+        interface IGenericDevirt
+        {
+            int GetAndSet(int x);
+            Type GetTheType();
+        }
+
+        struct GenericDevirt<T> : IGenericDevirt
+        {
+            public int X;
+
+            public int GetAndSet(int x)
+            {
+                int result = X;
+                X = x;
+                return result;
+            }
+
+            public Type GetTheType()
+            {
+                return typeof(T);
+            }
+        }
+
+        static void DoSimpleDevirt()
+        {
+            // This will potentially transform to a direct call
+            int result = ((IDevirt)new Devirt { X = 123 }).GetAndSet(456);
+            if (result != 123)
+                throw new Exception();
+        }
+
+        static void DoSimpleDevirtBoxed()
+        {
+            object o = new Devirt { X = 123 };
+
+            // Force o to be boxed no matter what
+            o.ToString();
+
+            // This will potentially transform to a direct call
+            int result = ((IDevirt)o).GetAndSet(456);
+            if (result != 123)
+                throw new Exception();
+
+            if (((Devirt)o).X != 456)
+                throw new Exception();
+        }
+
+        static void DoGenericDevirt()
+        {
+            // This will potentially transform to a direct call
+            int result1 = ((IGenericDevirt)new GenericDevirt<string> { X = 123 }).GetAndSet(456);
+            if (result1 != 123)
+                throw new Exception();
+
+            // This will potentially transform to a direct call
+            Type result2 = ((IGenericDevirt)new GenericDevirt<string>()).GetTheType();
+            if (result2 != typeof(string))
+                throw new Exception();
+        }
+
+        static void DoGenericDevirtBoxed()
+        {
+            object o1 = new GenericDevirt<string> { X = 123 };
+
+            // Force o1 to be boxed no matter what
+            o1.ToString();
+
+            // This will potentially transform to a direct call
+            int result1 = ((IGenericDevirt)o1).GetAndSet(456);
+            if (result1 != 123)
+                throw new Exception();
+
+            if (((GenericDevirt<string>)o1).X != 456)
+                throw new Exception();
+
+            object o2 = new GenericDevirt<string> { X = 123 };
+
+            // Force o2 to be boxed no matter what
+            o2.ToString();
+
+            // This will potentially transform to a direct call
+            Type result2 = ((IGenericDevirt)o2).GetTheType();
+            if (result2 != typeof(string))
+                throw new Exception();
+        }
+
+        static void DoGenericDevirtShared<T>()
+        {
+            // This will potentially transform to a direct call
+            int result1 = ((IGenericDevirt)new GenericDevirt<T[]> { X = 123 }).GetAndSet(456);
+            if (result1 != 123)
+                throw new Exception();
+
+            // This will potentially transform to a direct call
+            Type result2 = ((IGenericDevirt)new GenericDevirt<T[]>()).GetTheType();
+            if (result2 != typeof(T[]))
+                throw new Exception();
+        }
+
+        static void DoGenericDevirtBoxedShared<T>()
+        {
+            object o1 = new GenericDevirt<T[]> { X = 123 };
+
+            // Force o1 to be boxed no matter what
+            o1.ToString();
+
+            // This will potentially transform to a direct call
+            int result1 = ((IGenericDevirt)o1).GetAndSet(456);
+            if (result1 != 123)
+                throw new Exception();
+
+            if (((GenericDevirt<T[]>)o1).X != 456)
+                throw new Exception();
+
+            object o2 = new GenericDevirt<T[]> { X = 123 };
+
+            // Force o2 to be boxed no matter what
+            o2.ToString();
+
+            // This will potentially transform to a direct call
+            Type result2 = ((IGenericDevirt)o2).GetTheType();
+            if (result2 != typeof(T[]))
+                throw new Exception();
+        }
+
+        public static void Run()
+        {
+            DoSimpleDevirt();
+            DoSimpleDevirtBoxed();
+            DoGenericDevirt();
+            DoGenericDevirtBoxed();
+            DoGenericDevirtShared<string>();
+            DoGenericDevirtBoxedShared<string>();
+        }
+    }
+
+    class TestGenericInlining
+    {
+        class NeverSeenInstantiated<T> { }
+
+        class AnotherNeverSeenInstantiated<T> { }
+
+        class NeverAllocatedIndirection<T, U>
+        {
+            public string GetString() => new AnotherNeverSeenInstantiated<T>().ToString();
+        }
+
+        class NeverAllocated<T>
+        {
+            static NeverAllocatedIndirection<T, object> s_indirection = null;
+
+            public string GetString() => new NeverSeenInstantiated<T>().ToString();
+            public string GetStringIndirect() => s_indirection.GetString();
+        }
+
+        class Dummy { }
+
+        static NeverAllocated<Dummy> s_neverAllocated = null;
+
+        class GenericInline<T>
+        {
+            public GenericInline()
+            {
+                _arr = (T)(object)new string[1] { "ohai" };
+            }
+            T _arr;
+            public T GetArr() => _arr;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static object InnerTest(object o, object dummy) => o;
+
+        static object OtherTest() => null;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static object Test(GenericInline<string[]> t)
+        {
+            return InnerTest(t.GetArr()[0], OtherTest());
+        }
+
+        public static void Run()
+        {
+            // We're just making sure the compiler doesn't crash.
+            // Both of the calls below are expected to get inlined by an optimized codegen,
+            // triggering interesting behaviors in the dependency analysis of the scanner
+            // that runs before compilation.
+            if (s_neverAllocated != null)
+            {
+                Console.WriteLine(s_neverAllocated.GetString());
+                Console.WriteLine(s_neverAllocated.GetStringIndirect());
+            }
+
+            // Regression test for https://github.com/dotnet/corert/issues/7625
+            if ((string)Test(new GenericInline<string[]>()) != "ohai")
+                throw new Exception();
         }
     }
 }

@@ -20,6 +20,11 @@ namespace ILCompiler.DependencyAnalysis
         protected TypeSystemEntity _dictionaryOwner;
         protected GenericLookupResult _lookupSignature;
 
+        public ReadyToRunHelperId Id => _id;
+        public Object Target => _target;
+        public TypeSystemEntity DictionaryOwner => _dictionaryOwner;
+        public GenericLookupResult LookupSignature => _lookupSignature;
+
         public ReadyToRunGenericHelperNode(NodeFactory factory, ReadyToRunHelperId helperId, object target, TypeSystemEntity dictionaryOwner)
         {
             _id = helperId;
@@ -38,6 +43,10 @@ namespace ILCompiler.DependencyAnalysis
             {
                 case ReadyToRunHelperId.TypeHandle:
                     return factory.GenericLookup.Type((TypeDesc)target);
+                case ReadyToRunHelperId.TypeHandleForCasting:
+                    // Check that we unwrapped the cases that could be unwrapped to prevent duplicate entries
+                    Debug.Assert(factory.GenericLookup.Type((TypeDesc)target) != factory.GenericLookup.UnwrapNullableType((TypeDesc)target));
+                    return factory.GenericLookup.UnwrapNullableType((TypeDesc)target);
                 case ReadyToRunHelperId.MethodHandle:
                     return factory.GenericLookup.MethodHandle((MethodDesc)target);
                 case ReadyToRunHelperId.FieldHandle:
@@ -157,6 +166,13 @@ namespace ILCompiler.DependencyAnalysis
         {
             DependencyList dependencies = new DependencyList();
 
+            if (_dictionaryOwner is TypeDesc type)
+            {
+                // The generic lookup will need to consult the vtable of the owning type to find the
+                // vtable slot where the generic dictionary is placed - report the dependency.
+                dependencies.Add(factory.VTable(type), "Owning type vtable");
+            }
+
             dependencies.Add(factory.GenericDictionaryLayout(_dictionaryOwner), "Layout");
 
             foreach (DependencyNodeCore<NodeFactory> dependency in _lookupSignature.NonRelocDependenciesFromUsage(factory))
@@ -170,9 +186,6 @@ namespace ILCompiler.DependencyAnalysis
         public override bool HasConditionalStaticDependencies => true;
         public override IEnumerable<CombinedDependencyListEntry> GetConditionalStaticDependencies(NodeFactory factory)
         {
-            if (!factory.MetadataManager.SupportsReflection)
-                return Array.Empty<CombinedDependencyListEntry>();
-
             List<CombinedDependencyListEntry> conditionalDependencies = new List<CombinedDependencyListEntry>();
             NativeLayoutSavedVertexNode templateLayout;
             if (_dictionaryOwner is MethodDesc)

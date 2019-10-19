@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 
+using Internal.IL;
 using Internal.TypeSystem;
 
 using ILCompiler.Metadata;
@@ -27,10 +28,16 @@ namespace ILCompiler
         internal readonly UsageBasedMetadataGenerationOptions _generationOptions;
         private readonly bool _hasPreciseFieldUsageInformation;
 
+        private readonly ILProvider _ilProvider;
+
         private readonly List<ModuleDesc> _modulesWithMetadata = new List<ModuleDesc>();
         private readonly List<FieldDesc> _fieldsWithMetadata = new List<FieldDesc>();
         private readonly List<MethodDesc> _methodsWithMetadata = new List<MethodDesc>();
         private readonly List<MetadataType> _typesWithMetadata = new List<MetadataType>();
+
+        private readonly HashSet<ModuleDesc> _rootAllAssembliesExaminedModules = new HashSet<ModuleDesc>();
+
+        private readonly MetadataType _serializationInfoType;
 
         public UsageBasedMetadataManager(
             CompilationModuleGroup group,
@@ -40,6 +47,7 @@ namespace ILCompiler
             string logFile,
             StackTraceEmissionPolicy stackTracePolicy,
             DynamicInvokeThunkGenerationPolicy invokeThunkGenerationPolicy,
+            ILProvider ilProvider,
             UsageBasedMetadataGenerationOptions generationOptions)
             : base(typeSystemContext, blockingPolicy, resourceBlockingPolicy, logFile, stackTracePolicy, invokeThunkGenerationPolicy)
         {
@@ -47,6 +55,9 @@ namespace ILCompiler
             _hasPreciseFieldUsageInformation = false;
             _compilationModuleGroup = group;
             _generationOptions = generationOptions;
+            _ilProvider = ilProvider;
+
+            _serializationInfoType = typeSystemContext.SystemModule.GetType("System.Runtime.Serialization", "SerializationInfo", false);
         }
 
         protected override void Graph_NewMarkedNode(DependencyNodeCore<NodeFactory> obj)
@@ -159,6 +170,101 @@ namespace ILCompiler
                     }
                 }
             }
+
+            // If anonymous type heuristic is turned on and this is an anonymous type, make sure we have
+            // method bodies for all properties. It's common to have anonymous types used with reflection
+            // and it's hard to specify them in RD.XML.
+            if ((_generationOptions & UsageBasedMetadataGenerationOptions.AnonymousTypeHeuristic) != 0)
+            {
+                if (type is MetadataType metadataType &&
+                    metadataType.HasInstantiation &&
+                    !metadataType.IsGenericDefinition &&
+                    metadataType.HasCustomAttribute("System.Runtime.CompilerServices", "CompilerGeneratedAttribute") &&
+                    metadataType.Name.Contains("AnonymousType"))
+                {
+                    foreach (MethodDesc method in type.GetMethods())
+                    {
+                        if (!method.Signature.IsStatic && method.IsSpecialName)
+                        {
+                            dependencies = dependencies ?? new DependencyList();
+                            dependencies.Add(factory.CanonicalEntrypoint(method), "Anonymous type accessor");
+                        }
+                    }
+                }
+            }
+
+            // If the option was specified to root types and methods in all user assemblies, do that.
+            if ((_generationOptions & UsageBasedMetadataGenerationOptions.FullUserAssemblyRooting) != 0)
+            {
+                if (type is MetadataType metadataType &&
+                    !_rootAllAssembliesExaminedModules.Contains(metadataType.Module))
+                {
+                    _rootAllAssembliesExaminedModules.Add(metadataType.Module);
+
+                    if (metadataType.Module is Internal.TypeSystem.Ecma.EcmaModule ecmaModule &&
+                        !FrameworkStringResourceBlockingPolicy.IsFrameworkAssembly(ecmaModule))
+                    {
+                        dependencies = dependencies ?? new DependencyList();
+                        var rootProvider = new RootingServiceProvider(factory, dependencies.Add);
+                        foreach (TypeDesc t in ecmaModule.GetAllTypes())
+                        {
+                            RootingHelpers.TryRootType(rootProvider, t, "RD.XML root");
+                        }
+                    }
+                }
+            }
+
+            // If a type is marked [Serializable], make sure a couple things are also included.
+            if (type.IsSerializable && !type.IsGenericDefinition)
+            {
+                foreach (MethodDesc method in type.GetAllMethods())
+                {
+                    MethodSignature signature = method.Signature;
+
+                    if (method.IsConstructor
+                        && signature.Length == 2
+                        && signature[0] == _serializationInfoType
+                        /* && signature[1] is StreamingContext */)
+                    {
+                        dependencies = dependencies ?? new DependencyList();
+                        dependencies.Add(factory.CanonicalEntrypoint(method), "Binary serialization");
+                    }
+
+                    // Methods with these attributes can be called during serialization
+                    if (signature.Length == 1 && !signature.IsStatic && signature.ReturnType.IsVoid &&
+                        (method.HasCustomAttribute("System.Runtime.Serialization", "OnSerializingAttribute")
+                        || method.HasCustomAttribute("System.Runtime.Serialization", "OnSerializedAttribute")
+                        || method.HasCustomAttribute("System.Runtime.Serialization", "OnDeserializingAttribute")
+                        || method.HasCustomAttribute("System.Runtime.Serialization", "OnDeserializedAttribute")))
+                    {
+                        dependencies = dependencies ?? new DependencyList();
+                        dependencies.Add(factory.CanonicalEntrypoint(method), "Binary serialization");
+                    }
+                }
+            }
+
+            // Event sources need their special nested types
+            if (type is MetadataType mdType && mdType.HasCustomAttribute("System.Diagnostics.Tracing", "EventSourceAttribute"))
+            {
+                AddEventSourceSpecialTypeDependencies(ref dependencies, factory, mdType.GetNestedType("Keywords"));
+                AddEventSourceSpecialTypeDependencies(ref dependencies, factory, mdType.GetNestedType("Tasks"));
+                AddEventSourceSpecialTypeDependencies(ref dependencies, factory, mdType.GetNestedType("Opcodes"));
+
+                void AddEventSourceSpecialTypeDependencies(ref DependencyList dependencies, NodeFactory factory, MetadataType type)
+                {
+                    if (type != null)
+                    {
+                        const string reason = "Event source";
+                        dependencies = dependencies ?? new DependencyList();
+                        dependencies.Add(factory.TypeMetadata(type), reason);
+                        foreach (FieldDesc field in type.GetFields())
+                        {
+                            if (field.IsLiteral)
+                                dependencies.Add(factory.FieldMetadata(field), reason);
+                        }
+                    }
+                }
+            }
         }
 
         protected override void GetRuntimeMappingDependenciesDueToReflectability(ref DependencyList dependencies, NodeFactory factory, TypeDesc type)
@@ -213,6 +319,38 @@ namespace ILCompiler
             {
                 dependencies = dependencies ?? new DependencyList();
                 dependencies.Add(factory.MethodMetadata(method.GetTypicalMethodDefinition()), "LDTOKEN method");
+            }
+
+            // Since this is typically used for LINQ expressions, let's also make sure there's runnable code
+            // for this available, unless this is ldtoken of something we can't generate code for
+            // (ldtoken of an uninstantiated generic method - F# makes this).
+            if (!method.IsGenericMethodDefinition)
+            {
+                var deps = dependencies ?? new DependencyList();
+                RootingHelpers.TryRootMethod(
+                    new RootingServiceProvider(
+                        factory, (o, reason) => deps.Add((DependencyNodeCore<NodeFactory>)o, reason)), method, "LDTOKEN method");
+                dependencies = deps;
+            }
+        }
+
+        protected override void GetDependenciesDueToMethodCodePresenceInternal(ref DependencyList dependencies, NodeFactory factory, MethodDesc method)
+        {
+            if ((_generationOptions & UsageBasedMetadataGenerationOptions.ILScanning) != 0)
+            {
+                MethodIL methodIL = _ilProvider.GetMethodIL(method);
+
+                if (methodIL != null)
+                {
+                    try
+                    {
+                        ReflectionMethodBodyScanner.Scan(ref dependencies, factory, methodIL);
+                    }
+                    catch (TypeSystemException)
+                    {
+                        // A problem with the IL - we just don't scan it...
+                    }
+                }
             }
         }
 
@@ -295,8 +433,7 @@ namespace ILCompiler
 
             foreach (var method in GetCompiledMethods())
             {
-                if (!method.IsCanonicalMethod(CanonicalFormKind.Specific) &&
-                    !IsReflectionBlocked(method))
+                if (!IsReflectionBlocked(method))
                 {
                     if ((reflectableTypes[method.OwningType] & MetadataCategory.RuntimeMapping) != 0)
                         reflectableMethods[method] |= MetadataCategory.RuntimeMapping;
@@ -457,5 +594,25 @@ namespace ILCompiler
         /// Reflection blocking still applies.
         /// </remarks>
         CompleteTypesOnly = 1,
+
+        /// <summary>
+        /// Specifies that heuristic that makes anonymous types work should be applied.
+        /// </summary>
+        /// <remarks>
+        /// Generates method bodies for properties on anonymous types even if they're not
+        /// statically used.
+        /// </remarks>
+        AnonymousTypeHeuristic = 2,
+
+        /// <summary>
+        /// Scan IL for common reflection patterns to find additional compilation roots.
+        /// </summary>
+        ILScanning = 4,
+
+        /// <summary>
+        /// Specifies that all types and methods in user assemblies should be considered dynamically
+        /// used.
+        /// </summary>
+        FullUserAssemblyRooting = 8,
     }
 }

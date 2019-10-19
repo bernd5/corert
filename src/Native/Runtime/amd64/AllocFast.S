@@ -115,7 +115,7 @@ LOCAL_LABEL(NewOutOfMemory):
 
         POP_COOP_PINVOKE_FRAME
 
-        jmp         C_FUNC(RhExceptionHandling_FailedAllocation)
+        jmp         EXTERNAL_C_FUNC(RhExceptionHandling_FailedAllocation)
 NESTED_END RhpNewObject, _TEXT
 
 
@@ -124,7 +124,7 @@ NESTED_END RhpNewObject, _TEXT
 //  ESI == character/element count
 NESTED_ENTRY RhNewString, _TEXT, NoHandler
         // we want to limit the element count to the non-negative 32-bit int range
-        cmp         rsi, 07fffffffh
+        cmp         rsi, MAX_STRING_LENGTH
         ja          LOCAL_LABEL(StringSizeOverflow)
 
         push_nonvol_reg rbx
@@ -193,7 +193,7 @@ LOCAL_LABEL(StringSizeOverflow):
 
         // rdi holds EEType pointer already
         xor         esi, esi            // Indicate that we should throw OOM.
-        jmp         C_FUNC(RhExceptionHandling_FailedAllocation)
+        jmp         EXTERNAL_C_FUNC(RhExceptionHandling_FailedAllocation)
 
 NESTED_END RhNewString, _TEXT
 
@@ -203,7 +203,7 @@ NESTED_END RhNewString, _TEXT
 //  ESI == element count
 NESTED_ENTRY RhpNewArray, _TEXT, NoHandler
         // we want to limit the element count to the non-negative 32-bit int range
-        cmp         rsi, 07fffffffh
+        cmp         rsi, 0x07fffffff
         ja          LOCAL_LABEL(ArraySizeOverflow)
 
         push_nonvol_reg rbx
@@ -276,7 +276,7 @@ LOCAL_LABEL(ArraySizeOverflow):
 
         // rdi holds EEType pointer already
         mov         esi, 1              // Indicate that we should throw OverflowException
-        jmp         C_FUNC(RhExceptionHandling_FailedAllocation)
+        jmp         EXTERNAL_C_FUNC(RhExceptionHandling_FailedAllocation)
 
 NESTED_END RhpNewArray, _TEXT
 
@@ -338,7 +338,7 @@ LOCAL_LABEL(ArrayOutOfMemory):
 
         POP_COOP_PINVOKE_FRAME
 
-        jmp         C_FUNC(RhExceptionHandling_FailedAllocation)
+        jmp         EXTERNAL_C_FUNC(RhExceptionHandling_FailedAllocation)
 
 NESTED_END RhpNewArrayRare, _TEXT
 

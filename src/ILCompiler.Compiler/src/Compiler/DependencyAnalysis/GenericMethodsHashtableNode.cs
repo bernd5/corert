@@ -14,7 +14,7 @@ namespace ILCompiler.DependencyAnalysis
     /// <summary>
     /// Represents a hashtable of all compiled generic method instantiations
     /// </summary>
-    internal sealed class GenericMethodsHashtableNode : ObjectNode, ISymbolDefinitionNode
+    public sealed class GenericMethodsHashtableNode : ObjectNode, ISymbolDefinitionNode
     {
         private ObjectAndOffsetSymbolNode _endSymbol;
         private ExternalReferencesTableNode _externalReferences;
@@ -100,9 +100,6 @@ namespace ILCompiler.DependencyAnalysis
 
         public static void GetGenericMethodsHashtableDependenciesForMethod(ref DependencyList dependencies, NodeFactory factory, MethodDesc method)
         {
-            if (!factory.MetadataManager.SupportsReflection)
-                return;
-
             Debug.Assert(method.HasInstantiation && !method.IsCanonicalMethod(CanonicalFormKind.Any));
             
             // Method's containing type

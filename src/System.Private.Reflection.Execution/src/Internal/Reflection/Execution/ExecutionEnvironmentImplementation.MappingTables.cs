@@ -414,7 +414,6 @@ namespace Internal.Reflection.Execution
                 byte* pBlobAsBytes;
                 uint cbBlob;
                 bool success = module.TryFindBlob((int)ReflectionMapBlob.DynamicInvokeTemplateData, out pBlobAsBytes, out cbBlob);
-                uint* pBlob = (uint*)pBlobAsBytes;
                 Debug.Assert(success && cbBlob > 4);
 
                 byte* pNativeLayoutInfoBlob;
@@ -424,15 +423,14 @@ namespace Internal.Reflection.Execution
 
                 RuntimeTypeHandle declaringTypeHandle;
                 // All methods referred from this blob are contained in the same type. The first UINT in the blob is a reloc to that EEType
-                if (module.Handle.IsTypeManager)
+                if (RuntimeAugments.SupportsRelativePointers)
                 {
                     // CoreRT uses 32bit relative relocs
                     declaringTypeHandle = RuntimeAugments.CreateRuntimeTypeHandle((IntPtr)(pBlobAsBytes + *(int*)pBlobAsBytes));
                 }
                 else
                 {
-                    // .NET Native uses RVAs
-                    declaringTypeHandle = TypeLoaderEnvironment.RvaToRuntimeTypeHandle(module.Handle, pBlob[0]);
+                    declaringTypeHandle = RuntimeAugments.CreateRuntimeTypeHandle(*(IntPtr*)pBlobAsBytes);
                 }
 
                 // The index points to two entries: the token of the dynamic invoke method and the function pointer to the canonical method
@@ -440,23 +438,32 @@ namespace Internal.Reflection.Execution
                 uint index = cookie >> 1;
 
                 MethodNameAndSignature nameAndSignature;
-                RuntimeSignature nameAndSigSignature = RuntimeSignature.CreateFromNativeLayoutSignature(module.Handle, pBlob[index]);
+                RuntimeSignature nameAndSigSignature;
+
+                if (RuntimeAugments.SupportsRelativePointers)
+                {
+                    nameAndSigSignature = RuntimeSignature.CreateFromNativeLayoutSignature(module.Handle, ((uint*)pBlobAsBytes)[index]);
+                }
+                else
+                {
+                    nameAndSigSignature = RuntimeSignature.CreateFromNativeLayoutSignature(module.Handle, (uint)((IntPtr*)pBlobAsBytes)[index]);
+                }
+
                 success = TypeLoaderEnvironment.Instance.TryGetMethodNameAndSignatureFromNativeLayoutSignature(nameAndSigSignature, out nameAndSignature);
                 Debug.Assert(success);
 
                 success = TypeLoaderEnvironment.Instance.TryGetGenericMethodDictionaryForComponents(declaringTypeHandle, argHandles, nameAndSignature, out dynamicInvokeMethodGenericDictionary);
                 Debug.Assert(success);
 
-                if (module.Handle.IsTypeManager)
+                if (RuntimeAugments.SupportsRelativePointers)
                 {
                     // CoreRT uses 32bit relative relocs
-                    int* pRelPtr32 = &((int*)pBlob)[index + 1];
+                    int* pRelPtr32 = &((int*)pBlobAsBytes)[index + 1];
                     dynamicInvokeMethod = (IntPtr)((byte*)pRelPtr32 + *pRelPtr32);
                 }
                 else
                 {
-                    // .NET Native uses RVAs
-                    dynamicInvokeMethod = TypeLoaderEnvironment.RvaToFunctionPointer(module.Handle, pBlob[index + 1]);
+                    dynamicInvokeMethod = ((IntPtr*)pBlobAsBytes)[index + 1];
                 }
             }
             else
@@ -1155,7 +1162,7 @@ namespace Internal.Reflection.Execution
             }
             else
             {
-                uint nameAndSigOffset = externalReferences.GetExternalNativeLayoutOffset(entryMethodHandleOrNameAndSigRaw);
+                uint nameAndSigOffset = entryMethodHandleOrNameAndSigRaw;
                 MethodNameAndSignature nameAndSig;
                 if (!TypeLoaderEnvironment.Instance.TryGetMethodNameAndSignatureFromNativeLayoutOffset(mappingTableModule.Handle, nameAndSigOffset, out nameAndSig))
                 {
@@ -1347,12 +1354,7 @@ namespace Internal.Reflection.Execution
                         else
                         {
                             Debug.Assert((fieldAccessMetadata.Flags & FieldTableFlags.IsUniversalCanonicalEntry) == 0);
-#if PROJECTN
-                            // The fieldAccessMetadata.Offset value is not really a field offset, but a static field RVA. We'll use the
-                            // field's address as a 'staticsBase', and just use a field offset of zero.
-                            fieldOffset = 0;
-                            staticsBase = TypeLoaderEnvironment.RvaToNonGenericStaticFieldAddress(fieldAccessMetadata.MappingTableModule, fieldAccessMetadata.Offset);
-#else
+
                             if (isGcStatic)
                             {
                                 fieldOffset = fieldAccessMetadata.Offset;
@@ -1365,7 +1367,6 @@ namespace Internal.Reflection.Execution
                                 fieldOffset = 0;
                                 staticsBase = fieldAccessMetadata.Cookie;
                             }
-#endif
                         }
 
                         IntPtr cctorContext = TryGetStaticClassConstructionContext(declaringTypeHandle);

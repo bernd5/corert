@@ -173,12 +173,13 @@ namespace System.Threading
             boundHandle.Release();
 
             Win32ThreadPoolNativeOverlapped.CompleteWithCallback(ioResult, (uint)numberOfBytesTransferred, overlapped);
+            ThreadPool.IncrementCompletedWorkItemCount();
             wrapper.Exit();
         }
 
         private bool AddRef()
         {
-            return _lifetime.AddRef(this);
+            return _lifetime.AddRef();
         }
 
         private void Release()

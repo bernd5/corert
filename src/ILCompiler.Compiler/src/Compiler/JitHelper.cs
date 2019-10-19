@@ -54,6 +54,9 @@ namespace ILCompiler
                 case ReadyToRunHelper.ThrowPlatformNotSupported:
                     methodDesc = context.GetHelperEntryPoint("ThrowHelpers", "ThrowPlatformNotSupportedException");
                     break;
+                case ReadyToRunHelper.ThrowNotImplemented:
+                    methodDesc = context.GetHelperEntryPoint("ThrowHelpers", "ThrowNotImplementedException");
+                    break;
 
                 case ReadyToRunHelper.DebugBreak:
                     mangledName = "RhDebugBreak";
@@ -108,11 +111,18 @@ namespace ILCompiler
                 case ReadyToRunHelper.GetRuntimeTypeHandle:
                     methodDesc = context.GetHelperEntryPoint("LdTokenHelpers", "GetRuntimeTypeHandle");
                     break;
+                case ReadyToRunHelper.GetRuntimeType:
+                    methodDesc = context.GetHelperEntryPoint("LdTokenHelpers", "GetRuntimeType");
+                    break;
                 case ReadyToRunHelper.GetRuntimeMethodHandle:
                     methodDesc = context.GetHelperEntryPoint("LdTokenHelpers", "GetRuntimeMethodHandle");
                     break;
                 case ReadyToRunHelper.GetRuntimeFieldHandle:
                     methodDesc = context.GetHelperEntryPoint("LdTokenHelpers", "GetRuntimeFieldHandle");
+                    break;
+
+                case ReadyToRunHelper.AreTypesEquivalent:
+                    mangledName = "RhTypeCast_AreTypesEquivalent";
                     break;
 
                 case ReadyToRunHelper.Lng2Dbl:
@@ -222,10 +232,28 @@ namespace ILCompiler
                     break;
 
                 case ReadyToRunHelper.CheckCastAny:
-                    mangledName = "RhTypeCast_CheckCast2";
+                    mangledName = "RhTypeCast_CheckCast";
                     break;
                 case ReadyToRunHelper.CheckInstanceAny:
-                    mangledName = "RhTypeCast_IsInstanceOf2";
+                    mangledName = "RhTypeCast_IsInstanceOf";
+                    break;
+                case ReadyToRunHelper.CheckCastInterface:
+                    mangledName = "RhTypeCast_CheckCastInterface";
+                    break;
+                case ReadyToRunHelper.CheckInstanceInterface:
+                    mangledName = "RhTypeCast_IsInstanceOfInterface";
+                    break;
+                case ReadyToRunHelper.CheckCastClass:
+                    mangledName = "RhTypeCast_CheckCastClass";
+                    break;
+                case ReadyToRunHelper.CheckInstanceClass:
+                    mangledName = "RhTypeCast_IsInstanceOfClass";
+                    break;
+                case ReadyToRunHelper.CheckCastArray:
+                    mangledName = "RhTypeCast_CheckCastArray";
+                    break;
+                case ReadyToRunHelper.CheckInstanceArray:
+                    mangledName = "RhTypeCast_IsInstanceOfArray";
                     break;
 
                 case ReadyToRunHelper.MonitorEnter:
@@ -251,6 +279,9 @@ namespace ILCompiler
                 case ReadyToRunHelper.GetRefAny:
                     methodDesc = context.GetHelperEntryPoint("TypedReferenceHelpers", "GetRefAny");
                     break;
+                case ReadyToRunHelper.TypeHandleToRuntimeTypeHandle:
+                    methodDesc = context.GetHelperEntryPoint("TypedReferenceHelpers", "TypeHandleToRuntimeTypeHandleMaybeNull");
+                    break;
 
                 default:
                     throw new NotImplementedException(id.ToString());
@@ -262,7 +293,7 @@ namespace ILCompiler
         //
         public static string GetNewObjectHelperForType(TypeDesc type)
         {
-            if (EETypeBuilderHelpers.ComputeRequiresAlign8(type))
+            if (type.RequiresAlign8())
             {
                 if (type.HasFinalizer)
                     return "RhpNewFinalizableAlign8";
@@ -281,7 +312,7 @@ namespace ILCompiler
 
         public static string GetNewArrayHelperForType(TypeDesc type)
         {
-            if (EETypeBuilderHelpers.ComputeRequiresAlign8(type))
+            if (type.RequiresAlign8())
                 return "RhpNewArrayAlign8";
 
             return "RhpNewArray";
@@ -295,7 +326,11 @@ namespace ILCompiler
             if (type.IsInterface)
                 return throwing ? "RhTypeCast_CheckCastInterface" : "RhTypeCast_IsInstanceOfInterface";
 
-            return throwing ? "RhTypeCast_CheckCastClass" : "RhTypeCast_IsInstanceOfClass";
+            if (type.IsDefType)
+                return throwing ? "RhTypeCast_CheckCastClass" : "RhTypeCast_IsInstanceOfClass";
+
+            // No specialized helper for the rest of the types because they don't make much sense anyway.
+            return throwing ? "RhTypeCast_CheckCast" : "RhTypeCast_IsInstanceOf";
         }
     }
 }

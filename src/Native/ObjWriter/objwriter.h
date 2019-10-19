@@ -50,7 +50,7 @@ enum class RelocType {
 
 class ObjectWriter {
 public:
-  bool Init(StringRef FunctionName);
+  bool Init(StringRef FunctionName, const char* tripleName = nullptr);
   void Finish();
 
   void SwitchSection(const char *SectionName,
@@ -63,7 +63,7 @@ public:
   void EmitAlignment(int ByteAlignment);
   void EmitBlob(int BlobSize, const char *Blob);
   void EmitIntValue(uint64_t Value, unsigned Size);
-  void EmitSymbolDef(const char *SymbolName);
+  void EmitSymbolDef(const char *SymbolName, bool global);
   void EmitWinFrameInfo(const char *FunctionName, int StartOffset,
                         int EndOffset, const char *BlobSymbolName);
   int EmitSymbolRef(const char *SymbolName, RelocType RelocType, int Delta);
@@ -136,13 +136,14 @@ private:
 
   void EmitCVUserDefinedTypesSymbols();
 
-  void InitTripleName();
+  void InitTripleName(const char* tripleName = nullptr);
   Triple GetTriple();
   unsigned GetDFSize();
   bool EmitRelocDirective(const int Offset, StringRef Name, const MCExpr *Expr);
   const MCExpr *GenTargetExpr(const char *SymbolName,
                               MCSymbolRefExpr::VariantKind Kind, int Delta,
                               bool IsPCRel = false, int Size = 0);
+  void EmitARMExIdxPerOffset();
 
 
 private:
@@ -173,13 +174,15 @@ private:
   std::string TripleName;
 
   MCObjectStreamer *Streamer; // Owned by AsmPrinter
+
+  SmallVector<CFI_CODE, 32> CFIsPerOffset;
 };
 
 // When object writer is created/initialized successfully, it is returned.
 // Or null object is returned. Client should check this.
-DLL_EXPORT ObjectWriter *InitObjWriter(const char *ObjectFilePath) {
+DLL_EXPORT ObjectWriter *InitObjWriter(const char *ObjectFilePath, const char* TripleName = nullptr) {
   ObjectWriter *OW = new ObjectWriter();
-  if (OW->Init(ObjectFilePath)) {
+  if (OW->Init(ObjectFilePath, TripleName)) {
     return OW;
   }
   delete OW;
@@ -222,9 +225,9 @@ DLL_EXPORT void EmitIntValue(ObjectWriter *OW, uint64_t Value, unsigned Size) {
   OW->EmitIntValue(Value, Size);
 }
 
-DLL_EXPORT void EmitSymbolDef(ObjectWriter *OW, const char *SymbolName) {
+DLL_EXPORT void EmitSymbolDef(ObjectWriter *OW, const char *SymbolName, bool global) {
   assert(OW && "ObjWriter is null");
-  OW->EmitSymbolDef(SymbolName);
+  OW->EmitSymbolDef(SymbolName, global);
 }
 
 DLL_EXPORT int EmitSymbolRef(ObjectWriter *OW, const char *SymbolName,

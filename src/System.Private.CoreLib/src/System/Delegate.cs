@@ -23,13 +23,6 @@ namespace System
     [DebuggerDisplay("Target method(s) = {GetTargetMethodsDescriptionForDebugger()}")]
     public abstract partial class Delegate : ICloneable, ISerializable
     {
-        // This ctor exists solely to prevent C# from generating a protected .ctor that violates the surface area. I really want this to be a
-        // "protected-and-internal" rather than "internal" but C# has no keyword for the former.
-        internal Delegate()
-        {
-            // ! Do NOT put any code here. Delegate constructers are not guaranteed to be executed.
-        }
-
         // V1 API: Create closed instance delegates. Method name matching is case sensitive.
         protected Delegate(object target, string method)
         {
@@ -77,14 +70,20 @@ namespace System
         // If the thunk does not exist, the function will return IntPtr.Zero.
         protected virtual IntPtr GetThunk(int whichThunk)
         {
-#if DEBUG
+#if PROJECTN
             // The GetThunk function should be overriden on all delegate types, except for universal
             // canonical delegates which use calling convention converter thunks to marshal arguments
             // for the delegate call. If we execute this version of GetThunk, we can at least assert
             // that the current delegate type is a generic type.
             Debug.Assert(this.EETypePtr.IsGeneric);
-#endif
             return TypeLoaderExports.GetDelegateThunk(this, whichThunk);
+#else
+            // CoreRT doesn't support Universal Shared Code right now, so let's make this method return null for now.
+            // When CoreRT adds USG support we'll probably want to do some level of IL switching here so that
+            // we don't have this static call into type loader when USG is not enabled at compile time.
+            // The static call hurts size in our minimal targets.
+            return IntPtr.Zero;
+#endif
         }
 
         //
@@ -373,9 +372,7 @@ namespace System
             else
             {
                 IntPtr invokeThunk = this.GetThunk(DelegateInvokeThunk);
-#if PROJECTN
-                object result = InvokeUtils.CallDynamicInvokeMethod(this.m_firstParameter, this.m_functionPointer, this, invokeThunk, IntPtr.Zero, this, args, binderBundle: null, wrapInTargetInvocationException: true);
-#else
+
                 IntPtr genericDictionary = IntPtr.Zero;
                 if (FunctionPointerOps.IsGenericMethodPointer(invokeThunk))
                 {
@@ -388,7 +385,6 @@ namespace System
                 }
 
                 object result = InvokeUtils.CallDynamicInvokeMethod(this.m_firstParameter, this.m_functionPointer, null, invokeThunk, genericDictionary, this, args, binderBundle: null, wrapInTargetInvocationException: true, invokeMethodHelperIsThisCall: false);
-#endif
                 DebugAnnotations.PreviousCallContainsDebuggerStepInCode();
                 return result;
             }
@@ -400,59 +396,6 @@ namespace System
             object result = DynamicInvokeImpl(args);
             DebugAnnotations.PreviousCallContainsDebuggerStepInCode();
             return result;
-        }
-
-        public static unsafe Delegate Combine(Delegate a, Delegate b)
-        {
-            if (a == null)
-                return b;
-            if (b == null)
-                return a;
-
-            return a.CombineImpl(b);
-        }
-
-        public static Delegate Remove(Delegate source, Delegate value)
-        {
-            if (source == null)
-                return null;
-
-            if (value == null)
-                return source;
-
-            if (!InternalEqualTypes(source, value))
-                throw new ArgumentException(SR.Arg_DlgtTypeMis);
-
-            return source.RemoveImpl(value);
-        }
-
-        public static Delegate RemoveAll(Delegate source, Delegate value)
-        {
-            Delegate newDelegate = null;
-
-            do
-            {
-                newDelegate = source;
-                source = Remove(source, value);
-            }
-            while (newDelegate != source);
-
-            return newDelegate;
-        }
-
-        // Used to support the C# compiler in implementing the "+" operator for delegates
-        public static Delegate Combine(params Delegate[] delegates)
-        {
-            if ((delegates == null) || (delegates.Length == 0))
-                return null;
-
-            Delegate d = delegates[0];
-            for (int i = 1; i < delegates.Length; i++)
-            {
-                d = Combine(d, delegates[i]);
-            }
-
-            return d;
         }
 
         private MulticastDelegate NewMulticastDelegate(Delegate[] invocationList, int invocationCount, bool thisIsMultiCastAlready)
@@ -726,14 +669,6 @@ namespace System
             return del;
         }
 
-        public MethodInfo Method
-        {
-            get
-            {
-                return GetMethodImpl();
-            }
-        }
-
         protected virtual MethodInfo GetMethodImpl()
         {
             return RuntimeAugments.Callbacks.GetDelegateMethod(this);
@@ -745,22 +680,6 @@ namespace System
             // therefore, instead of duplicating the desktop behavior where direct calls to this Equals function do not behave
             // correctly, we'll just throw here.
             throw new PlatformNotSupportedException();
-        }
-
-        public static bool operator ==(Delegate d1, Delegate d2)
-        {
-            if ((object)d1 == null)
-                return (object)d2 == null;
-
-            return d1.Equals(d2);
-        }
-
-        public static bool operator !=(Delegate d1, Delegate d2)
-        {
-            if ((object)d1 == null)
-                return (object)d2 != null;
-
-            return !d1.Equals(d2);
         }
 
         public object Target
@@ -793,32 +712,16 @@ namespace System
         }
 
         // V2 api: Creates open or closed delegates to static or instance methods - relaxed signature checking allowed. 
-        public static Delegate CreateDelegate(Type type, object firstArgument, MethodInfo method) => CreateDelegate(type, firstArgument, method, throwOnBindFailure: true);
         public static Delegate CreateDelegate(Type type, object firstArgument, MethodInfo method, bool throwOnBindFailure) => ReflectionAugments.ReflectionCoreCallbacks.CreateDelegate(type, firstArgument, method, throwOnBindFailure);
 
         // V1 api: Creates open delegates to static or instance methods - relaxed signature checking allowed.
-        public static Delegate CreateDelegate(Type type, MethodInfo method) => CreateDelegate(type, method, throwOnBindFailure: true);
         public static Delegate CreateDelegate(Type type, MethodInfo method, bool throwOnBindFailure) => ReflectionAugments.ReflectionCoreCallbacks.CreateDelegate(type, method, throwOnBindFailure);
 
         // V1 api: Creates closed delegates to instance methods only, relaxed signature checking disallowed.
-        public static Delegate CreateDelegate(Type type, object target, string method) => CreateDelegate(type, target, method, ignoreCase: false, throwOnBindFailure: true);
-        public static Delegate CreateDelegate(Type type, object target, string method, bool ignoreCase) => CreateDelegate(type, target, method, ignoreCase, throwOnBindFailure: true);
         public static Delegate CreateDelegate(Type type, object target, string method, bool ignoreCase, bool throwOnBindFailure) => ReflectionAugments.ReflectionCoreCallbacks.CreateDelegate(type, target, method, ignoreCase, throwOnBindFailure);
 
         // V1 api: Creates open delegates to static methods only, relaxed signature checking disallowed.
-        public static Delegate CreateDelegate(Type type, Type target, string method) => CreateDelegate(type, target, method, ignoreCase: false, throwOnBindFailure: true);
-        public static Delegate CreateDelegate(Type type, Type target, string method, bool ignoreCase) => CreateDelegate(type, target, method, ignoreCase, throwOnBindFailure: true);
         public static Delegate CreateDelegate(Type type, Type target, string method, bool ignoreCase, bool throwOnBindFailure) => ReflectionAugments.ReflectionCoreCallbacks.CreateDelegate(type, target, method, ignoreCase, throwOnBindFailure);
-
-        public virtual object Clone()
-        {
-            return MemberwiseClone();
-        }
-
-        public virtual void GetObjectData(SerializationInfo info, StreamingContext context)
-        {
-            throw new PlatformNotSupportedException(SR.Serialization_DelegatesNotSupported);
-        }
 
         internal bool IsOpenStatic
         {

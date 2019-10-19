@@ -4,6 +4,7 @@
 
 using System;
 
+using Internal.IL;
 using Internal.TypeSystem;
 using ILCompiler.DependencyAnalysis;
 
@@ -14,33 +15,13 @@ namespace ILCompiler
     /// <summary>
     /// This class is responsible for managing stub methods for interop
     /// </summary>
-    public abstract class InteropStubManager
+    public abstract class InteropStubManager : ICompilationRootProvider
     {
-        private readonly CompilationModuleGroup _compilationModuleGroup;
-        private readonly CompilerTypeSystemContext _typeSystemContext;
-        protected ModuleDesc _interopModule;
-        private const string _interopModuleName = "System.Private.Interop";
-
-        public InteropStateManager InteropStateManager
-        {
-            get;
-        }
-
-        public InteropStubManager(CompilationModuleGroup compilationModuleGroup, CompilerTypeSystemContext typeSystemContext, InteropStateManager interopStateManager)
-        {
-            _compilationModuleGroup = compilationModuleGroup;
-            _typeSystemContext = typeSystemContext;
-            InteropStateManager = interopStateManager;
-
-            // Note: interopModule might be null if we're building with a class library that doesn't support rich interop
-            _interopModule = typeSystemContext.GetModuleForSimpleName(_interopModuleName, false);
-        }
-
-
         public abstract void AddDependeciesDueToPInvoke(ref DependencyList dependencies, NodeFactory factory, MethodDesc method);
         
         public abstract void AddInterestingInteropConstructedTypeDependencies(ref DependencyList dependencies, NodeFactory factory, TypeDesc type);
-        
+
+        public abstract PInvokeILProvider CreatePInvokeILProvider();
 
         /// <summary>
         /// For Marshal generic APIs(eg. Marshal.StructureToPtr<T>, GetFunctionPointerForDelegate) we add
@@ -48,6 +29,12 @@ namespace ILCompiler
         /// </summary>
         public abstract void AddMarshalAPIsGenericDependencies(ref DependencyList dependencies, NodeFactory factory, MethodDesc method);
 
-        public abstract void AddToReadyToRunHeader(ReadyToRunHeaderNode header, NodeFactory nodeFactory, ExternalReferencesTableNode commonFixupsTableNode);        
+        public virtual void AddToReadyToRunHeader(ReadyToRunHeaderNode header, NodeFactory nodeFactory, ExternalReferencesTableNode commonFixupsTableNode)
+        {
+        }
+
+        public virtual void AddCompilationRoots(IRootingServiceProvider rootProvider)
+        {
+        }
     }
 }

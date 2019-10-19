@@ -33,6 +33,12 @@ using Internal.Runtime.CompilerServices;
 
 using Volatile = System.Threading.Volatile;
 
+#if BIT64
+using nuint = System.UInt64;
+#else
+using nuint = System.UInt32;
+#endif
+
 namespace Internal.Runtime.Augments
 {
     [ReflectionBlocked]
@@ -156,6 +162,15 @@ namespace Internal.Runtime.Augments
                 pLengths[i] = lengths[i];
 
             return Array.NewMultiDimArray(typeHandleForArrayType.ToEETypePtr(), pLengths, lengths.Length);
+        }
+
+        public static ref byte GetSzArrayElementAddress(Array array, int index)
+        {
+            if ((uint)index >= (uint)array.Length)
+                throw new IndexOutOfRangeException();
+
+            ref byte start = ref array.GetRawSzArrayData();
+            return ref Unsafe.Add(ref start, (IntPtr)((nuint)index * array.ElementSize));
         }
 
         public static IntPtr GetAllocateObjectHelperForType(RuntimeTypeHandle type)
@@ -422,6 +437,38 @@ namespace Internal.Runtime.Augments
             return e.GetValue();
         }
 
+        public static Type GetEnumUnderlyingType(RuntimeTypeHandle enumTypeHandle)
+        {
+            Debug.Assert(enumTypeHandle.ToEETypePtr().IsEnum);
+
+            RuntimeImports.RhCorElementType corElementType = enumTypeHandle.ToEETypePtr().CorElementType;
+            switch (corElementType)
+            {
+                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_BOOLEAN:
+                    return CommonRuntimeTypes.Boolean;
+                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_CHAR:
+                    return CommonRuntimeTypes.Char;
+                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I1:
+                    return CommonRuntimeTypes.SByte;
+                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U1:
+                    return CommonRuntimeTypes.Byte;
+                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I2:
+                    return CommonRuntimeTypes.Int16;
+                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U2:
+                    return CommonRuntimeTypes.UInt16;
+                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I4:
+                    return CommonRuntimeTypes.Int32;
+                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U4:
+                    return CommonRuntimeTypes.UInt32;
+                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I8:
+                    return CommonRuntimeTypes.Int64;
+                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U8:
+                    return CommonRuntimeTypes.UInt64;
+                default:
+                    throw new NotSupportedException();
+            }
+        }
+
         public static RuntimeTypeHandle GetRelatedParameterTypeHandle(RuntimeTypeHandle parameterTypeHandle)
         {
             EETypePtr elementType = parameterTypeHandle.ToEETypePtr().ArrayElementType;
@@ -488,7 +535,7 @@ namespace Internal.Runtime.Augments
 
         public static bool IsInstanceOfInterface(object obj, RuntimeTypeHandle interfaceTypeHandle)
         {
-            return (null != RuntimeImports.IsInstanceOfInterface(obj, interfaceTypeHandle.ToEETypePtr()));
+            return (null != RuntimeImports.IsInstanceOfInterface(interfaceTypeHandle.ToEETypePtr(), obj));
         }
 
         //
@@ -588,21 +635,8 @@ namespace Internal.Runtime.Augments
         [Intrinsic]
         public static RuntimeTypeHandle GetCanonType(CanonTypeKind kind)
         {
-#if PROJECTN
-            switch (kind)
-            {
-                case CanonTypeKind.NormalCanon:
-                    return typeof(System.__Canon).TypeHandle;
-                case CanonTypeKind.UniversalCanon:
-                    return typeof(System.__UniversalCanon).TypeHandle;
-                default:
-                    Debug.Assert(false);
-                    return default(RuntimeTypeHandle);
-            }
-#else
             // Compiler needs to expand this. This is not expressible in IL.
             throw new NotSupportedException();
-#endif
         }
 
         public static RuntimeTypeHandle GetGenericDefinition(RuntimeTypeHandle typeHandle)
@@ -1027,6 +1061,7 @@ namespace Internal.Runtime.Augments
                 int cbBufferAligned = (cbBuffer + (sizeof(IntPtr) - 1)) & ~(sizeof(IntPtr) - 1);
                 // The conservative region must be IntPtr aligned, and a multiple of IntPtr in size
                 void* region = stackalloc IntPtr[cbBufferAligned / sizeof(IntPtr)];
+                Buffer.ZeroMemory((byte*)region, cbBufferAligned);
                 RuntimeImports.RhInitializeConservativeReportingRegion(pRegionDesc, region, cbBufferAligned);
 
                 RawCalliHelper.Call<T>(pfnTargetToInvoke, region, ref context);
@@ -1064,6 +1099,7 @@ namespace Internal.Runtime.Augments
                 int cbBufferAligned = (cbBuffer + (sizeof(IntPtr) - 1)) & ~(sizeof(IntPtr) - 1);
                 // The conservative region must be IntPtr aligned, and a multiple of IntPtr in size
                 void* region = stackalloc IntPtr[cbBufferAligned / sizeof(IntPtr)];
+                Buffer.ZeroMemory((byte*)region, cbBufferAligned);
                 RuntimeImports.RhInitializeConservativeReportingRegion(pRegionDesc, region, cbBufferAligned);
 
                 RawCalliHelper.Call<T, U>(pfnTargetToInvoke, region, ref context, ref context2);
@@ -1150,6 +1186,19 @@ namespace Internal.Runtime.Augments
         public static void RhYield()
         {
             RuntimeImports.RhYield();
+        }
+
+        public static bool SupportsRelativePointers
+        {
+            get
+            {
+                return Internal.Runtime.EEType.SupportsRelativePointers;
+            }
+        }
+
+        public static bool IsPrimitive(RuntimeTypeHandle typeHandle)
+        {
+            return typeHandle.ToEETypePtr().IsPrimitive && !typeHandle.ToEETypePtr().IsEnum;
         }
     }
 }

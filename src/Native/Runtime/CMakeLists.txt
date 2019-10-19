@@ -11,6 +11,7 @@ set(COMMON_RUNTIME_SOURCES
     event.cpp
     FinalizerHelpers.cpp
     GCHelpers.cpp
+    gctoclreventsink.cpp
     gcheaputilities.cpp
     GCMemoryHelpers.cpp
     gcrhenv.cpp
@@ -39,12 +40,17 @@ set(COMMON_RUNTIME_SOURCES
     thread.cpp
     threadstore.cpp
     UniversalTransitionHelpers.cpp
+    yieldprocessornormalized.cpp
 
     # ProjectN only
     # gcdump.cpp
     # module.cpp
     # RHCodeMan.cpp
 
+    ../gc/gceventstatus.cpp
+    ../gc/gcload.cpp
+    ../gc/gcconfig.cpp
+    ../gc/gchandletable.cpp
     ../gc/gccommon.cpp
     ../gc/gceewks.cpp
     ../gc/gcwks.cpp
@@ -74,6 +80,44 @@ set(PORTABLE_RUNTIME_SOURCES
 
 include_directories(inc)
 
+if (WIN32)
+  set(GC_HEADERS
+    ../gc/env/common.h
+    ../gc/env/etmdummy.h
+    ../gc/env/gcenv.base.h
+    ../gc/env/gcenv.ee.h
+    ../gc/env/gcenv.h
+    ../gc/env/gcenv.interlocked.h
+    ../gc/env/gcenv.interlocked.inl
+    ../gc/env/gcenv.object.h
+    ../gc/env/gcenv.os.h
+    ../gc/env/gcenv.structs.h
+    ../gc/env/gcenv.sync.h
+    ../gc/env/gcenv.windows.inl
+    ../gc/env/volatile.h
+    ../gc/gc.h
+    ../gc/gcconfig.h
+    ../gc/gcdesc.h
+    ../gc/gcenv.ee.standalone.inl
+    ../gc/gcenv.inl
+    ../gc/gcevent_serializers.h
+    ../gc/gcevents.h
+    ../gc/gceventstatus.h
+    ../gc/gchandletableimpl.h
+    ../gc/gcimpl.h
+    ../gc/gcinterface.dac.h
+    ../gc/gcinterface.ee.h
+    ../gc/gcinterface.h
+    ../gc/gcpriv.h
+    ../gc/gcrecord.h
+    ../gc/gcscan.h
+    ../gc/handletable.h
+    ../gc/handletable.inl
+    ../gc/handletablepriv.h
+    ../gc/objecthandle.h
+    ../gc/softwarewritewatch.h)
+endif(WIN32)
+
 if(WIN32)
 
   include_directories(windows)
@@ -81,6 +125,9 @@ if(WIN32)
   list(APPEND COMMON_RUNTIME_SOURCES
     windows/PalRedhawkCommon.cpp
     windows/PalRedhawkMinWin.cpp
+    ../gc/windows/gcenv.windows.cpp
+    eventtrace.cpp
+    rheventtrace.cpp
   )
 
   list(APPEND FULL_RUNTIME_SOURCES
@@ -103,6 +150,12 @@ if(WIN32)
 else()
 
   include_directories(unix)
+  
+  include(CheckIncludeFiles)
+  include(CheckLibraryExists)
+  
+  include(../gc/unix/configure.cmake)
+  
   if(NOT CLR_CMAKE_PLATFORM_ARCH_WASM)
     include_directories(../libunwind/include)
   else()
@@ -120,6 +173,9 @@ else()
 
   list(APPEND COMMON_RUNTIME_SOURCES
     unix/PalRedhawkUnix.cpp
+    ../gc/unix/gcenv.unix.cpp
+    ../gc/unix/events.cpp
+    ../gc/unix/cgroup.cpp
   )
 
   list(APPEND FULL_RUNTIME_SOURCES
@@ -190,6 +246,8 @@ add_definitions(-DFEATURE_EMBEDDED_CONFIG)
 if(WIN32)
   # There is a problem with undefined symbol g_pConfig, windows don't care since it is in template method, but clang does 
   add_definitions(-DSTRESS_HEAP)
+  add_definitions(-DFEATURE_ETW)
+  add_definitions(-DFEATURE_EVENT_TRACE)
   add_compile_options(/GS)
   add_compile_options(/W1)
   add_compile_options(/Zc:wchar_t)
@@ -219,6 +277,8 @@ else()
 endif()
 
 set(RUNTIME_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+
+list(APPEND COMMON_RUNTIME_SOURCES ${GC_HEADERS})
 
 convert_to_absolute_path(COMMON_RUNTIME_SOURCES ${COMMON_RUNTIME_SOURCES})
 

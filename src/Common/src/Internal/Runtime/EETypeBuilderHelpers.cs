@@ -114,6 +114,15 @@ namespace Internal.Runtime
                 }
             }
 
+            flags |= ComputeElementTypeFlags(type);
+
+            return flags;
+        }
+
+        public static UInt16 ComputeElementTypeFlags(TypeDesc type)
+        {
+            UInt16 flags = 0;
+
             CorElementType corElementType = CorElementType.ELEMENT_TYPE_END;
 
             // The top 5 bits of flags are used to convey enum underlying type, primitive type, or mark the type as being System.Array
@@ -139,29 +148,6 @@ namespace Internal.Runtime
             }
 
             return flags;
-        }
-
-        public static bool ComputeRequiresAlign8(TypeDesc type)
-        {
-            if (type.Context.Target.Architecture != TargetArchitecture.ARM)
-            {
-                return false;
-            }
-
-            if (type.IsArray)
-            {
-                var elementType = ((ArrayType)type).ElementType;
-                if ((elementType.IsValueType) && ((DefType)elementType).InstanceByteAlignment.AsInt > 4)
-                {
-                    return true;
-                }
-            }
-            else if (type.IsDefType && ((DefType)type).InstanceByteAlignment.AsInt > 4)
-            {
-                return true;
-            }
-
-            return false;
         }
 
         // These masks and paddings have been chosen so that the ValueTypePadding field can always fit in a byte of data

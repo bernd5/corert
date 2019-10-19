@@ -160,31 +160,23 @@ namespace Internal.IL
 
         private ISymbolNode GetGenericLookupHelper(ReadyToRunHelperId helperId, object helperArgument)
         {
+            GenericDictionaryLookup lookup = _compilation.ComputeGenericLookup(_canonMethod, helperId, helperArgument);
+            Debug.Assert(lookup.UseHelper);
+
             if (_canonMethod.RequiresInstMethodDescArg())
             {
-                return _compilation.NodeFactory.ReadyToRunHelperFromDictionaryLookup(helperId, helperArgument, _canonMethod);
+                return _compilation.NodeFactory.ReadyToRunHelperFromDictionaryLookup(lookup.HelperId, lookup.HelperObject, _canonMethod);
             }
             else
             {
                 Debug.Assert(_canonMethod.RequiresInstArg() || _canonMethod.AcquiresInstMethodTableFromThis());
-                return _compilation.NodeFactory.ReadyToRunHelperFromTypeLookup(helperId, helperArgument, _canonMethod.OwningType);
+                return _compilation.NodeFactory.ReadyToRunHelperFromTypeLookup(lookup.HelperId, lookup.HelperObject, _canonMethod.OwningType);
             }
         }
 
         private ISymbolNode GetHelperEntrypoint(ReadyToRunHelper helper)
         {
-            string mangledName;
-            MethodDesc methodDesc;
-            JitHelper.GetEntryPoint(_compilation.TypeSystemContext, helper, out mangledName, out methodDesc);
-            Debug.Assert(mangledName != null || methodDesc != null);
-
-            ISymbolNode entryPoint;
-            if (mangledName != null)
-                entryPoint = _compilation.NodeFactory.ExternSymbol(mangledName);
-            else
-                entryPoint = _compilation.NodeFactory.MethodEntrypoint(methodDesc);
-
-            return entryPoint;
+            return _compilation.GetHelperEntrypoint(helper);
         }
 
         private void MarkInstructionBoundary() { }
@@ -242,28 +234,13 @@ namespace Internal.IL
         {
             TypeDesc type = (TypeDesc)_methodIL.GetObject(token);
 
-            // Nullable needs to be unwrapped
-            if (type.IsNullable)
-                type = type.Instantiation[0];
-
             if (type.IsRuntimeDeterminedSubtype)
             {
-                _dependencies.Add(GetGenericLookupHelper(ReadyToRunHelperId.TypeHandle, type), "IsInst/CastClass");
+                _dependencies.Add(GetGenericLookupHelper(ReadyToRunHelperId.TypeHandleForCasting, type), "IsInst/CastClass");
             }
             else
             {
-                ReadyToRunHelperId helperId;
-                if (opcode == ILOpcode.isinst)
-                {
-                    helperId = ReadyToRunHelperId.IsInstanceOf;
-                }
-                else
-                {
-                    Debug.Assert(opcode == ILOpcode.castclass);
-                    helperId = ReadyToRunHelperId.CastClass;
-                }
-
-                _dependencies.Add(_factory.ReadyToRunHelper(helperId, type), "IsInst/CastClass");
+                _dependencies.Add(_compilation.ComputeConstantLookup(ReadyToRunHelperId.TypeHandleForCasting, type), "IsInst/CastClass");
             }
         }
         
@@ -580,6 +557,33 @@ namespace Internal.IL
                             _dependencies.Add(instParam, reason);
                         }
 
+                        if (instParam == null
+                            && !targetMethod.OwningType.IsValueType
+                            && !_factory.TypeSystemContext.IsSpecialUnboxingThunk(_canonMethod))
+                        {
+                            // We have a call to a shared instance method and we're already in a shared context.
+                            // e.g. this is a call to Foo<T>.Method() and we're about to add Foo<__Canon>.Method()
+                            // to the dependency graph).
+                            //
+                            // We will pretend the runtime determined owning type (Foo<T>) got allocated as well.
+                            // This is because RyuJIT might end up inlining the shared method body, making it concrete again,
+                            // without actually having to go through a dictionary.
+                            // (This would require inlining across two generic contexts, but RyuJIT does that.)
+                            //
+                            // If we didn't have a constructed type for this at the scanning time, we wouldn't
+                            // know the dictionary dependencies at the inlined site, leading to a compile failure.
+                            // (Remember that dictionary dependencies of instance methods on generic reference types
+                            // are tied to the owning type.)
+                            //
+                            // This is not ideal, because if e.g. Foo<string> never got allocated otherwise, this code is
+                            // unreachable and we're making the scanner scan more of it.
+                            //
+                            // Technically, we could get away with injecting a RuntimeDeterminedMethodNode here
+                            // but that introduces more complexities and doesn't seem worth it at this time.
+                            Debug.Assert(targetMethod.AcquiresInstMethodTableFromThis());
+                            _dependencies.Add(GetGenericLookupHelper(ReadyToRunHelperId.TypeHandle, runtimeDeterminedMethod.OwningType), reason + " - inlining protection");
+                        }
+
                         _dependencies.Add(_factory.CanonicalEntrypoint(targetMethod), reason);
                     }
                     else
@@ -619,27 +623,35 @@ namespace Internal.IL
                     if (instParam != null)
                     {
                         _dependencies.Add(instParam, reason);
+                    }
 
-                        if (!referencingArrayAddressMethod)
-                        {
-                            _dependencies.Add(_compilation.NodeFactory.ShadowConcreteMethod(concreteMethod), reason);
-                        }
-                        else
-                        {
-                            // We don't want array Address method to be modeled in the generic dependency analysis.
-                            // The method doesn't actually have runtime determined dependencies (won't do
-                            // any generic lookups).
-                            _dependencies.Add(_compilation.NodeFactory.MethodEntrypoint(targetMethod), reason);
-                        }
-                    }
-                    else if (targetMethod.AcquiresInstMethodTableFromThis())
+                    if (instParam == null
+                        && concreteMethod != targetMethod
+                        && targetMethod.OwningType.NormalizeInstantiation() == targetMethod.OwningType
+                        && !targetMethod.OwningType.IsValueType)
                     {
-                        _dependencies.Add(_compilation.NodeFactory.ShadowConcreteMethod(concreteMethod), reason);
+                        // We have a call to a shared instance method and we still know the concrete
+                        // type of the generic instance (e.g. this is a call to Foo<string>.Method()
+                        // and we're about to add Foo<__Canon>.Method() to the dependency graph).
+                        //
+                        // We will pretend the concrete type got allocated as well. This is because RyuJIT might
+                        // end up inlining the shared method body, making it concrete again.
+                        //
+                        // If we didn't have a constructed type for this at the scanning time, we wouldn't
+                        // know the dictionary dependencies at the inlined site, leading to a compile failure.
+                        // (Remember that dictionary dependencies of instance methods on generic reference types
+                        // are tied to the owning type.)
+                        //
+                        // This is not ideal, because if Foo<string> never got allocated otherwise, this code is
+                        // unreachable and we're making the scanner scan more of it.
+                        //
+                        // Technically, we could get away with injecting a ShadowConcreteMethod for the concrete
+                        // method, but that's more complex and doesn't seem worth it at this time.
+                        Debug.Assert(targetMethod.AcquiresInstMethodTableFromThis());
+                        _dependencies.Add(_compilation.NodeFactory.MaximallyConstructableType(concreteMethod.OwningType), reason + " - inlining protection");
                     }
-                    else
-                    {
-                        _dependencies.Add(_compilation.NodeFactory.MethodEntrypoint(targetMethod), reason);
-                    }
+
+                    _dependencies.Add(_compilation.NodeFactory.MethodEntrypoint(targetMethod), reason);
                 }
             }
             else if (method.HasInstantiation)
@@ -759,6 +771,7 @@ namespace Internal.IL
         private void ImportMkRefAny(int token)
         {
             _dependencies.Add(GetHelperEntrypoint(ReadyToRunHelper.TypeHandleToRuntimeType), "mkrefany");
+            _dependencies.Add(GetHelperEntrypoint(ReadyToRunHelper.TypeHandleToRuntimeTypeHandle), "mkrefany");
         }
 
         private void ImportLdToken(int token)
@@ -779,6 +792,7 @@ namespace Internal.IL
                 }
 
                 // If this is a ldtoken Type / GetValueInternal sequence, we're done.
+                // If this is a ldtoken Type / Type.GetTypeFromHandle sequence, we need one more helper.
                 BasicBlock nextBasicBlock = _basicBlocks[_currentOffset];
                 if (nextBasicBlock == null)
                 {
@@ -790,6 +804,11 @@ namespace Internal.IL
                         {
                             // Codegen expands this and doesn't do the normal ldtoken.
                             return;
+                        }
+                        else if (IsTypeGetTypeFromHandle(method))
+                        {
+                            // Codegen will swap this one for GetRuntimeTypeHandle when optimizing
+                            _dependencies.Add(GetHelperEntrypoint(ReadyToRunHelper.GetRuntimeType), "ldtoken");
                         }
                     }
                 }
@@ -981,7 +1000,7 @@ namespace Internal.IL
             }
             else
             {
-                _dependencies.Add(_factory.ReadyToRunHelper(ReadyToRunHelperId.NewArr1, type), "newarr");
+                _dependencies.Add(_factory.ConstructedTypeSymbol(type), "newarr");
             }
         }
 
@@ -1089,6 +1108,20 @@ namespace Internal.IL
                 if (owningType != null)
                 {
                     return owningType.Name == "RuntimeTypeHandle" && owningType.Namespace == "System";
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsTypeGetTypeFromHandle(MethodDesc method)
+        {
+            if (method.IsIntrinsic && method.Name == "GetTypeFromHandle")
+            {
+                MetadataType owningType = method.OwningType as MetadataType;
+                if (owningType != null)
+                {
+                    return owningType.Name == "Type" && owningType.Namespace == "System";
                 }
             }
 

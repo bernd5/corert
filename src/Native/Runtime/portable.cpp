@@ -8,7 +8,7 @@
 #include "daccess.h"
 #include "PalRedhawkCommon.h"
 #include "CommonMacros.inl"
-#include "Volatile.h"
+#include "volatile.h"
 #include "PalRedhawk.h"
 #include "rhassert.h"
 
@@ -450,20 +450,6 @@ COOP_PINVOKE_HELPER(void *, RhGetCurrentThunkContext, ())
 {
     ASSERT_UNCONDITIONALLY("NYI");
     return NULL;
-}
-
-#endif
-
-#if !defined(_ARM64_)
-COOP_PINVOKE_HELPER(void, RhpETWLogLiveCom, (Int32 eventType, void * ccwHandle, void * objectId, void * typeRawValue, void * iUnknown, void * vTable, Int32 comRefCount, Int32 jupiterRefCount, Int32 flags))
-{
-    ASSERT_UNCONDITIONALLY("NYI");
-}
-
-COOP_PINVOKE_HELPER(bool, RhpETWShouldWalkCom, ())
-{
-    ASSERT_UNCONDITIONALLY("NYI");
-    return false;
 }
 
 #endif

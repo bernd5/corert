@@ -44,18 +44,7 @@ namespace Internal.Runtime.TypeLoader
                     return qTypeDefinition.NativeFormatHandle.GetFullName(qTypeDefinition.NativeFormatReader);
             }
 
-            result = "EEType:0x";
-            ulong num = (ulong)RuntimeAugments.GetPointerFromTypeHandle(rtth);
-
-            int shift = IntPtr.Size * 8;
-            const string HexDigits = "0123456789ABCDEF";
-            while (shift > 0)
-            {
-                shift -= 4;
-                int digit = (int)((num >> shift) & 0xF);
-                result += HexDigits[digit];
-            }
-            return result;
+            return rtth.LowLevelToStringRawEETypeAddress();
         }
 #endif
 
@@ -128,7 +117,7 @@ namespace Internal.Runtime.TypeLoader
 
             for (uint j = 0; j < numTargetImplementations; j++)
             {
-                uint nameAndSigToken = extRefs.GetExternalNativeLayoutOffset(entryParser.GetUnsigned());
+                uint nameAndSigToken = entryParser.GetUnsigned();
                 MethodNameAndSignature targetMethodNameAndSignature = GetMethodNameAndSignatureFromNativeReader(nativeLayoutReader, module.Handle, nameAndSigToken);
                 RuntimeTypeHandle targetTypeHandle = extRefs.GetRuntimeTypeHandleFromIndex(entryParser.GetUnsigned());
 
@@ -161,7 +150,7 @@ namespace Internal.Runtime.TypeLoader
                     {
                         RuntimeTypeHandle currentIfaceTypeHandle = default(RuntimeTypeHandle);
 
-                        NativeParser ifaceSigParser = new NativeParser(nativeLayoutReader, extRefs.GetExternalNativeLayoutOffset(entryParser.GetUnsigned()));
+                        NativeParser ifaceSigParser = new NativeParser(nativeLayoutReader, entryParser.GetUnsigned());
 
                         if (TypeLoaderEnvironment.Instance.GetTypeFromSignatureAndContext(ref ifaceSigParser, module.Handle, targetTypeInstantiation, null, out currentIfaceTypeHandle))
                         {
@@ -276,7 +265,7 @@ namespace Internal.Runtime.TypeLoader
                     if (!openCallingTypeHandle.Equals(interfaceTypeHandle))
                         continue;
 
-                    uint nameAndSigToken = extRefs.GetExternalNativeLayoutOffset(entryParser.GetUnsigned());
+                    uint nameAndSigToken = entryParser.GetUnsigned();
                     MethodNameAndSignature interfaceMethodNameAndSignature = GetMethodNameAndSignatureFromNativeReader(nativeLayoutReader, module.Handle, nameAndSigToken);
 
                     if (!interfaceMethodNameAndSignature.Equals(methodNameAndSignature))
@@ -509,20 +498,32 @@ namespace Internal.Runtime.TypeLoader
                     if (!parsedTargetTypeHandle.Equals(openTargetTypeHandle))
                         continue;
 
-                    uint parsedCallingNameAndSigToken = extRefs.GetExternalNativeLayoutOffset(entryParser.GetUnsigned());
+                    uint parsedCallingNameAndSigToken = entryParser.GetUnsigned();
                     MethodNameAndSignature parsedCallingNameAndSignature = GetMethodNameAndSignatureFromNativeReader(nativeLayoutReader, module.Handle, parsedCallingNameAndSigToken);
 
                     if (!parsedCallingNameAndSignature.Equals(callingMethodNameAndSignature))
                         continue;
 
-                    uint parsedTargetMethodNameAndSigToken = extRefs.GetExternalNativeLayoutOffset(entryParser.GetUnsigned());
+                    uint parsedTargetMethodNameAndSigToken = entryParser.GetUnsigned();
                     MethodNameAndSignature targetMethodNameAndSignature = GetMethodNameAndSignatureFromNativeReader(nativeLayoutReader, module.Handle, parsedTargetMethodNameAndSigToken);
 
                     Debug.Assert(targetMethodNameAndSignature != null);
 
                     if (!TryGetGenericVirtualMethodPointer(targetTypeHandle, targetMethodNameAndSignature, genericArguments, out methodPointer, out dictionaryPointer))
                     {
-                        Environment.FailFast("GVM method pointer lookup failure");
+                        var sb = new System.Text.StringBuilder();
+                        sb.AppendLine("Generic virtual method pointer lookup failure.");
+                        sb.AppendLine();
+                        sb.AppendLine("Declaring type handle: " + declaringType.LowLevelToStringRawEETypeAddress());
+                        sb.AppendLine("Target type handle: " + targetTypeHandle.LowLevelToStringRawEETypeAddress());
+                        sb.AppendLine("Method name: " + targetMethodNameAndSignature.Name);
+                        sb.AppendLine("Instantiation:");
+                        for (int i = 0; i < genericArguments.Length; i++)
+                        {
+                            sb.AppendLine("  Argument " + i.LowLevelToString() + ": " + genericArguments[i].LowLevelToStringRawEETypeAddress());
+                        }
+
+                        Environment.FailFast(sb.ToString());
                     }
 
                     return true;

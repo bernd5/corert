@@ -141,8 +141,7 @@ namespace System.Threading
                 }
 
                 UserUnregisterWaitHandle = waitObject?.SafeWaitHandle;
-                UserUnregisterWaitHandle?.DangerousAddRef();
-                needToRollBackRefCountOnException = true;
+                UserUnregisterWaitHandle?.DangerousAddRef(ref needToRollBackRefCountOnException);
 
                 UserUnregisterWaitHandleValue = UserUnregisterWaitHandle?.DangerousGetHandle() ?? IntPtr.Zero;
 
@@ -207,7 +206,7 @@ namespace System.Threading
                 if (handleValue != IntPtr.Zero && handleValue != (IntPtr)(-1))
                 {
                     Debug.Assert(handleValue == handle.DangerousGetHandle());
-                    WaitSubsystem.SetEvent(handleValue);
+                    EventWaitHandle.Set(handle);
                 }
             }
             finally
@@ -326,6 +325,8 @@ namespace System.Threading
 
     public static partial class ThreadPool
     {
+        internal static void InitializeForThreadPoolThread() { }
+
         public static bool SetMaxThreads(int workerThreads, int completionPortThreads)
         {
             if (workerThreads < 0 || completionPortThreads < 0)
@@ -364,6 +365,22 @@ namespace System.Threading
             workerThreads = ClrThreadPool.ThreadPoolInstance.GetAvailableThreads();
             completionPortThreads = 0;
         }
+
+        /// <summary>
+        /// Gets the number of thread pool threads that currently exist.
+        /// </summary>
+        /// <remarks>
+        /// For a thread pool implementation that may have different types of threads, the count includes all types.
+        /// </remarks>
+        public static int ThreadCount => ClrThreadPool.ThreadPoolInstance.ThreadCount;
+
+        /// <summary>
+        /// Gets the number of work items that have been processed by the thread pool so far.
+        /// </summary>
+        /// <remarks>
+        /// For a thread pool implementation that may have different types of work items, the count includes all types.
+        /// </remarks>
+        public static long CompletedWorkItemCount => ClrThreadPool.ThreadPoolInstance.CompletedWorkItemCount;
 
         /// <summary>
         /// This method is called to request a new thread pool worker to handle pending work.

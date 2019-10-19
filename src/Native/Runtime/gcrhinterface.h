@@ -103,17 +103,9 @@ typedef void * GcSegmentHandle;
 class RedhawkGCInterface
 {
 public:
-    enum GCType
-    {
-        GCType_Workstation,
-        GCType_Server,
-    };
-
     // Perform any runtime-startup initialization needed by the GC, HandleTable or environmental code in
-    // gcrhenv. The enum parameter is used to choose between workstation and server GC.
-    // Returns true on success or false if a subsystem failed to initialize.
-    // todo: figure out the final error reporting strategy
-    static bool InitializeSubsystems(GCType gcType);
+    // gcrhenv. Returns true on success or false if a subsystem failed to initialize.
+    static bool InitializeSubsystems();
 
     static void InitAllocContext(gc_alloc_context * pAllocContext);
     static void ReleaseAllocContext(gc_alloc_context * pAllocContext);
@@ -136,8 +128,8 @@ public:
                                                  void * pfnEnumCallback,
                                                  void * pvCallbackData);
 
-    static GcSegmentHandle RegisterFrozenSection(void * pSection, UInt32 SizeSection);
-    static void UnregisterFrozenSection(GcSegmentHandle segment);
+    static GcSegmentHandle RegisterFrozenSegment(void * pSection, size_t SizeSection);
+    static void UnregisterFrozenSegment(GcSegmentHandle segment);
 
 #ifdef FEATURE_GC_STRESS
     static void StressGc();
@@ -157,6 +149,8 @@ public:
     static EEType * GetLastAllocEEType();
     static void SetLastAllocEEType(EEType *pEEType);
 
+    static uint64_t GetDeadThreadsNonAllocBytes();
+
     // Used by debugger hook
     static void* CreateTypedHandle(void* object, int type);
     static void DestroyTypedHandle(void* handle);
@@ -166,6 +160,10 @@ private:
     // to emit allocation ETW events with type information.  We set this value unconditionally to avoid
     // race conditions where ETW is enabled after the value is set.
     DECLSPEC_THREAD static EEType * tls_pLastAllocationEEType;
+
+    // Tracks the amount of bytes that were reserved for threads in their gc_alloc_context and went unused when they died.
+    // Used for GC.GetTotalAllocatedBytes
+    static uint64_t s_DeadThreadsNonAllocBytes;
 };
 
 #endif // __GCRHINTERFACE_INCLUDED

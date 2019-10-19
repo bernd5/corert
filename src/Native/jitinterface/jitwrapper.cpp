@@ -27,17 +27,17 @@ private:
     unsigned __int64 corJitFlags;
 };
 
-static const GUID JITEEVersionIdentifier = { /* 45aafd4d-1d23-4647-9ce1-cf09a2677ca0 */
-    0x45aafd4d,
-    0x1d23,
-    0x4647,
-    {0x9c, 0xe1, 0xcf, 0x09, 0xa2, 0x67, 0x7c, 0xa0}
+static const GUID JITEEVersionIdentifier = { /* d609bed1-7831-49fc-bd49-b6f054dd4d46 */
+    0xe2ae5b32,
+    0xa9ab,
+    0x426e,
+    {0xbc, 0x2a, 0xae, 0x1a, 0x88, 0x3e, 0x03, 0x67}
 };
 
 class Jit
 {
 public:
-    virtual int __stdcall compileMethod(
+    virtual int STDMETHODCALLTYPE compileMethod(
         void* compHnd,
         void* methodInfo,
         unsigned flags,

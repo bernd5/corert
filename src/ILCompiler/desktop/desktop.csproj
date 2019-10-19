@@ -8,7 +8,7 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>desktop</RootNamespace>
     <AssemblyName>desktop</AssemblyName>
-    <TargetFrameworkVersion>v4.6</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
   </PropertyGroup>
@@ -70,6 +70,12 @@
     <Compile Include="..\src\EcmaOnlyDebugInformationProvider.cs">
       <Link>EcmaOnlyDebugInformationProvider.cs</Link>
     </Compile>
+    <Compile Include="..\src\RemovingILProvider.cs">
+      <Link>RemovingILProvider.cs</Link>
+    </Compile>
+    <Compile Include="..\src\ConfigurablePInvokePolicy.cs">
+      <Link>ConfigurablePInvokePolicy.cs</Link>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\Common\src\CommandLine\CommandLineException.cs">
@@ -87,6 +93,10 @@
     <ProjectReference Include="..\..\ILCompiler.CppCodegen\src\ILCompiler.CppCodegen.csproj">
       <Project>{971ae7e7-08c6-48b4-902a-63851e6dac66}</Project>
       <Name>ILCompiler.CppCodegen</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\ILCompiler.RyuJit\src\ILCompiler.RyuJit.csproj">
+      <Project>{69cb6cf1-9b6c-4617-a8b7-f0089ce474fb}</Project>
+      <Name>ILCompiler.RyuJit</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\ILCompiler.TypeSystem\src\ILCompiler.TypeSystem.csproj">
       <Project>{1a9df196-43a9-44bb-b2c6-d62aa56b0e49}</Project>

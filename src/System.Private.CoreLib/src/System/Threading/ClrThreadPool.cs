@@ -9,26 +9,31 @@ namespace System.Threading
     /// <summary>
     /// A thread-pool run and managed on the CLR.
     /// </summary>
-    internal partial class ClrThreadPool
+    internal sealed partial class ClrThreadPool
     {
 #pragma warning disable IDE1006 // Naming Styles
         public static readonly ClrThreadPool ThreadPoolInstance = new ClrThreadPool();
 #pragma warning restore IDE1006 // Naming Styles
 
         private const int ThreadPoolThreadTimeoutMs = 20 * 1000; // If you change this make sure to change the timeout times in the tests.
-      
+
+#if BIT64
         private const short MaxPossibleThreadCount = short.MaxValue;
+#elif BIT32
+        private const short MaxPossibleThreadCount = 1023;
+#else
+    #error Unknown platform
+#endif
 
         private const int CpuUtilizationHigh = 95;
         private const int CpuUtilizationLow = 80;
         private int _cpuUtilization = 0;
 
+        private static readonly short s_forcedMinWorkerThreads = AppContextConfigHelper.GetInt16Config("System.Threading.ThreadPool.MinThreads", 0, false);
+        private static readonly short s_forcedMaxWorkerThreads = AppContextConfigHelper.GetInt16Config("System.Threading.ThreadPool.MaxThreads", 0, false);
 
-        private static readonly short s_forcedMinWorkerThreads = AppContextConfigHelper.GetInt16Config("System.Threading.ThreadPool.MinThreads", 0);
-        private static readonly short s_forcedMaxWorkerThreads = AppContextConfigHelper.GetInt16Config("System.Threading.ThreadPool.MaxThreads", 0);
-
-        private short _minThreads = (short)ThreadPoolGlobals.processorCount;
-        private short _maxThreads = MaxPossibleThreadCount;
+        private short _minThreads;
+        private short _maxThreads;
         private readonly LowLevelLock _maxMinThreadLock = new LowLevelLock();
 
         [StructLayout(LayoutKind.Explicit, Size = CacheLineSize * 5)]
@@ -53,7 +58,7 @@ namespace System.Threading
 
         private CacheLineSeparated _separated;
         private ulong _currentSampleStartTime;
-        private int _completionCount = 0;
+        private readonly ThreadInt64PersistentCounter _completionCounter = new ThreadInt64PersistentCounter();
         private int _threadAdjustmentIntervalMs;
 
         private LowLevelLock _hillClimbingThreadAdjustmentLock = new LowLevelLock();
@@ -62,11 +67,23 @@ namespace System.Threading
 
         private ClrThreadPool()
         {
+            _minThreads = s_forcedMinWorkerThreads > 0 ? s_forcedMinWorkerThreads : (short)ThreadPoolGlobals.processorCount;
+            if (_minThreads > MaxPossibleThreadCount)
+            {
+                _minThreads = MaxPossibleThreadCount;
+            }
+
+            _maxThreads = s_forcedMaxWorkerThreads > 0 ? s_forcedMaxWorkerThreads : MaxPossibleThreadCount;
+            if (_maxThreads < _minThreads)
+            {
+                _maxThreads = _minThreads;
+            }
+
             _separated = new CacheLineSeparated
             {
                 counts = new ThreadCounts
                 {
-                    numThreadsGoal = s_forcedMinWorkerThreads > 0 ? s_forcedMinWorkerThreads : _minThreads
+                    numThreadsGoal = _minThreads
                 }
             };
         }
@@ -167,7 +184,7 @@ namespace System.Threading
         public int GetAvailableThreads()
         {
             ThreadCounts counts = ThreadCounts.VolatileReadCounts(ref _separated.counts);
-            int count = _maxThreads - counts.numExistingThreads;
+            int count = _maxThreads - counts.numProcessingWork;
             if (count < 0)
             {
                 return 0;
@@ -175,29 +192,24 @@ namespace System.Threading
             return count;
         }
 
+        public int ThreadCount => ThreadCounts.VolatileReadCounts(ref _separated.counts).numExistingThreads;
+        public long CompletedWorkItemCount => _completionCounter.Count;
+
         internal bool NotifyWorkItemComplete()
         {
-            // TODO: Check perf. Might need to make this thread-local.
-            Interlocked.Increment(ref _completionCount);
+            _completionCounter.Increment();
             Volatile.Write(ref _separated.lastDequeueTime, Environment.TickCount);
             
-            if (ShouldAdjustMaxWorkersActive())
+            if (ShouldAdjustMaxWorkersActive() && _hillClimbingThreadAdjustmentLock.TryAcquire())
             {
-                bool acquiredLock = _hillClimbingThreadAdjustmentLock.TryAcquire();
                 try
                 {
-                    if (acquiredLock)
-                    {
-                        AdjustMaxWorkersActive();
-                    }
+                    AdjustMaxWorkersActive();
                 }
                 finally
                 {
-                    if (acquiredLock)
-                    {
-                        _hillClimbingThreadAdjustmentLock.Release();
-                    }
-                } 
+                    _hillClimbingThreadAdjustmentLock.Release();
+                }
             }
 
             return !WorkerThread.ShouldStopProcessingWorkNow();
@@ -211,7 +223,7 @@ namespace System.Threading
         {
             _hillClimbingThreadAdjustmentLock.VerifyIsLocked();
             int currentTicks = Environment.TickCount;
-            int totalNumCompletions = Volatile.Read(ref _completionCount);
+            int totalNumCompletions = (int)_completionCounter.Count;
             int numCompletions = totalNumCompletions - _separated.priorCompletionCount;
             ulong startTime = _currentSampleStartTime;
             ulong endTime = HighPerformanceCounter.TickCount;
@@ -272,8 +284,15 @@ namespace System.Threading
             int elapsedInterval = Environment.TickCount - priorTime;
             if(elapsedInterval >= requiredInterval)
             {
+                // Avoid trying to adjust the thread count goal if there are already more threads than the thread count goal.
+                // In that situation, hill climbing must have previously decided to decrease the thread count goal, so let's
+                // wait until the system responds to that change before calling into hill climbing again. This condition should
+                // be the opposite of the condition in WorkerThread.ShouldStopProcessingWorkNow that causes
+                // threads processing work to stop in response to a decreased thread count goal. The logic here is a bit
+                // different from the original CoreCLR code from which this implementation was ported because in this
+                // implementation there are no retired threads, so only the count of threads processing work is considered.
                 ThreadCounts counts = ThreadCounts.VolatileReadCounts(ref _separated.counts);
-                return counts.numExistingThreads >= counts.numThreadsGoal;
+                return counts.numProcessingWork <= counts.numThreadsGoal;
             }
             return false;
         }

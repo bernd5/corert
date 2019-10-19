@@ -11,54 +11,6 @@ namespace Internal.TypeSystem.Interop
 {
     public static class MarshalHelpers
     {
-        /// <summary>
-        /// Returns true if this is a type that doesn't require marshalling.
-        /// </summary>
-        public static bool IsBlittableType(TypeDesc type)
-        {
-            type = type.UnderlyingType;
-
-            if (type.IsValueType)
-            {
-                if (type.IsPrimitive)
-                {
-                    // All primitive types except char and bool are blittable
-                    TypeFlags category = type.Category;
-                    if (category == TypeFlags.Boolean || category == TypeFlags.Char)
-                        return false;
-
-                    return true;
-                }
-
-                foreach (FieldDesc field in type.GetFields())
-                {
-                    if (field.IsStatic)
-                        continue;
-
-                    TypeDesc fieldType = field.FieldType;
-
-                    // TODO: we should also reject fields that specify custom marshalling
-                    if (!MarshalHelpers.IsBlittableType(fieldType))
-                    {
-                        // This field can still be blittable if it's a Char and marshals as Unicode
-                        var owningType = field.OwningType as MetadataType;
-                        if (owningType == null)
-                            return false;
-
-                        if (fieldType.Category != TypeFlags.Char ||
-                            owningType.PInvokeStringFormat == PInvokeStringFormat.AnsiClass)
-                            return false;
-                    }
-                }
-                return true;
-            }
-
-            if (type.IsPointer || type.IsFunctionPointer)
-                return true;
-
-            return false;
-        }
-
         public static bool IsStructMarshallingRequired(TypeDesc typeDesc)
         {
             if (typeDesc is ByRefType)
@@ -85,40 +37,11 @@ namespace Internal.TypeSystem.Interop
             // or Explicit layout. For Auto layout the P/Invoke marshalling code
             // will throw appropriate error message.
             //
-            if (!type.IsSequentialLayout && !type.IsExplicitLayout)
+            if (!type.HasLayout())
                 return false;
 
             // If it is not blittable we will need struct marshalling
-            return !IsBlittableType(type);
-        }
-
-        /// <summary>
-        /// Returns true if the PInvoke target should be resolved lazily.
-        /// </summary>
-        public static bool UseLazyResolution(MethodDesc method, string importModule, PInvokeILEmitterConfiguration configuration)
-        {
-            bool? forceLazyResolution = configuration.ForceLazyResolution;
-            if (forceLazyResolution.HasValue)
-                return forceLazyResolution.Value;
-
-            // Determine whether this call should be made through a lazy resolution or a static reference
-            // Eventually, this should be controlled by a custom attribute (or an extension to the metadata format).
-            if (importModule == "[MRT]" || importModule == "*")
-                return false;
-
-            // Force link time symbol resolution for "__Internal" module for compatibility with Mono
-            if (importModule == "__Internal")
-                return false;
-
-            if (method.Context.Target.IsWindows)
-            {
-                return !importModule.StartsWith("api-ms-win-");
-            }
-            else 
-            {
-                // Account for System.Private.CoreLib.Native / System.Globalization.Native / System.Native / etc
-                return !importModule.StartsWith("System.");
-            }
+            return !MarshalUtils.IsBlittableType(type);
         }
 
         internal static TypeDesc GetNativeMethodParameterType(TypeDesc type, MarshalAsDescriptor marshalAs, InteropStateManager interopStateManager, bool isReturn, bool isAnsi)
@@ -213,6 +136,7 @@ namespace Internal.TypeSystem.Interop
                     return type;
 
                 case MarshallerKind.Struct:
+                case MarshallerKind.LayoutClass:
                     return interopStateManager.GetStructMarshallingNativeType((MetadataType)type);
 
                 case MarshallerKind.BlittableStructPtr:
@@ -240,6 +164,7 @@ namespace Internal.TypeSystem.Interop
 
                 case MarshallerKind.AnsiString:
                 case MarshallerKind.AnsiStringBuilder:
+                case MarshallerKind.UTF8String:
                     return context.GetWellKnownType(WellKnownType.Byte).MakePointerType();
 
                 case MarshallerKind.BlittableArray:
@@ -286,6 +211,11 @@ namespace Internal.TypeSystem.Interop
 
                         return interopStateManager.GetInlineArrayType(inlineArrayCandidate);
                     }
+
+                case MarshallerKind.LayoutClassPtr:
+                case MarshallerKind.AsAnyA:
+                case MarshallerKind.AsAnyW:
+                    return context.GetWellKnownType(WellKnownType.IntPtr);
 
                 case MarshallerKind.Unknown:
                 default:
@@ -492,13 +422,13 @@ namespace Internal.TypeSystem.Interop
                     MetadataType metadataType = (MetadataType)type;
                     // the struct type need to be either sequential or explicit. If it is
                     // auto layout we will throw exception.
-                    if (!metadataType.IsSequentialLayout && !metadataType.IsExplicitLayout)
+                    if (!metadataType.HasLayout())
                     {
                         throw new InvalidProgramException("The specified structure " + metadataType.Name + " has invalid StructLayout information. It must be either Sequential or Explicit.");
                     }
                 }
 
-                if (MarshalHelpers.IsBlittableType(type))
+                if (MarshalUtils.IsBlittableType(type))
                 {
                     return MarshallerKind.BlittableStruct;
                 }
@@ -586,6 +516,9 @@ namespace Internal.TypeSystem.Interop
                     case NativeTypeKind.LPStr:
                         return MarshallerKind.AnsiString;
 
+                    case NativeTypeKind.LPUTF8Str:
+                        return MarshallerKind.UTF8String;
+
                     case NativeTypeKind.LPTStr:
                         return MarshallerKind.UnicodeString;
 
@@ -611,13 +544,13 @@ namespace Internal.TypeSystem.Interop
                         return MarshallerKind.Invalid;
                 }
             }
-            // else if (type.IsObject)
-            // {
-            //    if (nativeType == NativeTypeKind.Invalid)
-            //        return MarshallerKind.Variant;
-            //    else
-            //        return MarshallerKind.Invalid;
-            // }
+            else if (type.IsObject)
+            {
+                if (nativeType == NativeTypeKind.AsAny)
+                    return isAnsi ? MarshallerKind.AsAnyA : MarshallerKind.AsAnyW;
+                else
+                    return MarshallerKind.Invalid;
+            }
             else if (InteropTypes.IsStringBuilder(context, type))
             {
                 switch (nativeType)
@@ -655,10 +588,17 @@ namespace Internal.TypeSystem.Interop
                 else
                     return MarshallerKind.Invalid;
             }
-            else
+            else if (type is MetadataType mdType && mdType.HasLayout())
             {
-                return MarshallerKind.Invalid;
+                if (!isField && nativeType == NativeTypeKind.Invalid || nativeType == NativeTypeKind.LPStruct)
+                    return MarshallerKind.LayoutClassPtr;
+                else if (isField && (nativeType == NativeTypeKind.Invalid || nativeType == NativeTypeKind.Struct))
+                    return MarshallerKind.LayoutClass;
+                else
+                    return MarshallerKind.Invalid;
             }
+            else
+                return MarshallerKind.Invalid;
         }
 
         private static MarshallerKind GetArrayElementMarshallerKind(
@@ -783,8 +723,7 @@ namespace Internal.TypeSystem.Interop
                 }
                 else
                 {
-
-                    if (MarshalHelpers.IsBlittableType(elementType))
+                    if (MarshalUtils.IsBlittableType(elementType))
                     {
                         switch (nativeType)
                         {

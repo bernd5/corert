@@ -15,8 +15,8 @@ namespace Internal.Runtime
     {
         public const uint Signature = 0x00525452; // 'RTR'
 
-        public const ushort CurrentMajorVersion = 2;
-        public const ushort CurrentMinorVersion = 1;
+        public const ushort CurrentMajorVersion = 4;
+        public const ushort CurrentMinorVersion = 0;
     }
 
 #pragma warning disable 0169
@@ -41,11 +41,31 @@ namespace Internal.Runtime
     // from each module linked into the final binary. New sections should be added at the bottom
     // of the enum and deprecated sections should not be removed to preserve ID stability.
     //
-    // Eventually this will be reconciled with ReadyToRunSectionType from 
+    // This list should be kept in sync with the runtime version at
     // https://github.com/dotnet/coreclr/blob/master/src/inc/readytorun.h
     //
     public enum ReadyToRunSectionType
     {
+        //
+        // CoreCLR ReadyToRun sections
+        //
+        CompilerIdentifier = 100,
+        ImportSections = 101,
+        RuntimeFunctions = 102,
+        MethodDefEntryPoints = 103,
+        ExceptionInfo = 104,
+        DebugInfo = 105,
+        DelayLoadMethodCallThunks = 106,
+        // 107 is deprecated - it was used by an older format of AvailableTypes
+        AvailableTypes = 108,
+        InstanceMethodEntryPoints = 109,
+        InliningInfo = 110, // Added in v2.1
+        ProfileDataInfo = 111, // Added in v2.2
+        ManifestMetadata = 112, // Added in v2.3
+
+        //
+        // CoreRT ReadyToRun sections
+        //
         StringTable = 200, // Unused
         GCStaticRegion = 201,
         ThreadStaticRegion = 202,

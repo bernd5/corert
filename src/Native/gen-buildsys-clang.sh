@@ -15,15 +15,15 @@ then
 fi
 
 # Set up the environment to be used for building with clang.
-if command -v "clang-$2.$3" > /dev/null 2>&1
+if command -v "clang-$2.$3" > /dev/null 2>&1 && command -v "clang++-$2.$3" > /dev/null 2>&1
     then
         export CC="$(command -v clang-$2.$3)"
         export CXX="$(command -v clang++-$2.$3)"
-elif command -v "clang$2$3" > /dev/null 2>&1
+elif command -v "clang$2$3" > /dev/null 2>&1 && command -v "clang++$2$3" > /dev/null 2>&1
     then
         export CC="$(command -v clang$2$3)"
         export CXX="$(command -v clang++$2$3)"
-elif command -v clang > /dev/null 2>&1
+elif command -v clang > /dev/null 2>&1 && command -v clang++ > /dev/null 2>&1
     then
         export CC="$(command -v clang)"
         export CXX="$(command -v clang++)"
@@ -118,14 +118,14 @@ if [[ -n "$CROSSCOMPILE" ]]; then
 fi
 
 if [ $build_arch == "wasm" ]; then
-    emcmake cmake \
+    emcmake $CMAKE \
         "-DEMSCRIPTEN_GENERATE_BITCODE_STATIC_LIBRARIES=1" \
         "-DCMAKE_TOOLCHAIN_FILE=$EMSCRIPTEN/cmake/Modules/Platform/Emscripten.cmake" \
         "-DCLR_CMAKE_TARGET_ARCH=$build_arch" \
         "-DCMAKE_BUILD_TYPE=$build_type" \
         "$1/src/Native"
 else
-    cmake \
+    $CMAKE \
         "-DCMAKE_AR=$llvm_ar" \
         "-DCMAKE_LINKER=$llvm_link" \
         "-DCMAKE_NM=$llvm_nm" \

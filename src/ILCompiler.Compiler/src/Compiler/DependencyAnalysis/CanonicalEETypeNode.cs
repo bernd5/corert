@@ -19,14 +19,14 @@ namespace ILCompiler.DependencyAnalysis
     /// Similarly, the dependencies that we track for canonicl type instantiations are minimal, and are just the ones used
     /// by the dynamic type loader
     /// </summary>
-    internal sealed class CanonicalEETypeNode : EETypeNode
+    public sealed class CanonicalEETypeNode : EETypeNode
     {
         public CanonicalEETypeNode(NodeFactory factory, TypeDesc type) : base(factory, type)
         {
             Debug.Assert(!type.IsCanonicalDefinitionType(CanonicalFormKind.Any));
             Debug.Assert(type.IsCanonicalSubtype(CanonicalFormKind.Any));
             Debug.Assert(type == type.ConvertToCanonForm(CanonicalFormKind.Specific));
-            Debug.Assert(!type.IsMdArray);
+            Debug.Assert(!type.IsMdArray || factory.Target.Abi == TargetAbi.CppCodegen);
         }
 
         public override bool StaticDependenciesAreComputed => true;
@@ -75,7 +75,7 @@ namespace ILCompiler.DependencyAnalysis
 
         protected override ISymbolNode GetBaseTypeNode(NodeFactory factory)
         {
-            return _type.BaseType != null ? factory.NecessaryTypeSymbol(GetFullCanonicalTypeForCanonicalType(_type.BaseType)) : null;
+            return _type.BaseType != null ? factory.NecessaryTypeSymbol(_type.BaseType.NormalizeInstantiation()) : null;
         }
 
         protected override int GCDescSize

@@ -5,7 +5,6 @@
 using System.Diagnostics;
 using System.Runtime;
 using System.Runtime.CompilerServices;
-using Internal.Runtime.Augments;
 
 namespace System.Threading
 {
@@ -61,12 +60,7 @@ namespace System.Threading
             }
         }
 
-#if PROJECTN
-        // Use a compiler intrinsic for .NET Native
-        private static IntPtr CurrentNativeThreadId => (IntPtr)Environment.CurrentNativeThreadId;
-#else
         private static IntPtr CurrentNativeThreadId => (IntPtr)RuntimeImports.RhCurrentNativeThreadId();
-#endif // PROJECTN
 
         // On platforms where CurrentNativeThreadId redirects to ManagedThreadId.Current the inlined
         // version of Lock.Acquire has the ManagedThreadId.Current call not inlined, while the non-inlined
@@ -100,7 +94,7 @@ namespace System.Threading
             return TryAcquire(WaitHandle.ToTimeoutMilliseconds(timeout));
         }
 
-        public bool TryAcquire(int millisecondsTimeout)
+        public bool TryAcquire(int millisecondsTimeout, bool trackContentions = false)
         {
             if (millisecondsTimeout < -1)
                 throw new ArgumentOutOfRangeException(nameof(millisecondsTimeout), SR.ArgumentOutOfRange_NeedNonNegOrNegative1);
@@ -121,10 +115,10 @@ namespace System.Threading
             //
             // Fall back to the slow path for contention
             //
-            return TryAcquireContended(currentThreadId, millisecondsTimeout);
+            return TryAcquireContended(currentThreadId, millisecondsTimeout, trackContentions);
         }
 
-        private bool TryAcquireContended(IntPtr currentThreadId, int millisecondsTimeout)
+        private bool TryAcquireContended(IntPtr currentThreadId, int millisecondsTimeout, bool trackContentions = false)
         {
             //
             // If we already own the lock, just increment the recursion count.
@@ -165,7 +159,7 @@ namespace System.Threading
                 //
                 if (spins <= s_maxSpinCount)
                 {
-                    RuntimeThread.SpinWait(spins);
+                    Thread.SpinWait(spins);
                     spins *= 2;
                 }
                 else if (oldState != 0)
@@ -185,6 +179,12 @@ namespace System.Threading
             //
             // Now we wait.
             //
+
+            if (trackContentions)
+            {
+                Monitor.IncrementLockContentionCount();
+            }
+
             TimeoutTracker timeoutTracker = TimeoutTracker.Start(millisecondsTimeout);
             AutoResetEvent ev = Event;
 

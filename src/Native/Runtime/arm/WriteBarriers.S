@@ -124,7 +124,7 @@ LOCAL_LABEL(\BASENAME\()_UpdateShadowHeap_Done_\REFREG):
           ldr          r12, [r12]
           add          r0, r12, r0, lsr #LOG2_CLUMP_SIZE
           ldrb         r12, [r0]
-          cmp          r12, #0FFh
+          cmp          r12, #0x0FF
           bne          LOCAL_LABEL(\BASENAME\()_UpdateCardTable_\REFREG)
 
 LOCAL_LABEL(\BASENAME\()_NoBarrierRequired_\REFREG):
@@ -132,7 +132,7 @@ LOCAL_LABEL(\BASENAME\()_NoBarrierRequired_\REFREG):
 
 // We get here if it's necessary to update the card table.
 LOCAL_LABEL(\BASENAME\()_UpdateCardTable_\REFREG):
-          mov          r12, #0FFh
+          mov          r12, #0x0FF
           strb         r12, [r0]
 
 LOCAL_LABEL(\BASENAME\()_EXIT_\REFREG):
@@ -302,9 +302,11 @@ LOCAL_LABEL(RhpCheckedXchgRetry):
           strex        r3, r1, [r0]
           cmp          r3, #0
           bne          LOCAL_LABEL(RhpCheckedXchgRetry)
-          mov          r0, r2
 
           DEFINE_CHECKED_WRITE_BARRIER_CORE RhpCheckedXchg, r1
+
+          // The original value is currently in r2. We need to return it in r0.
+          mov          r0, r2
 
           bx           lr
 LEAF_END RhpCheckedXchg, _TEXT
@@ -363,13 +365,13 @@ LEAF_ENTRY RhpByRefAssignRef, _TEXT
           ldr           r3, [r3]
           add           r2, r3, r2, lsr #LOG2_CLUMP_SIZE
           ldrb          r3, [r2]
-          cmp           r3, #0FFh
+          cmp           r3, #0x0FF
           bne           LOCAL_LABEL(RhpByRefAssignRef_UpdateCardTable)
           bx            lr
 
 // We get here if it's necessary to update the card table.
 LOCAL_LABEL(RhpByRefAssignRef_UpdateCardTable):
-          mov           r3, #0FFh
+          mov           r3, #0x0FF
           strb          r3, [r2]
           bx            lr
 

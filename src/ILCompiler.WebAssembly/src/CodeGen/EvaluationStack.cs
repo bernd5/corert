@@ -184,7 +184,7 @@ namespace Internal.IL
 
         public LLVMValueRef ValueAsType(LLVMTypeRef type, LLVMBuilderRef builder)
         {
-            return ValueAsTypeInternal(type, builder, false);
+            return ValueAsTypeInternal(type, builder, Type != null && (Type.IsWellKnownType(WellKnownType.SByte) || Type.IsWellKnownType(WellKnownType.Int16)));
         }
 
         public LLVMValueRef ValueAsType(TypeDesc type, LLVMBuilderRef builder)
@@ -199,7 +199,7 @@ namespace Internal.IL
             else if (kind == StackValueKind.Int64)
                 return ValueAsInt64(builder, signExtend);
             else if (kind == StackValueKind.Float)
-                return ValueAsType(LLVM.DoubleType(), builder);
+                return ValueAsType(Type.IsWellKnownType(WellKnownType.Single) ? LLVM.FloatType() : LLVM.DoubleType(), builder);
             else if (kind == StackValueKind.NativeInt || kind == StackValueKind.ByRef || kind == StackValueKind.ObjRef)
                 return ValueAsInt32(builder, false);
             else
@@ -213,7 +213,7 @@ namespace Internal.IL
 
         public LLVMValueRef ValueAsInt64(LLVMBuilderRef builder, bool signExtend)
         {
-            return ValueAsTypeInternal(LLVM.Int32Type(), builder, signExtend);
+            return ValueAsTypeInternal(LLVM.Int64Type(), builder, signExtend);
         }
 
         protected abstract LLVMValueRef ValueAsTypeInternal(LLVMTypeRef type, LLVMBuilderRef builder, bool signExtend);

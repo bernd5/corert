@@ -73,10 +73,7 @@ namespace ILCompiler.DependencyAnalysis
             _type = type;
             _optionalFieldsNode = new EETypeOptionalFieldsNode(this);
 
-            // Note: The fact that you can't create invalid EETypeNode is used from many places that grab
-            // an EETypeNode from the factory with the sole purpose of making sure the validation has run
-            // and that the result of the positive validation is "cached" (by the presence of an EETypeNode).
-            CheckCanGenerateEEType(factory, type);
+            factory.TypeSystemContext.EnsureLoadableType(type);
         }
 
         protected override string GetName(NodeFactory factory) => this.GetMangledName(factory.NameMangler);
@@ -171,7 +168,7 @@ namespace ILCompiler.DependencyAnalysis
                 // If the type is can be converted to some interesting canon type, and this is the non-constructed variant of an EEType
                 // we may need to trigger the fully constructed type to exist to make the behavior of the type consistent
                 // in reflection and generic template expansion scenarios
-                if (CanonFormTypeMayExist && ProjectNDependencyBehavior.EnableFullAnalysis)
+                if (CanonFormTypeMayExist)
                 {
                     return true;
                 }
@@ -359,15 +356,15 @@ namespace ILCompiler.DependencyAnalysis
             if (method.IsAbstract)
                 return false;
 
-            // PInvoke methods, runtime imports, etc. are not permitted on generic types,
+            // PInvoke methods are not permitted on generic types,
             // but let's not crash the compilation because of that.
-            if (method.IsPInvoke || method.IsRuntimeImplemented)
+            if (method.IsPInvoke)
                 return false;
 
-            // InternalCall functions do not really have entrypoints that need to be handled here
-            if (method.IsInternalCall)
-                return false;
-
+            // CoreRT can generate method bodies for these no matter what (worst case
+            // they'll be throwing). We don't want to take the "return false" code path on CoreRT because
+            // delegate methods fall into the runtime implemented category on CoreRT, but we
+            // just treat them like regular method bodies.
             return true;
         }
 
@@ -381,6 +378,7 @@ namespace ILCompiler.DependencyAnalysis
             // emitting it.
             dependencies.Add(new DependencyListEntry(_optionalFieldsNode, "Optional fields"));
 
+            // TODO-SIZE: We probably don't need to add these for all EETypes
             StaticsInfoHashtableNode.AddStaticsInfoDependencies(ref dependencies, factory, _type);
 
             if (EmitVirtualSlotsAndInterfaces)
@@ -654,22 +652,6 @@ namespace ILCompiler.DependencyAnalysis
             }
         }
 
-        protected static TypeDesc GetFullCanonicalTypeForCanonicalType(TypeDesc type)
-        {
-            if (type.IsCanonicalSubtype(CanonicalFormKind.Specific))
-            {
-                return type.ConvertToCanonForm(CanonicalFormKind.Specific);
-            }
-            else if (type.IsCanonicalSubtype(CanonicalFormKind.Universal))
-            {
-                return type.ConvertToCanonForm(CanonicalFormKind.Universal);
-            }
-            else
-            {
-                return type;
-            }
-        }
-
         protected virtual ISymbolNode GetBaseTypeNode(NodeFactory factory)
         {
             return _type.BaseType != null ? factory.NecessaryTypeSymbol(_type.BaseType) : null;
@@ -927,7 +909,7 @@ namespace ILCompiler.DependencyAnalysis
                 flags |= (uint)EETypeRareFlags.HasCctorFlag;
             }
 
-            if (EETypeBuilderHelpers.ComputeRequiresAlign8(_type))
+            if (_type.RequiresAlign8())
             {
                 flags |= (uint)EETypeRareFlags.RequiresAlign8Flag;
             }
@@ -935,7 +917,6 @@ namespace ILCompiler.DependencyAnalysis
             TargetArchitecture targetArch = _type.Context.Target.Architecture;
             if (metadataType != null &&
                 (targetArch == TargetArchitecture.ARM ||
-                targetArch == TargetArchitecture.ARMEL ||
                 targetArch == TargetArchitecture.ARM64) &&
                 metadataType.IsHfa)
             {
@@ -1078,147 +1059,15 @@ namespace ILCompiler.DependencyAnalysis
             }
         }
 
-        /// <summary>
-        /// Validates that it will be possible to create an EEType for '<paramref name="type"/>'.
-        /// </summary>
-        public static void CheckCanGenerateEEType(NodeFactory factory, TypeDesc type)
-        {
-            // Don't validate generic definitons
-            if (type.IsGenericDefinition)
-            {
-                return;
-            }
-
-            // System.__Canon or System.__UniversalCanon
-            if(type.IsCanonicalDefinitionType(CanonicalFormKind.Any))
-            {
-                return;
-            }
-
-            // It must be possible to create an EEType for the base type of this type
-            TypeDesc baseType = type.BaseType;
-            if (baseType != null)
-            {
-                // Make sure EEType can be created for this.
-                factory.NecessaryTypeSymbol(GetFullCanonicalTypeForCanonicalType(baseType));
-            }
-            
-            // We need EETypes for interfaces
-            foreach (var intf in type.RuntimeInterfaces)
-            {
-                // Make sure EEType can be created for this.
-                factory.NecessaryTypeSymbol(GetFullCanonicalTypeForCanonicalType(intf));
-            }
-
-            // Validate classes, structs, enums, interfaces, and delegates
-            DefType defType = type as DefType;
-            if (defType != null)
-            {
-                // Ensure we can compute the type layout
-                defType.ComputeInstanceLayout(InstanceLayoutKind.TypeAndFields);
-
-                //
-                // The fact that we generated an EEType means that someone can call RuntimeHelpers.RunClassConstructor.
-                // We need to make sure this is possible.
-                //
-                if (factory.TypeSystemContext.HasLazyStaticConstructor(defType))
-                {
-                    defType.ComputeStaticFieldLayout(StaticLayoutKind.StaticRegionSizesAndFields);
-                }
-
-                // Make sure instantiation length matches the expectation
-                // TODO: it might be more resonable for the type system to enforce this (also for methods)
-                if (defType.Instantiation.Length != defType.GetTypeDefinition().Instantiation.Length)
-                {
-                    ThrowHelper.ThrowTypeLoadException(ExceptionStringID.ClassLoadGeneral, type);
-                }
-
-                foreach (TypeDesc typeArg in defType.Instantiation)
-                {
-                    // ByRefs, pointers, function pointers, and System.Void are never valid instantiation arguments
-                    if (typeArg.IsByRef
-                        || typeArg.IsPointer
-                        || typeArg.IsFunctionPointer
-                        || typeArg.IsVoid
-                        || typeArg.IsByRefLike)
-                    {
-                        ThrowHelper.ThrowTypeLoadException(ExceptionStringID.ClassLoadGeneral, type);
-                    }
-
-                    // TODO: validate constraints
-                }
-
-                // Check the type doesn't have bogus MethodImpls or overrides and we can get the finalizer.
-                defType.GetFinalizer();
-            }
-
-            // Validate parameterized types
-            ParameterizedType parameterizedType = type as ParameterizedType;
-            if (parameterizedType != null)
-            {
-                TypeDesc parameterType = parameterizedType.ParameterType;
-
-                // Make sure EEType can be created for this.
-                factory.NecessaryTypeSymbol(parameterType);
-
-                if (parameterizedType.IsArray)
-                {
-                    if (parameterType.IsFunctionPointer)
-                    {
-                        // Arrays of function pointers are not currently supported
-                        ThrowHelper.ThrowTypeLoadException(ExceptionStringID.ClassLoadGeneral, type);
-                    }
-
-                    LayoutInt elementSize = parameterType.GetElementSize();
-                    if (!elementSize.IsIndeterminate && elementSize.AsInt >= ushort.MaxValue)
-                    {
-                        // Element size over 64k can't be encoded in the GCDesc
-                        ThrowHelper.ThrowTypeLoadException(ExceptionStringID.ClassLoadValueClassTooLarge, parameterType);
-                    }
-
-                    if (((ArrayType)parameterizedType).Rank > 32)
-                    {
-                        ThrowHelper.ThrowTypeLoadException(ExceptionStringID.ClassLoadRankTooLarge, type);
-                    }
-
-                    if (parameterType.IsByRefLike)
-                    {
-                        // Arrays of byref-like types are not allowed
-                        ThrowHelper.ThrowTypeLoadException(ExceptionStringID.ClassLoadGeneral, type);
-                    }
-                }
-
-                // Validate we're not constructing a type over a ByRef
-                if (parameterType.IsByRef)
-                {
-                    // CLR compat note: "ldtoken int32&&" will actually fail with a message about int32&; "ldtoken int32&[]"
-                    // will fail with a message about being unable to create an array of int32&. This is a middle ground.
-                    ThrowHelper.ThrowTypeLoadException(ExceptionStringID.ClassLoadGeneral, type);
-                }
-
-                // It might seem reasonable to disallow array of void, but the CLR doesn't prevent that too hard.
-                // E.g. "newarr void" will fail, but "newarr void[]" or "ldtoken void[]" will succeed.
-            }
-
-            // Function pointer EETypes are not currently supported
-            if (type.IsFunctionPointer)
-            {
-                ThrowHelper.ThrowTypeLoadException(ExceptionStringID.ClassLoadGeneral, type);
-            }
-        }
-
         public static void AddDependenciesForStaticsNode(NodeFactory factory, TypeDesc type, ref DependencyList dependencies)
         {
-            if ((factory.Target.Abi == TargetAbi.ProjectN) && !ProjectNDependencyBehavior.EnableFullAnalysis)
-                return;
-
             // To ensure that the behvior of FieldInfo.GetValue/SetValue remains correct,
             // if a type may be reflectable, and it is generic, if a canonical instantiation of reflection
             // can exist which can refer to the associated type of this static base, ensure that type
             // has an EEType. (Which will allow the static field lookup logic to find the right type)
-            if (type.HasInstantiation && factory.MetadataManager.SupportsReflection && !factory.MetadataManager.IsReflectionBlocked(type))
+            if (type.HasInstantiation && !factory.MetadataManager.IsReflectionBlocked(type))
             {
-                // This current implementation is slightly generous, as it does not attempt to restrict
+                // TODO-SIZE: This current implementation is slightly generous, as it does not attempt to restrict
                 // the created types to the maximum extent by investigating reflection data and such. Here we just
                 // check if we support use of a canonically equivalent type to perform reflection.
                 // We don't check to see if reflection is enabled on the type.
@@ -1237,9 +1086,6 @@ namespace ILCompiler.DependencyAnalysis
         {
             if (factory.TypeSystemContext.SupportsUniversalCanon)
             {
-                if ((factory.Target.Abi == TargetAbi.ProjectN) && !ProjectNDependencyBehavior.EnableFullAnalysis)
-                    return;
-
                 foreach (MethodDesc method in type.GetMethods())
                 {
                     if (!method.IsVirtual || !method.HasInstantiation)

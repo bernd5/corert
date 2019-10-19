@@ -60,12 +60,18 @@ See the LICENSE file in the project root for more information.
     </ItemGroup>
 
     <ItemGroup>
+      <!-- Workaround for https://github.com/dotnet/corert/issues/7000 -->
+      <IlcArg Include="--removefeature:CurlHandler" />
+      <!-- libicu loader in System.Globalization.Native is not compatible with static linking -->
+      <IlcArg Include="--removefeature:Globalization" Condition="'$(StaticallyLinked)' == 'true'" />
+    </ItemGroup>
+
+    <ItemGroup>
       <NativeLibrary Include="$(IlcPath)/sdk/libSystem.Private.CoreLib.Native$(NativeLibraryExtension)" />
       <NativeLibrary Condition="$(NativeCodeGen) == ''" Include="$(IlcPath)/sdk/libSystem.Private.TypeLoader.Native$(NativeLibraryExtension)" />
       <NativeLibrary Include="$(IlcPath)/framework/System.Native$(NativeLibraryExtension)" />
       <NativeLibrary Include="$(IlcPath)/framework/System.Globalization.Native$(NativeLibraryExtension)" />
       <NativeLibrary Include="$(IlcPath)/framework/System.IO.Compression.Native$(NativeLibraryExtension)" />
-      <NativeLibrary Include="$(IlcPath)/framework/System.Net.Http.Native$(NativeLibraryExtension)" />
       <NativeLibrary Include="$(IlcPath)/framework/System.Net.Security.Native$(NativeLibraryExtension)" />
       <NativeLibrary Include="$(IlcPath)/framework/System.Security.Cryptography.Native.Apple$(NativeLibraryExtension)" Condition="'$(TargetOS)' == 'OSX'"/>
       <NativeLibrary Include="$(IlcPath)/framework/System.Security.Cryptography.Native.OpenSsl$(NativeLibraryExtension)" Condition="'$(TargetOS)' != 'OSX'"/>
@@ -82,13 +88,13 @@ See the LICENSE file in the project root for more information.
       <LinkerArg Include="-g" />
       <LinkerArg Include="-Wl,-rpath,'$ORIGIN'" />
       <LinkerArg Include="-Wl,--as-needed" Condition="'$(TargetOS)' != 'OSX'" />
-      <LinkerArg Include="-pthread" />
+      <LinkerArg Include="-pthread" Condition="'$(TargetOS)' != 'OSX'" />
       <LinkerArg Include="-lstdc++" />
       <LinkerArg Include="-ldl" />
       <LinkerArg Include="-lm" />
-      <LinkerArg Include="-lcurl" />
       <LinkerArg Include="-lz" />
-      <LinkerArg Include="-lgssapi_krb5" Condition="'$(TargetOS)' != 'OSX'" />
+      <LinkerArg Include="-static" Condition="'$(StaticallyLinked)' == 'true'" />
+      <LinkerArg Include="-lgssapi_krb5" Condition="'$(TargetOS)' != 'OSX' and '$(StaticallyLinked)' != 'true'" />
       <LinkerArg Include="-lrt" Condition="'$(TargetOS)' != 'OSX'" />
       <LinkerArg Include="-licucore" Condition="'$(TargetOS)' == 'OSX'" />
       <LinkerArg Include="-dynamiclib" Condition="'$(TargetOS)' == 'OSX' and '$(NativeLib)' == 'Shared'" />

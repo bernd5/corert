@@ -21,7 +21,7 @@ namespace ILCompiler.DependencyAnalysis
     /// <summary>
     /// Object writer using src/Native/ObjWriter
     /// </summary>
-    internal class ObjectWriter : IDisposable, ITypesDebugInfoWriter
+    public class ObjectWriter : IDisposable, ITypesDebugInfoWriter
     {
         // This is used to build mangled names
         private Utf8StringBuilder _sb = new Utf8StringBuilder();
@@ -67,6 +67,7 @@ namespace ILCompiler.DependencyAnalysis
 
         // Nodefactory for which ObjectWriter is instantiated for.
         private NodeFactory _nodeFactory;
+        private readonly bool _isSingleFileCompilation;
 
         // Unix section containing LSDA data, like EH Info and GC Info
         public static readonly ObjectNodeSection LsdaSection = new ObjectNodeSection(".corert_eh_table", SectionType.ReadOnly);
@@ -78,7 +79,7 @@ namespace ILCompiler.DependencyAnalysis
 #endif
 
         [DllImport(NativeObjectWriterFileName)]
-        private static extern IntPtr InitObjWriter(string objectFilePath);
+        private static extern IntPtr InitObjWriter(string objectFilePath, string triple = null);
 
         [DllImport(NativeObjectWriterFileName)]
         private static extern void FinishObjWriter(IntPtr objWriter);
@@ -180,14 +181,14 @@ namespace ILCompiler.DependencyAnalysis
         }
 
         [DllImport(NativeObjectWriterFileName)]
-        private static extern void EmitSymbolDef(IntPtr objWriter, byte[] symbolName);
-        public void EmitSymbolDef(byte[] symbolName)
+        private static extern void EmitSymbolDef(IntPtr objWriter, byte[] symbolName, int global);
+        public void EmitSymbolDef(byte[] symbolName, bool global = false)
         {
-            EmitSymbolDef(_nativeObjectWriter, symbolName);
+            EmitSymbolDef(_nativeObjectWriter, symbolName, global ? 1 : 0);
         }
-        public void EmitSymbolDef(Utf8StringBuilder symbolName)
+        public void EmitSymbolDef(Utf8StringBuilder symbolName, bool global = false)
         {
-            EmitSymbolDef(_nativeObjectWriter, symbolName.Append('\0').UnderlyingArray);
+            EmitSymbolDef(_nativeObjectWriter, symbolName.Append('\0').UnderlyingArray, global ? 1 : 0);
         }
 
         [DllImport(NativeObjectWriterFileName)]
@@ -523,10 +524,12 @@ namespace ILCompiler.DependencyAnalysis
                 
                 _sb.Clear().Append(_nodeFactory.NameMangler.CompilationUnitPrefix).Append("_unwind").Append(i.ToStringInvariant());
 
-                ObjectNodeSection section = ObjectNodeSection.XDataSection;
-                SwitchSection(_nativeObjectWriter, section.Name);
-
                 byte[] blobSymbolName = _sb.Append(_currentNodeZeroTerminatedName).ToUtf8String().UnderlyingArray;
+
+                ObjectNodeSection section = ObjectNodeSection.XDataSection;
+                if (ShouldShareSymbol(node))
+                    section = GetSharedSection(section, _sb.ToString());
+                SwitchSection(_nativeObjectWriter, section.Name, GetCustomSectionAttributes(section), section.ComdatName);
 
                 EmitAlignment(4);
                 EmitSymbolDef(blobSymbolName);
@@ -695,12 +698,10 @@ namespace ILCompiler.DependencyAnalysis
 
         public void EmitCFICodes(int offset)
         {
-            bool forArm = (_targetPlatform.Architecture == TargetArchitecture.ARMEL || _targetPlatform.Architecture == TargetArchitecture.ARM);
-
             // Emit end the old frame before start a frame.
             if (_offsetToCfiEnd.Contains(offset))
             {
-                if (forArm)
+                if (_targetPlatform.Architecture == TargetArchitecture.ARM)
                     EmitARMFnEnd();
                 else
                     EmitCFIEnd(offset);
@@ -708,7 +709,7 @@ namespace ILCompiler.DependencyAnalysis
 
             if (_offsetToCfiStart.Contains(offset))
             {
-                if (forArm)
+                if (_targetPlatform.Architecture == TargetArchitecture.ARM)
                     EmitARMFnStart();
                 else
                     EmitCFIStart(offset);
@@ -716,7 +717,7 @@ namespace ILCompiler.DependencyAnalysis
                 byte[] blobSymbolName;
                 if (_offsetToCfiLsdaBlobName.TryGetValue(offset, out blobSymbolName))
                 {
-                    if (forArm)
+                    if (_targetPlatform.Architecture == TargetArchitecture.ARM)
                         EmitARMExIdxLsda(blobSymbolName);
                     else
                         EmitCFILsda(blobSymbolName);
@@ -733,18 +734,13 @@ namespace ILCompiler.DependencyAnalysis
             List<byte[]> cfis;
             if (_offsetToCfis.TryGetValue(offset, out cfis))
             {
-                if (forArm)
+                foreach (byte[] cfi in cfis)
                 {
-                    // Unwind insts are generated in the object file in the reversed order on arm,
-                    // so we should reverse the cfi list
-                    for (int index = cfis.Count - 1; index >= 0; index--)
+                    if (_targetPlatform.Architecture == TargetArchitecture.ARM)
                     {
-                        EmitARMExIdxCode(offset, cfis[index]);
+                        EmitARMExIdxCode(offset, cfi);
                     }
-                }
-                else
-                {
-                    foreach (byte[] cfi in cfis)
+                    else
                     {
                         EmitCFICode(offset, cfi);
                     }
@@ -866,7 +862,12 @@ namespace ILCompiler.DependencyAnalysis
                     AppendExternCPrefix(_sb);
                     name.AppendMangledName(_nodeFactory.NameMangler, _sb);
 
-                    EmitSymbolDef(_sb);
+                    // Emit all symbols as global on Windows because they matter only for the PDB.
+                    // Emit all symbols as global in multifile builds so that object files can
+                    // link against each other.
+                    bool isGlobal = _nodeFactory.Target.IsWindows || !_isSingleFileCompilation;
+
+                    EmitSymbolDef(_sb, isGlobal);
 
                     string alternateName = _nodeFactory.GetSymbolAlternateName(name);
                     if (alternateName != null)
@@ -875,7 +876,7 @@ namespace ILCompiler.DependencyAnalysis
                         AppendExternCPrefix(_sb);
                         _sb.Append(alternateName);
 
-                        EmitSymbolDef(_sb);
+                        EmitSymbolDef(_sb, global: true);
                     }
                 }
             }
@@ -885,13 +886,16 @@ namespace ILCompiler.DependencyAnalysis
 
         public ObjectWriter(string objectFilePath, NodeFactory factory)
         {
-            _nativeObjectWriter = InitObjWriter(objectFilePath);
+            var triple = GetLLVMTripleFromTarget(factory.Target);
+
+            _nativeObjectWriter = InitObjWriter(objectFilePath, triple);
             if (_nativeObjectWriter == IntPtr.Zero)
             {
                 throw new IOException("Fail to initialize Native Object Writer");
             }
             _nodeFactory = factory;
             _targetPlatform = _nodeFactory.Target;
+            _isSingleFileCompilation = _nodeFactory.CompilationModuleGroup.IsSingleFileCompilation;
             _userDefinedTypeDescriptor = new UserDefinedTypeDescriptor(this, factory);
         }
 
@@ -924,7 +928,14 @@ namespace ILCompiler.DependencyAnalysis
 
         private bool ShouldShareSymbol(ObjectNode node)
         {
-            if (_nodeFactory.CompilationModuleGroup.IsSingleFileCompilation)
+            // Foldable sections are always COMDATs
+            ObjectNodeSection section = node.Section;
+            if (section == ObjectNodeSection.FoldableManagedCodeUnixContentSection ||
+                section == ObjectNodeSection.FoldableManagedCodeWindowsContentSection ||
+                section == ObjectNodeSection.FoldableReadOnlyDataSection)
+                return true;
+
+            if (_isSingleFileCompilation)
                 return false;
 
             if (_targetPlatform.OperatingSystem == TargetOS.OSX)
@@ -969,27 +980,13 @@ namespace ILCompiler.DependencyAnalysis
                 ObjectNodeSection managedCodeSection;
                 if (factory.Target.OperatingSystem == TargetOS.Windows)
                 {
-                    managedCodeSection = MethodCodeNode.WindowsContentSection;
-
-                    // Emit sentinels for managed code section.
-                    ObjectNodeSection codeStartSection = factory.CompilationModuleGroup.IsSingleFileCompilation ?
-                                                            MethodCodeNode.StartSection :
-                                                            objectWriter.GetSharedSection(MethodCodeNode.StartSection, "__managedcode_a");
-                    objectWriter.SetSection(codeStartSection);
-                    objectWriter.EmitSymbolDef(new Utf8StringBuilder().Append("__managedcode_a"));
-                    objectWriter.EmitIntValue(0, 1);
-                    ObjectNodeSection codeEndSection = factory.CompilationModuleGroup.IsSingleFileCompilation ?
-                                                            MethodCodeNode.EndSection :
-                                                            objectWriter.GetSharedSection(MethodCodeNode.EndSection, "__managedcode_z");
-                    objectWriter.SetSection(codeEndSection);
-                    objectWriter.EmitSymbolDef(new Utf8StringBuilder().Append("__managedcode_z"));
-                    objectWriter.EmitIntValue(1, 1);
+                    managedCodeSection = ObjectNodeSection.ManagedCodeWindowsContentSection;
                 }
                 else
                 {
-                    managedCodeSection = MethodCodeNode.UnixContentSection;
+                    managedCodeSection = ObjectNodeSection.ManagedCodeUnixContentSection;
                     // TODO 2916: managed code section has to be created here, switch is not necessary.
-                    objectWriter.SetSection(MethodCodeNode.UnixContentSection);
+                    objectWriter.SetSection(ObjectNodeSection.ManagedCodeUnixContentSection);
                     objectWriter.SetSection(LsdaSection);
                 }
                 objectWriter.SetCodeSectionAttribute(managedCodeSection);
@@ -1047,7 +1044,7 @@ namespace ILCompiler.DependencyAnalysis
                     // The DWARF CFI unwind is implemented for AMD64 & ARM32 only.
                     TargetArchitecture tarch = factory.Target.Architecture;
                     if (!factory.Target.IsWindows &&
-                        (tarch == TargetArchitecture.X64 || tarch == TargetArchitecture.ARMEL || tarch == TargetArchitecture.ARM))
+                        (tarch == TargetArchitecture.X64 || tarch == TargetArchitecture.ARM))
                         objectWriter.BuildCFIMap(factory, node);
 
                     // Build debug location map
@@ -1207,6 +1204,69 @@ namespace ILCompiler.DependencyAnalysis
         uint ITypesDebugInfoWriter.GetMemberFunctionId(MemberFunctionIdTypeDescriptor memberIdDescriptor)
         {
             return GetMemberFunctionIdTypeIndex(_nativeObjectWriter, memberIdDescriptor);
+        }
+
+        private static string GetLLVMTripleFromTarget(TargetDetails target)
+        {
+            // We create a triple based on the Target
+            // See https://clang.llvm.org/docs/CrossCompilation.html#target-triple
+            // Detect the LLVM arch
+            string arch;
+            // Not used
+            string sub = string.Empty;
+            switch (target.Architecture)
+            {
+                case TargetArchitecture.ARM:
+                    arch = "thumbv7";
+                    break;
+                case TargetArchitecture.ARM64:
+                    arch = "aarch64";
+                    break;
+                case TargetArchitecture.X64:
+                    arch = "x86_64";
+                    break;
+                case TargetArchitecture.X86:
+                    arch = "x86";
+                    break;
+                case TargetArchitecture.Wasm32:
+                    arch = "wasm32";
+                    break;
+                default:
+                    throw new InvalidOperationException($"The architecture `{target.Architecture}` is not supported by ObjectWriter");
+            }
+
+            string vendor;
+            string sys;
+            string abi;
+            switch (target.OperatingSystem)
+            {
+                case TargetOS.Windows:
+                    vendor = "pc";
+                    sys = "win32";
+                    abi = "windows";
+                    break;
+                case TargetOS.Linux:
+                case TargetOS.FreeBSD:
+                case TargetOS.NetBSD:
+                    vendor = "pc";
+                    sys = "linux";
+                    abi = "elf";
+                    break;
+                case TargetOS.OSX:
+                    vendor = "apple";
+                    sys = "darwin";
+                    abi = "macho";
+                    break;
+                case TargetOS.WebAssembly:
+                    vendor = "unknown";
+                    sys = "unknown";
+                    abi = "wasm";
+                    break;
+                default:
+                    throw new InvalidOperationException($"The operating system `{target.OperatingSystem}` is not supported by ObjectWriter");
+            }
+
+            return $"{arch}{sub}-{vendor}-{sys}-{abi}";
         }
     }
 }

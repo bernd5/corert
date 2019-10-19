@@ -14,6 +14,14 @@ using System.Runtime.CompilerServices;
 using System.Diagnostics;
 using System.Security;
 using Internal.Runtime.Augments;
+using Internal.Runtime.CompilerServices;
+using Internal.Runtime;
+
+#if BIT64
+using nuint = System.UInt64;
+#else
+using nuint = System.UInt32;
+#endif
 
 namespace System
 {
@@ -391,7 +399,7 @@ namespace System
         // Block until the next finalization pass is complete.
         public static void WaitForPendingFinalizers()
         {
-            RuntimeImports.RhWaitForPendingFinalizers(RuntimeThread.ReentrantWaitsEnabled);
+            RuntimeImports.RhWaitForPendingFinalizers(Thread.ReentrantWaitsEnabled);
         }
 
         public static void SuppressFinalize(object obj)
@@ -627,24 +635,80 @@ namespace System
             return size;
         }
 
+        private static IntPtr _RegisterFrozenSegment(IntPtr sectionAddress, IntPtr sectionSize)
+        {
+            return RuntimeImports.RhpRegisterFrozenSegment(sectionAddress, sectionSize);
+        }
+
+        private static void _UnregisterFrozenSegment(IntPtr segmentHandle)
+        {
+            RuntimeImports.RhpUnregisterFrozenSegment(segmentHandle);
+        }
+
         public static long GetAllocatedBytesForCurrentThread()
         {
             return RuntimeImports.RhGetAllocatedBytesForCurrentThread();
         }
 
-        internal static void GetMemoryInfo(out uint highMemLoadThreshold,
-                                           out ulong totalPhysicalMem,
-                                           out uint lastRecordedMemLoad,
-                                           // The next two are size_t
-                                           out UIntPtr lastRecordedHeapSize,
-                                           out UIntPtr lastRecordedFragmentation)
+        public static long GetTotalAllocatedBytes(bool precise = false)
         {
-            // TODO: https://github.com/dotnet/corert/issues/5680
-            highMemLoadThreshold = default;
-            totalPhysicalMem = default;
-            lastRecordedMemLoad = default;
-            lastRecordedHeapSize = default;
-            lastRecordedFragmentation = default;
+            return precise ? RuntimeImports.RhGetTotalAllocatedBytesPrecise() : RuntimeImports.RhGetTotalAllocatedBytes();
+        }
+
+        public static GCMemoryInfo GetGCMemoryInfo()
+        {
+            RuntimeImports.RhGetMemoryInfo(out ulong highMemLoadThresholdBytes,
+                                           out ulong totalAvailableMemoryBytes,
+                                           out ulong lastRecordedMemLoadBytes,
+                                           out uint _,
+                                           out UIntPtr lastRecordedHeapSizeBytes,
+                                           out UIntPtr lastRecordedFragmentationBytes);
+
+            return new GCMemoryInfo(highMemoryLoadThresholdBytes: (long)highMemLoadThresholdBytes,
+                                    memoryLoadBytes: (long)lastRecordedMemLoadBytes,
+                                    totalAvailableMemoryBytes: (long)totalAvailableMemoryBytes,
+                                    heapSizeBytes: (long)(ulong)lastRecordedHeapSizeBytes,
+                                    fragmentedBytes: (long)(ulong)lastRecordedFragmentationBytes);
+        }
+
+        internal static ulong GetSegmentSize()
+        {
+            return RuntimeImports.RhGetGCSegmentSize();
+        }
+
+        internal static unsafe T[] AllocateUninitializedArray<T>(int length)
+        {
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                return new T[length];
+            }
+
+            if (length < 0)
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.lengths, 0, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
+#if DEBUG
+            // in DEBUG arrays of any length can be created uninitialized
+#else
+            // otherwise small arrays are allocated using `new[]` as that is generally faster.
+            //
+            // The threshold was derived from various simulations. 
+            // As it turned out the threshold depends on overal pattern of all allocations and is typically in 200-300 byte range.
+            // The gradient around the number is shallow (there is no perf cliff) and the exact value of the threshold does not matter a lot.
+            // So it is 256 bytes including array header.
+            if (Unsafe.SizeOf<T>() * length < 256 - 3 * IntPtr.Size)
+            {
+                return new T[length];
+            }
+#endif
+
+            var pEEType = EETypePtr.EETypePtrOf<T[]>();
+
+            T[] array = null;
+            RuntimeImports.RhAllocateUninitializedArray(pEEType.RawValue, (uint)length, Unsafe.AsPointer(ref array));
+
+            if (array == null)
+                throw new OutOfMemoryException();
+
+            return array;
         }
     }
 }
