@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 
@@ -62,10 +61,27 @@ namespace ILCompiler
 
                         ILEmitter emitter = new ILEmitter();
                         ILCodeStream codeStream = emitter.NewCodeStream();
+
+                        FieldDesc defaultField = methodDef.OwningType.InstantiateAsOpen().GetField("s_default");
+
+                        TypeDesc objectType = context.GetWellKnownType(WellKnownType.Object);
+                        MethodDesc compareExchangeObject = context.SystemModule.
+                            GetType("System.Threading", "Interlocked").
+                                GetMethod("CompareExchange",
+                                    new MethodSignature(
+                                        MethodSignatureFlags.Static,
+                                        genericParameterCount: 0,
+                                        returnType: objectType,
+                                        parameters: new TypeDesc[] { objectType.MakeByRefType(), objectType, objectType }));
+
+                        codeStream.Emit(ILOpcode.ldsflda, emitter.NewToken(defaultField));
                         codeStream.Emit(ILOpcode.newobj, emitter.NewToken(comparerType.MakeInstantiatedType(context.GetSignatureVariable(0, method: false)).GetDefaultConstructor()));
-                        codeStream.Emit(ILOpcode.dup);
-                        codeStream.Emit(ILOpcode.stsfld, emitter.NewToken(methodDef.OwningType.InstantiateAsOpen().GetField("_default")));
+                        codeStream.Emit(ILOpcode.ldnull);
+                        codeStream.Emit(ILOpcode.call, emitter.NewToken(compareExchangeObject));
+                        codeStream.Emit(ILOpcode.pop);
+                        codeStream.Emit(ILOpcode.ldsfld, emitter.NewToken(defaultField));
                         codeStream.Emit(ILOpcode.ret);
+
                         return new InstantiatedMethodIL(method, emitter.Link(methodDef));
                     }
 
@@ -167,6 +183,12 @@ namespace ILCompiler
                     {
                         return RemoveAction.ConvertToThrow;
                     }
+
+                    // Make sure that there are no ICU dependencies left
+                    if (method.IsPInvoke && method.GetPInvokeMethodMetadata().Module == "libSystem.Globalization.Native")
+                    {
+                        return RemoveAction.ConvertToThrow;
+                    }
                 }
             }
 
@@ -184,12 +206,22 @@ namespace ILCompiler
                 }
             }
 
-            if ((_removedFeature & RemovedFeature.CurlHandler) != 0)
+            if ((_removedFeature & RemovedFeature.SerializationGuard) != 0)
+            {               
+                if (method.Name == "ThrowIfDeserializationInProgress" &&
+                    owningType is Internal.TypeSystem.Ecma.EcmaType mdType &&
+                    mdType.Namespace == "System.Runtime.Serialization" &&
+                    (mdType.Name == ((mdType.Module != method.Context.SystemModule) ? "SerializationGuard" : "SerializationInfo")))
+                {
+                    return RemoveAction.ConvertToStub;
+                }
+            }
+
+            if ((_removedFeature & RemovedFeature.XmlDownloadNonFileStream) != 0)
             {
-                if (owningType is Internal.TypeSystem.Ecma.EcmaType mdType
-                    && mdType.Module.Assembly.GetName().Name == "System.Net.Http"
-                    && mdType.Name == "CurlHandler"
-                    && mdType.Namespace == "System.Net.Http")
+                if ((method.Name == "GetNonFileStream" || method.Name == "GetNonFileStreamAsync") &&
+                    owningType is Internal.TypeSystem.Ecma.EcmaType mdType &&
+                    mdType.Namespace == "System.Xml" && mdType.Name == "XmlDownloadManager")
                 {
                     return RemoveAction.ConvertToThrow;
                 }
@@ -246,6 +278,7 @@ namespace ILCompiler
         FrameworkResources = 0x2,
         Globalization = 0x4,
         Comparers = 0x8,
-        CurlHandler = 0x10,
+        SerializationGuard = 0x10,
+        XmlDownloadNonFileStream = 0x20,
     }
 }

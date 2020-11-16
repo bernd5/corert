@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using Microsoft.Win32.SafeHandles;
 using System.Diagnostics;
@@ -27,9 +26,7 @@ namespace System.Threading
 
         private ApartmentState _initialApartmentState = ApartmentState.Unknown;
 
-#if !PROJECTN
         private volatile static bool s_comInitializedOnFinalizerThread;
-#endif
 
         private void PlatformSpecificInitialize()
         {
@@ -233,7 +230,7 @@ namespace System.Threading
         /// <summary>
         /// This is an entry point for managed threads created by application
         /// </summary>
-        [NativeCallable(CallingConvention = CallingConvention.StdCall)]
+        [UnmanagedCallersOnly(CallingConvention = CallingConvention.StdCall)]
         private static uint ThreadEntryPoint(IntPtr parameter)
         {
             StartThread(parameter);
@@ -302,9 +299,7 @@ namespace System.Threading
             // Prevent re-initialization of COM model on finalizer thread
             t_comState |= ComState.Locked;
 
-#if !PROJECTN
             s_comInitializedOnFinalizerThread = true;
-#endif
         }
 
         private static void InitializeCom(ApartmentState state = ApartmentState.MTA)
@@ -484,6 +479,7 @@ namespace System.Threading
             Locked = 2,
         }
 
+        // TODO: Use GetCurrentProcessorNumberEx for NUMA
         private static int ComputeCurrentProcessorId() => (int)Interop.mincore.GetCurrentProcessorNumber();
     }
 }

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -36,7 +35,8 @@ namespace ILCompiler.DependencyAnalysis
             LazyGenericsPolicy lazyGenericsPolicy,
             VTableSliceProvider vtableSliceProvider,
             DictionaryLayoutProvider dictionaryLayoutProvider,
-            ImportedNodeProvider importedNodeProvider)
+            ImportedNodeProvider importedNodeProvider,
+            PreinitializationManager preinitializationManager)
         {
             _target = context.Target;
             _context = context;
@@ -50,6 +50,7 @@ namespace ILCompiler.DependencyAnalysis
             LazyGenericsPolicy = lazyGenericsPolicy;
             _importedNodeProvider = importedNodeProvider;
             InterfaceDispatchCellSection = new InterfaceDispatchCellSectionNode(this);
+            PreinitializationManager = preinitializationManager;
         }
 
         public void SetMarkingComplete()
@@ -94,6 +95,11 @@ namespace ILCompiler.DependencyAnalysis
             get;
         }
 
+        public PreinitializationManager PreinitializationManager
+        {
+            get;
+        }
+
         public InteropStubManager InteropStubManager
         {
             get;
@@ -111,9 +117,9 @@ namespace ILCompiler.DependencyAnalysis
         /// The implementation here is not intended to be complete, but represents many conditions
         /// which make a type ineligible to be an EEType. (This function is intended for use in assertions only)
         /// </summary>
-        private static bool TypeCannotHaveEEType(TypeDesc type)
+        private bool TypeCannotHaveEEType(TypeDesc type)
         {
-            if (type.GetTypeDefinition() is INonEmittableType)
+            if (!IsCppCodegenTemporaryWorkaround && type.GetTypeDefinition() is INonEmittableType)
                 return true;
 
             if (type.IsRuntimeDeterminedSubtype)
@@ -179,7 +185,7 @@ namespace ILCompiler.DependencyAnalysis
             {
                 if (_compilationModuleGroup.ContainsType(type) && !_compilationModuleGroup.ShouldReferenceThroughImportTable(type))
                 {
-                    return new NonGCStaticsNode(type, this);
+                    return new NonGCStaticsNode(type, PreinitializationManager);
                 }
                 else
                 {
@@ -191,7 +197,7 @@ namespace ILCompiler.DependencyAnalysis
             {
                 if (_compilationModuleGroup.ContainsType(type) && !_compilationModuleGroup.ShouldReferenceThroughImportTable(type))
                 {
-                    return new GCStaticsNode(type);
+                    return new GCStaticsNode(type, PreinitializationManager);
                 }
                 else
                 {
@@ -228,6 +234,11 @@ namespace ILCompiler.DependencyAnalysis
             _readOnlyDataBlobs = new NodeCache<ReadOnlyDataBlobKey, BlobNode>(key =>
             {
                 return new BlobNode(key.Name, ObjectNodeSection.ReadOnlyDataSection, key.Data, key.Alignment);
+            });
+
+            _uninitializedWritableDataBlobs = new NodeCache<UninitializedWritableDataBlobKey, BlobNode>(key =>
+            {
+                return new BlobNode(key.Name, ObjectNodeSection.BssSection, new byte[key.Size], key.Alignment);
             });
 
             _externSymbols = new NodeCache<string, ExternSymbolNode>((string name) =>
@@ -317,9 +328,9 @@ namespace ILCompiler.DependencyAnalysis
                 return new FrozenStringNode(data, Target);
             });
 
-            _frozenArrayNodes = new NodeCache<PreInitFieldInfo, FrozenArrayNode>((PreInitFieldInfo fieldInfo) =>
+            _frozenObjectNodes = new NodeCache<SerializedFrozenObjectKey, FrozenObjectNode>(key =>
             {
-                return new FrozenArrayNode(fieldInfo);
+                return new FrozenObjectNode(key.Owner, key.SerializableObject);
             });
 
             _interfaceDispatchCells = new NodeCache<DispatchCellKey, InterfaceDispatchCellNode>(callSiteCell =>
@@ -360,7 +371,7 @@ namespace ILCompiler.DependencyAnalysis
             _eagerCctorIndirectionNodes = new NodeCache<MethodDesc, EmbeddedObjectNode>((MethodDesc method) =>
             {
                 Debug.Assert(method.IsStaticConstructor);
-                Debug.Assert(TypeSystemContext.HasEagerStaticConstructor((MetadataType)method.OwningType));
+                Debug.Assert(PreinitializationManager.HasEagerStaticConstructor((MetadataType)method.OwningType));
                 return EagerCctorTable.NewNode(MethodEntrypoint(method));
             });
 
@@ -610,7 +621,7 @@ namespace ILCompiler.DependencyAnalysis
 
         private NodeCache<MetadataType, TypeThreadStaticIndexNode> _typeThreadStaticIndices;
 
-        public ISymbolNode TypeThreadStaticIndex(MetadataType type)
+        public ISortableSymbolNode TypeThreadStaticIndex(MetadataType type)
         {
             if (_compilationModuleGroup.ContainsType(type))
             {
@@ -650,13 +661,19 @@ namespace ILCompiler.DependencyAnalysis
             return _GCStaticEETypes.GetOrAdd(gcMap);
         }
 
+        private NodeCache<UninitializedWritableDataBlobKey, BlobNode> _uninitializedWritableDataBlobs;
+
+        public BlobNode UninitializedWritableDataBlob(Utf8String name, int size, int alignment)
+        {
+            return _uninitializedWritableDataBlobs.GetOrAdd(new UninitializedWritableDataBlobKey(name, size, alignment));
+        }
+
         private NodeCache<ReadOnlyDataBlobKey, BlobNode> _readOnlyDataBlobs;
 
         public BlobNode ReadOnlyDataBlob(Utf8String name, byte[] blobData, int alignment)
         {
             return _readOnlyDataBlobs.GetOrAdd(new ReadOnlyDataBlobKey(name, blobData, alignment));
         }
-
         private NodeCache<TypeDesc, SealedVTableNode> _sealedVtableNodes;
 
         internal SealedVTableNode SealedVTable(TypeDesc type)
@@ -868,20 +885,6 @@ namespace ILCompiler.DependencyAnalysis
             }
         }
 
-        private TypeDesc _systemICastableType;
-
-        public TypeDesc ICastableInterface
-        {
-            get
-            {
-                if (_systemICastableType == null)
-                {
-                    _systemICastableType = _context.SystemModule.GetKnownType("System.Runtime.CompilerServices", "ICastable");
-                }
-                return _systemICastableType;
-            }
-        }
-
         private NodeCache<MethodDesc, VirtualMethodUseNode> _virtMethods;
 
         public DependencyNodeCore<NodeFactory> VirtualMethodUse(MethodDesc decl)
@@ -971,11 +974,11 @@ namespace ILCompiler.DependencyAnalysis
             return _frozenStringNodes.GetOrAdd(data);
         }
 
-        private NodeCache<PreInitFieldInfo, FrozenArrayNode> _frozenArrayNodes;
+        private NodeCache<SerializedFrozenObjectKey, FrozenObjectNode> _frozenObjectNodes;
 
-        public FrozenArrayNode SerializedFrozenArray(PreInitFieldInfo preInitFieldInfo)
+        public FrozenObjectNode SerializedFrozenObject(FieldDesc owningField, TypePreinit.ISerializableReference data)
         {
-            return _frozenArrayNodes.GetOrAdd(preInitFieldInfo);
+            return _frozenObjectNodes.GetOrAdd(new SerializedFrozenObjectKey(owningField, data));
         }
 
         private NodeCache<MethodDesc, EmbeddedObjectNode> _eagerCctorIndirectionNodes;
@@ -1192,6 +1195,43 @@ namespace ILCompiler.DependencyAnalysis
             public bool Equals(ReadOnlyDataBlobKey other) => Name.Equals(other.Name);
             public override bool Equals(object obj) => obj is ReadOnlyDataBlobKey && Equals((ReadOnlyDataBlobKey)obj);
             public override int GetHashCode() => Name.GetHashCode();
+        }
+
+        protected struct UninitializedWritableDataBlobKey : IEquatable<UninitializedWritableDataBlobKey>
+        {
+            public readonly Utf8String Name;
+            public readonly int Size;
+            public readonly int Alignment;
+
+            public UninitializedWritableDataBlobKey(Utf8String name, int size, int alignment)
+            {
+                Name = name;
+                Size = size;
+                Alignment = alignment;
+            }
+
+            // The assumption here is that the name of the blob is unique.
+            // We can't emit two blobs with the same name and different contents.
+            // The name is part of the symbolic name and we don't do any mangling on it.
+            public bool Equals(UninitializedWritableDataBlobKey other) => Name.Equals(other.Name);
+            public override bool Equals(object obj) => obj is UninitializedWritableDataBlobKey && Equals((UninitializedWritableDataBlobKey)obj);
+            public override int GetHashCode() => Name.GetHashCode();
+        }
+
+        protected struct SerializedFrozenObjectKey : IEquatable<SerializedFrozenObjectKey>
+        {
+            public readonly FieldDesc Owner;
+            public readonly TypePreinit.ISerializableReference SerializableObject;
+
+            public SerializedFrozenObjectKey(FieldDesc owner, TypePreinit.ISerializableReference obj)
+            {
+                Owner = owner;
+                SerializableObject = obj;
+            }
+
+            public override bool Equals(object obj) => obj is SerializedFrozenObjectKey && Equals((SerializedFrozenObjectKey)obj);
+            public bool Equals(SerializedFrozenObjectKey other) => Owner == other.Owner;
+            public override int GetHashCode() => Owner.GetHashCode();
         }
     }
 }

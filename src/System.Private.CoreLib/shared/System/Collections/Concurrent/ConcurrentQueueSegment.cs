@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #nullable enable
 using System.Diagnostics;
@@ -112,18 +111,7 @@ namespace System.Collections.Concurrent
             if (!_frozenForEnqueues) // flag used to ensure we don't increase the Tail more than once if frozen more than once
             {
                 _frozenForEnqueues = true;
-
-                // Increase the tail by FreezeOffset, spinning until we're successful in doing so.
-                int tail = _headAndTail.Tail;
-                while (true)
-                {
-                    int oldTail = Interlocked.CompareExchange(ref _headAndTail.Tail, tail + FreezeOffset, tail);
-                    if (oldTail == tail)
-                    {
-                        break;
-                    }
-                    tail = oldTail;
-                }
+                Interlocked.Add(ref _headAndTail.Tail, FreezeOffset);
             }
         }
 
@@ -133,7 +121,7 @@ namespace System.Collections.Concurrent
             Slot[] slots = _slots;
 
             // Loop in case of contention...
-            var spinner = new SpinWait();
+            SpinWait spinner = default;
             while (true)
             {
                 // Get the head at which to try to dequeue.
@@ -160,7 +148,7 @@ namespace System.Collections.Concurrent
                     {
                         // Successfully reserved the slot.  Note that after the above CompareExchange, other threads
                         // trying to dequeue from this slot will end up spinning until we do the subsequent Write.
-                        item = slots[slotsIndex].Item;
+                        item = slots[slotsIndex].Item!;
                         if (!Volatile.Read(ref _preservedForObservation))
                         {
                             // If we're preserving, though, we don't zero out the slot, as we need it for
@@ -215,7 +203,7 @@ namespace System.Collections.Concurrent
             Slot[] slots = _slots;
 
             // Loop in case of contention...
-            var spinner = new SpinWait();
+            SpinWait spinner = default;
             while (true)
             {
                 // Get the head at which to try to peek.
@@ -230,7 +218,7 @@ namespace System.Collections.Concurrent
                 int diff = sequenceNumber - (currentHead + 1);
                 if (diff == 0)
                 {
-                    result = resultUsed ? slots[slotsIndex].Item : default!;
+                    result = resultUsed ? slots[slotsIndex].Item! : default!;
                     return true;
                 }
                 else if (diff < 0)
@@ -270,7 +258,7 @@ namespace System.Collections.Concurrent
             Slot[] slots = _slots;
 
             // Loop in case of contention...
-            var spinner = new SpinWait();
+            SpinWait spinner = default;
             while (true)
             {
                 // Get the tail at which to try to return.

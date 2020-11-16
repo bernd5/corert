@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 //
 // Unmanaged GC memory helpers
@@ -118,11 +117,6 @@ COOP_PINVOKE_HELPER(void, RhBulkMoveWithWriteBarrier, (uint8_t* pDest, uint8_t* 
         InlineBackwardGCSafeCopy(pDest, pSrc, cbDest);
 
     InlinedBulkWriteBarrier(pDest, cbDest);
-}
-
-void GCSafeZeroMemory(void * dest, size_t len)
-{
-    InlineGCSafeFillMemory(dest, len, 0);
 }
 
 void GCSafeCopyMemoryWithWriteBarrier(void * dest, const void *src, size_t len)

@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using Internal.Runtime;
 using Internal.Text;
@@ -44,12 +43,8 @@ namespace ILCompiler.DependencyAnalysis
             dataBuilder.AddSymbol(this);
             EETypeRareFlags rareFlags = 0;
 
-            short flags = (short)EETypeKind.GenericTypeDefEEType;
-            if (_type.IsValueType)
-                flags |= (short)EETypeFlags.ValueTypeFlag;
-            if (_type.IsInterface)
-                flags |= (short)EETypeFlags.IsInterfaceFlag;
-            if (factory.TypeSystemContext.HasLazyStaticConstructor(_type))
+            ushort flags = EETypeBuilderHelpers.ComputeFlags(_type);
+            if (factory.PreinitializationManager.HasLazyStaticConstructor(_type))
                 rareFlags = rareFlags | EETypeRareFlags.HasCctorFlag;
             if (_type.IsByRefLike)
                 rareFlags |= EETypeRareFlags.IsByRefLikeFlag;
@@ -58,23 +53,18 @@ namespace ILCompiler.DependencyAnalysis
                 _optionalFieldsBuilder.SetFieldValue(EETypeOptionalFieldTag.RareFlags, (uint)rareFlags);
 
             if (HasOptionalFields)
-                flags |= (short)EETypeFlags.OptionalFieldsFlag;
-
-            if (_type.IsEnum)
-                flags |= (short)EETypeBuilderHelpers.ComputeElementTypeFlags(_type);
+                flags |= (ushort)EETypeFlags.OptionalFieldsFlag;
 
             dataBuilder.EmitShort((short)_type.Instantiation.Length);
-            dataBuilder.EmitShort(flags);
+            dataBuilder.EmitUShort(flags);
             dataBuilder.EmitInt(0);         // Base size is always 0
             dataBuilder.EmitZeroPointer();  // No related type
             dataBuilder.EmitShort(0);       // No VTable
             dataBuilder.EmitShort(0);       // No interface map
             dataBuilder.EmitInt(_type.GetHashCode());
-            dataBuilder.EmitPointerReloc(factory.TypeManagerIndirection);
-            if (HasOptionalFields)
-            {
-                dataBuilder.EmitPointerReloc(_optionalFieldsNode);
-            }
+            OutputTypeManagerIndirection(factory, ref dataBuilder);
+            OutputWritableData(factory, ref dataBuilder);
+            OutputOptionalFields(factory, ref dataBuilder);
 
             return dataBuilder.ToObjectData();
         }

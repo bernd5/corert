@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 // -----------------------------------------------------------------------------------------------------------
 // Support for emitting debug events with particular payloads that a managed-aware debugger can listen for.
 // The events are generated using 1st chance SEH exceptions that the debugger should immediately continue
@@ -20,14 +19,11 @@ typedef UInt64 CORDB_ADDRESS;
 #ifndef DACCESS_COMPILE
 
 struct DebugEventPayload;
-class Module;
 
 class DebugEventSource
 {
 public:
     static void SendModuleLoadEvent(void* addressInModule);
-    static void SendModuleLoadEvent(Module* pModule);
-    static void SendModuleUnloadEvent(Module* pModule);
     static void SendExceptionThrownEvent(CORDB_ADDRESS faultingIP, CORDB_ADDRESS faultingFrameSP);
     static void SendExceptionCatchHandlerFoundEvent(CORDB_ADDRESS handlerIP, CORDB_ADDRESS HandlerFrameSP);
     static void SendExceptionUnhandledEvent();

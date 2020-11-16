@@ -1,12 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
-
+using System.Threading;
 using Internal.TypeSystem;
 using Internal.TypeSystem.Ecma;
 
@@ -43,6 +42,14 @@ namespace Internal.IL
             _clearInitLocals = clearInitLocals;
         }
 
+        public EcmaModule Module
+        {
+            get
+            {
+                return _module;
+            }
+        }
+
         public override MethodDesc OwningMethod
         {
             get
@@ -56,8 +63,8 @@ namespace Internal.IL
             if (_ilBytes != null)
                 return _ilBytes;
 
-            byte[] ilBytes = _methodBody.GetILBytes();
-            return (_ilBytes = ilBytes);
+            Interlocked.CompareExchange(ref _ilBytes, _methodBody.GetILBytes(), null);
+            return _ilBytes;
         }
 
         public override bool IsInitLocals
@@ -89,7 +96,9 @@ namespace Internal.IL
 
             EcmaSignatureParser parser = new EcmaSignatureParser(_module, signatureReader);
             LocalVariableDefinition[] locals = parser.ParseLocalsSignature();
-            return (_locals = locals);
+
+            Interlocked.CompareExchange(ref _locals, locals, null);
+            return _locals;
         }
 
         public override ILExceptionRegion[] GetExceptionRegions()
@@ -123,7 +132,8 @@ namespace Internal.IL
                 }
             }
 
-            return (_ilExceptionRegions = ilExceptionRegions);
+            Interlocked.CompareExchange(ref _ilExceptionRegions, ilExceptionRegions, null);
+            return _ilExceptionRegions;
         }
 
         public override object GetObject(int token)

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -183,7 +182,7 @@ namespace System.Threading
         public void Wait()
         {
             // Call wait with infinite timeout
-            Wait(Timeout.Infinite, new CancellationToken());
+            Wait(Timeout.Infinite, CancellationToken.None);
         }
 
         /// <summary>
@@ -225,7 +224,7 @@ namespace System.Threading
             }
 
             // Call wait with the timeout milliseconds
-            return Wait((int)timeout.TotalMilliseconds, new CancellationToken());
+            return Wait((int)timeout.TotalMilliseconds, CancellationToken.None);
         }
 
         /// <summary>
@@ -270,7 +269,7 @@ namespace System.Threading
         /// negative number other than -1, which represents an infinite time-out.</exception>
         public bool Wait(int millisecondsTimeout)
         {
-            return Wait(millisecondsTimeout, new CancellationToken());
+            return Wait(millisecondsTimeout, CancellationToken.None);
         }
 
         /// <summary>
@@ -331,7 +330,7 @@ namespace System.Threading
                     // lessen that extra expense of doing a proper wait.
                     int spinCount = SpinWait.SpinCountforSpinBeforeWait * 4;
 
-                    var spinner = new SpinWait();
+                    SpinWait spinner = default;
                     while (spinner.Count < spinCount)
                     {
                         spinner.SpinOnce(sleep1Threshold: -1);
@@ -716,9 +715,9 @@ namespace System.Threading
                 // We need to ensure that the Task.Delay task is appropriately cleaned up if the await
                 // completes due to the asyncWaiter completing, so we use our own token that we can explicitly
                 // cancel, and we chain the caller's supplied token into it.
-                using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, default))
+                using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                 {
-                    if (asyncWaiter == await TaskFactory.CommonCWAnyLogic(new Task[] { asyncWaiter, Task.Delay(millisecondsTimeout, cts.Token) }).ConfigureAwait(false))
+                    if (asyncWaiter == await Task.WhenAny(asyncWaiter, Task.Delay(millisecondsTimeout, cts.Token)).ConfigureAwait(false))
                     {
                         cts.Cancel(); // ensure that the Task.Delay task is cleaned up
                         return true; // successfully acquired
@@ -728,10 +727,10 @@ namespace System.Threading
             else // millisecondsTimeout == Timeout.Infinite
             {
                 // Wait until either the task is completed or cancellation is requested.
-                var cancellationTask = new Task();
+                var cancellationTask = new Task(null, TaskCreationOptions.RunContinuationsAsynchronously, promiseStyle: true);
                 using (cancellationToken.UnsafeRegister(s => ((Task)s!).TrySetResult(), cancellationTask))
                 {
-                    if (asyncWaiter == await TaskFactory.CommonCWAnyLogic(new Task[] { asyncWaiter, cancellationTask }).ConfigureAwait(false))
+                    if (asyncWaiter == await Task.WhenAny(asyncWaiter, cancellationTask).ConfigureAwait(false))
                     {
                         return true; // successfully acquired
                     }

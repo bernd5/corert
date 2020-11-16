@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -171,27 +170,30 @@ namespace Internal.TypeSystem.Ecma
         {
             ModuleReference moduleReference = _metadataReader.GetModuleReference(handle);
             string fileName = _metadataReader.GetString(moduleReference.Name);
-            return Context.ResolveModule(this.Assembly, fileName);
+
+            return _moduleResolver.ResolveModule(this.Assembly, fileName);
         }
 
         private LockFreeReaderHashtable<EntityHandle, IEntityHandleObject> _resolvedTokens;
+        IModuleResolver _moduleResolver;
 
-        internal EcmaModule(TypeSystemContext context, PEReader peReader, MetadataReader metadataReader, IAssemblyDesc containingAssembly)
+        internal EcmaModule(TypeSystemContext context, PEReader peReader, MetadataReader metadataReader, IAssemblyDesc containingAssembly, IModuleResolver customModuleResolver)
             : base(context, containingAssembly)
         {
             _peReader = peReader;
             _metadataReader = metadataReader;
             _resolvedTokens = new EcmaObjectLookupHashtable(this);
+            _moduleResolver = customModuleResolver != null ? customModuleResolver : context;
         }
 
-        public static EcmaModule Create(TypeSystemContext context, PEReader peReader, IAssemblyDesc containingAssembly)
+        public static EcmaModule Create(TypeSystemContext context, PEReader peReader, IAssemblyDesc containingAssembly, IModuleResolver customModuleResolver = null)
         {
             MetadataReader metadataReader = CreateMetadataReader(context, peReader);
 
             if (containingAssembly == null)
-                return new EcmaAssembly(context, peReader, metadataReader);
+                return new EcmaAssembly(context, peReader, metadataReader, customModuleResolver);
             else
-                return new EcmaModule(context, peReader, metadataReader, containingAssembly);
+                return new EcmaModule(context, peReader, metadataReader, containingAssembly, customModuleResolver);
         }
 
         private static MetadataReader CreateMetadataReader(TypeSystemContext context, PEReader peReader)
@@ -260,6 +262,18 @@ namespace Internal.TypeSystem.Ecma
 
                 // Bad metadata
                 throw new BadImageFormatException();
+            }
+        }
+
+        public bool IsPlatformNeutral
+        {
+            get
+            {
+                PEHeaders peHeaders = PEReader.PEHeaders;
+                return peHeaders.PEHeader.Magic == PEMagic.PE32
+                    && (peHeaders.CorHeader.Flags & (CorFlags.Prefers32Bit | CorFlags.Requires32Bit)) != CorFlags.Requires32Bit
+                    && (peHeaders.CorHeader.Flags & CorFlags.ILOnly) != 0
+                    && peHeaders.CoffHeader.Machine == Machine.I386;
             }
         }
 
@@ -404,12 +418,12 @@ namespace Internal.TypeSystem.Ecma
                 {
                     MethodSignature sig = parser.ParseMethodSignature();
                     TypeDesc typeDescToInspect = parentTypeDesc;
+                    Instantiation substitution = default(Instantiation);
 
                     // Try to resolve the name and signature in the current type, or any of the base types.
                     do
                     {
-                        // TODO: handle substitutions
-                        MethodDesc method = typeDescToInspect.GetMethod(name, sig);
+                        MethodDesc method = typeDescToInspect.GetMethod(name, sig, substitution);
                         if (method != null)
                         {
                             // If this resolved to one of the base types, make sure it's not a constructor.
@@ -419,7 +433,31 @@ namespace Internal.TypeSystem.Ecma
 
                             return method;
                         }
-                        typeDescToInspect = typeDescToInspect.BaseType;
+                        var baseType = typeDescToInspect.BaseType;
+                        if (baseType != null)
+                        {
+                            if (!baseType.HasInstantiation)
+                            {
+                                substitution = default(Instantiation);
+                            }
+                            else
+                            {
+                                // If the base type is generic, any signature match for methods on the base type with the generic details from
+                                // the deriving type
+                                Instantiation newSubstitution = typeDescToInspect.GetTypeDefinition().BaseType.Instantiation;
+                                if (!substitution.IsNull)
+                                {
+                                    TypeDesc[] newSubstitutionTypes = new TypeDesc[newSubstitution.Length];
+                                    for (int i = 0; i < newSubstitution.Length; i++)
+                                    {
+                                        newSubstitutionTypes[i] = newSubstitution[i].InstantiateSignature(substitution, default(Instantiation));
+                                    }
+                                    newSubstitution = new Instantiation(newSubstitutionTypes);
+                                }
+                                substitution = newSubstitution;
+                            }
+                        }
+                        typeDescToInspect = baseType;
                     } while (typeDescToInspect != null);
 
                     ThrowHelper.ThrowMissingMethodException(parentTypeDesc, name, sig);
@@ -485,7 +523,7 @@ namespace Internal.TypeSystem.Ecma
             an.CultureName = _metadataReader.GetString(assemblyReference.Culture);
             an.ContentType = GetContentTypeFromAssemblyFlags(assemblyReference.Flags);
 
-            return Context.ResolveAssembly(an);
+            return _moduleResolver.ResolveAssembly(an);
         }
 
         private Object ResolveExportedType(ExportedTypeHandle handle)

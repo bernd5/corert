@@ -4,7 +4,6 @@
 //
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -51,6 +50,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/Win64EH.h"
 #include "llvm/Target/TargetMachine.h"
+#include "..\..\..\lib\Target\AArch64\MCTargetDesc\AArch64MCExpr.h"
 
 using namespace llvm;
 using namespace llvm::codeview;
@@ -143,7 +143,7 @@ bool ObjectWriter::Init(llvm::StringRef ObjectFilePath, const char* tripleName) 
   Streamer = (MCObjectStreamer *)TheTarget->createMCObjectStreamer(
       TheTriple, *OutContext, *AsmBackend, *OS, CodeEmitter, *SubtargetInfo,
       RelaxAll,
-      /*IncrementalLinkerCompatible*/ true,
+      /*IncrementalLinkerCompatible*/ false,
       /*DWARFMustBeAtTheEnd*/ false);
   if (!Streamer)
     return error("no object streamer for target " + TripleName);
@@ -217,6 +217,12 @@ MCSection *ObjectWriter::GetSection(const char *SectionName,
     Section = ObjFileInfo->getReadOnlySection();
   } else if (strcmp(SectionName, "xdata") == 0) {
     Section = ObjFileInfo->getXDataSection();
+  } else if (strcmp(SectionName, "bss") == 0) {
+    if (ObjFileInfo->getObjectFileType() == ObjFileInfo->IsMachO) {
+      Section = ObjFileInfo->getDataBSSSection();
+    } else {
+      Section = ObjFileInfo->getBSSSection();
+    } 
   } else {
     Section = GetSpecificSection(SectionName, attributes, ComdatName);
   }
@@ -304,7 +310,14 @@ void ObjectWriter::SetCodeSectionAttribute(const char *SectionName,
 }
 
 void ObjectWriter::EmitAlignment(int ByteAlignment) {
-  Streamer->EmitValueToAlignment(ByteAlignment, 0x90 /* Nop */);
+  int64_t fillValue = 0;
+
+  if (TMachine->getTargetTriple().getArch() == llvm::Triple::ArchType::x86 ||
+      TMachine->getTargetTriple().getArch() == llvm::Triple::ArchType::x86_64) {
+    fillValue = 0x90; // x86 nop
+  }
+
+  Streamer->EmitValueToAlignment(ByteAlignment, fillValue);
 }
 
 void ObjectWriter::EmitBlob(int BlobSize, const char *Blob) {
@@ -328,12 +341,22 @@ void ObjectWriter::EmitSymbolDef(const char *SymbolName, bool global) {
     Streamer->EmitSymbolAttribute(Sym, MCSA_Local);
   }
 
+  Triple TheTriple = TMachine->getTargetTriple();
+
   // A Thumb2 function symbol should be marked with an appropriate ELF
   // attribute to make later computation of a relocation address value correct
-  if (GetTriple().getArch() == Triple::thumb &&
-      GetTriple().getObjectFormat() == Triple::ELF &&
+
+  if (TheTriple.getObjectFormat() == Triple::ELF &&
       Streamer->getCurrentSectionOnly()->getKind().isText()) {
-    Streamer->EmitSymbolAttribute(Sym, MCSA_ELF_TypeFunction);
+      switch (TheTriple.getArch()) {
+        case Triple::thumb:
+        case Triple::aarch64:
+          Streamer->EmitSymbolAttribute(Sym, MCSA_ELF_TypeFunction);
+          break;
+
+        default:
+          break;
+    }
   }
 
   Streamer->EmitLabel(Sym);
@@ -347,6 +370,8 @@ ObjectWriter::GetSymbolRefExpr(const char *SymbolName,
   Assembler->registerSymbol(*T);
   return MCSymbolRefExpr::create(T, Kind, *OutContext);
 }
+
+
 
 unsigned ObjectWriter::GetDFSize() {
   return Streamer->getOrCreateDataFragment()->getContents().size();
@@ -393,15 +418,16 @@ int ObjectWriter::EmitSymbolRef(const char *SymbolName,
   case RelocType::IMAGE_REL_BASED_DIR64:
     Size = 8;
     break;
-  case RelocType::IMAGE_REL_BASED_REL32:
+  case RelocType::IMAGE_REL_BASED_REL32: {
     Size = 4;
-    IsPCRel = true;	
+    IsPCRel = true;
     if (ObjFileInfo->getObjectFileType() == ObjFileInfo->IsELF) {
-        // PLT is valid only for code symbols,
-        // but there shouldn't be references to global data symbols
-        Kind = MCSymbolRefExpr::VK_PLT;
+      // PLT is valid only for code symbols,
+      // but there shouldn't be references to global data symbols
+      Kind = MCSymbolRefExpr::VK_PLT;
     }
     break;
+  }
   case RelocType::IMAGE_REL_BASED_RELPTR32:
     Size = 4;
     IsPCRel = true;
@@ -417,6 +443,25 @@ int ObjectWriter::EmitSymbolRef(const char *SymbolName,
   case RelocType::IMAGE_REL_BASED_THUMB_BRANCH24: {
     const MCExpr *TargetExpr = GenTargetExpr(SymbolName, Kind, Delta);
     EmitRelocDirective(GetDFSize(), "R_ARM_THM_JUMP24", TargetExpr);
+    return 4;
+  }
+  case RelocType::IMAGE_REL_BASED_ARM64_BRANCH26: {
+    const MCExpr *TargetExpr = GenTargetExpr(SymbolName, Kind, Delta);
+    EmitRelocDirective(GetDFSize(), "R_AARCH64_JUMP26", TargetExpr);
+    return 4;
+  }
+  case RelocType::IMAGE_REL_BASED_ARM64_PAGEBASE_REL21: {
+    const MCExpr *TargetExpr = GenTargetExpr(SymbolName, Kind, Delta);
+    TargetExpr =
+        AArch64MCExpr::create(TargetExpr, AArch64MCExpr::VK_CALL, *OutContext);
+    EmitRelocDirective(GetDFSize(), "R_AARCH64_ADR_PREL_LO21", TargetExpr);
+    return 4;
+  }
+  case RelocType::IMAGE_REL_BASED_ARM64_PAGEOFFSET_12A: {
+    const MCExpr *TargetExpr = GenTargetExpr(SymbolName, Kind, Delta);
+    TargetExpr =
+        AArch64MCExpr::create(TargetExpr, AArch64MCExpr::VK_LO12, *OutContext);
+    EmitRelocDirective(GetDFSize(), "R_AARCH64_ADD_ABS_LO12_NC", TargetExpr);
     return 4;
   }
   }
@@ -504,6 +549,11 @@ void ObjectWriter::EmitCFICode(int Offset, const char *Blob) {
     assert(CfiCode->Offset == 0 &&
            "Unexpected Offset Value for OpDefCfaRegister");
     Streamer->EmitCFIDefCfaRegister(CfiCode->DwarfReg);
+    break;
+  case CFI_DEF_CFA:
+    assert(CfiCode->Offset != 0 &&
+           "Unexpected Offset Value for OpDefCfa");
+    Streamer->EmitCFIDefCfa(CfiCode->DwarfReg, CfiCode->Offset);
     break;
   default:
     assert(false && "Unrecognized CFI");

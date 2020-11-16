@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 #include "common.h"
 
 #include "CommonTypes.h"
@@ -15,12 +14,14 @@
 
 #ifdef FEATURE_RX_THUNKS
 
-#ifdef _TARGET_AMD64_
+#ifdef TARGET_AMD64
 #define THUNK_SIZE  20
-#elif _TARGET_X86_
+#elif TARGET_X86
 #define THUNK_SIZE  12
-#elif _TARGET_ARM_
+#elif TARGET_ARM
 #define THUNK_SIZE  20
+#elif TARGET_ARM64
+#define THUNK_SIZE  16
 #else
 #define THUNK_SIZE  (2 * OS_PAGE_SIZE) // This will cause RhpGetNumThunksPerBlock to return 0
 #endif
@@ -29,7 +30,7 @@ static_assert((THUNK_SIZE % 4) == 0, "Thunk stubs size not aligned correctly. Th
 
 #define THUNKS_MAP_SIZE 0x8000     // 32 K
 
-#ifdef _TARGET_ARM_
+#ifdef TARGET_ARM
 //*****************************************************************************
 //  Encode a 16-bit immediate mov/movt in ARM Thumb2 Instruction (format T2_N)
 //*****************************************************************************
@@ -103,7 +104,9 @@ EXTERN_C REDHAWK_API void* __cdecl RhAllocateThunksMapping()
 
     // Note: On secure linux systems, we can't add execute permissions to a mapped virtual memory if it was not created 
     // with execute permissions in the first place. This is why we create the virtual section with RX permissions, then
-    // reduce it to RW for the data section and RX for the stubs section after generating the stubs instructions.
+    // reduce it to RW for the data section. For the stubs section we need to increase to RWX to generate the stubs
+    // instructions. After this we go back to RX for the stubs section before the stubs are used and should not be
+    // changed anymore.
     void * pNewMapping = PalVirtualAlloc(NULL, THUNKS_MAP_SIZE * 2, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READ);
     if (pNewMapping == NULL)
         return NULL;
@@ -133,7 +136,7 @@ EXTERN_C REDHAWK_API void* __cdecl RhAllocateThunksMapping()
             UInt8* pCurrentThunkAddress = pThunkBlockAddress + THUNK_SIZE * i;
             UInt8* pCurrentDataAddress = pDataBlockAddress + i * POINTER_SIZE * 2;
 
-#ifdef _TARGET_AMD64_
+#ifdef TARGET_AMD64
 
             // mov r10,<thunk data address>
             // jmp [r10 + <delta to get to last qword in data page]
@@ -153,7 +156,7 @@ EXTERN_C REDHAWK_API void* __cdecl RhAllocateThunksMapping()
             *pCurrentThunkAddress++ = 0x90;
             *pCurrentThunkAddress++ = 0x90;
 
-#elif _TARGET_X86_
+#elif TARGET_X86
 
             // mov eax,<thunk data address>
             // jmp [eax + <delta to get to last dword in data page]
@@ -170,7 +173,7 @@ EXTERN_C REDHAWK_API void* __cdecl RhAllocateThunksMapping()
             // nops for alignment
             *pCurrentThunkAddress++ = 0x90;
 
-#elif _TARGET_ARM_
+#elif TARGET_ARM
 
             // mov r12,<thunk data address>
             // str r12,[sp,#-4]
@@ -193,6 +196,25 @@ EXTERN_C REDHAWK_API void* __cdecl RhAllocateThunksMapping()
             *((UInt16*)pCurrentThunkAddress) = 0xbf00;
             pCurrentThunkAddress += 2;
 
+#elif TARGET_ARM64
+
+            //adr      xip0, <delta PC to thunk data address>
+            //ldr      xip1, [xip0, <delta to get to last qword in data page>]
+            //br       xip1
+            //brk      0xf000 //Stubs need to be 16 byte aligned therefore we fill with a break here
+
+            int delta = pCurrentDataAddress - pCurrentThunkAddress;
+            *((UInt32*)pCurrentThunkAddress) = 0x10000010 | (((delta & 0x03) << 29) | (((delta & 0x1FFFFC) >> 2) << 5));
+            pCurrentThunkAddress += 4;
+
+            *((UInt32*)pCurrentThunkAddress) = 0xF9400211 | (((OS_PAGE_SIZE - POINTER_SIZE - (i * POINTER_SIZE * 2)) / 8) << 10);
+            pCurrentThunkAddress += 4;
+
+            *((UInt32*)pCurrentThunkAddress) = 0xD61F0220;
+            pCurrentThunkAddress += 4;
+
+            *((UInt32*)pCurrentThunkAddress) = 0xD43E0000;
+            pCurrentThunkAddress += 4;
 #else
             UNREFERENCED_PARAMETER(pCurrentDataAddress);
             UNREFERENCED_PARAMETER(pCurrentThunkAddress);
@@ -210,7 +232,64 @@ EXTERN_C REDHAWK_API void* __cdecl RhAllocateThunksMapping()
     return pThunksSection;
 }
 
-#else // FEATURE_RX_THUNKS
+// FEATURE_RX_THUNKS
+#elif FEATURE_FIXED_POOL_THUNKS
+// This is used by the thunk code to find the stub data for the called thunk slot
+extern "C" uintptr_t g_pThunkStubData;
+uintptr_t g_pThunkStubData = NULL;
+
+COOP_PINVOKE_HELPER(int, RhpGetThunkBlockCount, ());
+COOP_PINVOKE_HELPER(int, RhpGetNumThunkBlocksPerMapping, ());
+COOP_PINVOKE_HELPER(int, RhpGetThunkBlockSize, ());
+COOP_PINVOKE_HELPER(void*, RhpGetThunkDataBlockAddress, (void* addr));
+COOP_PINVOKE_HELPER(void*, RhpGetThunkStubsBlockAddress, (void* addr));
+
+EXTERN_C REDHAWK_API void* __cdecl RhAllocateThunksMapping()
+{
+    static int nextThunkDataMapping = 0;
+
+    int thunkBlocksPerMapping = RhpGetNumThunkBlocksPerMapping();
+    int thunkBlockSize = RhpGetThunkBlockSize();
+    int blockCount = RhpGetThunkBlockCount();
+
+    ASSERT(blockCount % thunkBlocksPerMapping == 0)
+
+    int thunkDataMappingSize = thunkBlocksPerMapping * thunkBlockSize;
+    int thunkDataMappingCount = blockCount / thunkBlocksPerMapping;
+
+    if (nextThunkDataMapping == thunkDataMappingCount)
+    {
+        return NULL;
+    }
+
+    if (g_pThunkStubData == NULL)
+    {
+        int thunkDataSize = thunkDataMappingSize * thunkDataMappingCount;
+
+        g_pThunkStubData = (uintptr_t)PalVirtualAlloc(NULL, thunkDataSize, MEM_RESERVE, PAGE_READWRITE);
+
+        if (g_pThunkStubData == NULL)
+        {
+            return NULL;
+        }
+    }
+
+    void* pThunkDataBlock = (int8_t*)g_pThunkStubData + nextThunkDataMapping * thunkDataMappingSize;
+
+    if (PalVirtualAlloc(pThunkDataBlock, thunkDataMappingSize, MEM_COMMIT, PAGE_READWRITE) == NULL)
+    {
+        return NULL;
+    }
+
+    nextThunkDataMapping++;
+
+    void* pThunks = RhpGetThunkStubsBlockAddress(pThunkDataBlock);
+    ASSERT(RhpGetThunkDataBlockAddress(pThunks) == pThunkDataBlock);
+
+    return pThunks;
+}
+
+#else // FEATURE_FIXED_POOL_THUNKS
 
 COOP_PINVOKE_HELPER(void*, RhpGetThunksBase, ());
 COOP_PINVOKE_HELPER(int, RhpGetNumThunkBlocksPerMapping, ());

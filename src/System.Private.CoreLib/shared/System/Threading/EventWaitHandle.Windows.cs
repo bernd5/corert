@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.IO;
 using System.Runtime.InteropServices;
@@ -19,7 +18,7 @@ namespace System.Threading
 
         private void CreateEventCore(bool initialState, EventResetMode mode, string? name, out bool createdNew)
         {
-#if !PLATFORM_WINDOWS
+#if TARGET_UNIX
             if (name != null)
                 throw new PlatformNotSupportedException(SR.PlatformNotSupported_NamedSynchronizationPrimitives);
 #endif
@@ -44,7 +43,7 @@ namespace System.Threading
 
         private static OpenExistingResult OpenExistingWorker(string name, out EventWaitHandle? result)
         {
-#if PLATFORM_WINDOWS
+#if TARGET_WINDOWS
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
             if (name.Length == 0)

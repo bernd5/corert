@@ -1,12 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 
 using Internal.TypeSystem;
 using Internal.IL;
-using Internal.Runtime;
+using Internal.ReadyToRunConstants;
 
 namespace ILCompiler
 {
@@ -63,13 +62,25 @@ namespace ILCompiler
                     break;
 
                 case ReadyToRunHelper.WriteBarrier:
-                    mangledName = "RhpAssignRef";
+                    mangledName = context.Target.Architecture == TargetArchitecture.ARM64 ? "RhpAssignRefArm64" : "RhpAssignRef";
                     break;
                 case ReadyToRunHelper.CheckedWriteBarrier:
-                    mangledName = "RhpCheckedAssignRef";
+                    mangledName = context.Target.Architecture == TargetArchitecture.ARM64 ? "RhpCheckedAssignRefArm64" : "RhpCheckedAssignRef";
                     break;
                 case ReadyToRunHelper.ByRefWriteBarrier:
-                    mangledName = "RhpByRefAssignRef";
+                    mangledName = context.Target.Architecture == TargetArchitecture.ARM64 ? "RhpByRefAssignRefArm64" : "RhpByRefAssignRef";
+                    break;
+                case ReadyToRunHelper.WriteBarrier_EAX:
+                    mangledName = "RhpAssignRefEAX";
+                    break;
+                case ReadyToRunHelper.WriteBarrier_ECX:
+                    mangledName = "RhpAssignRefECX";
+                    break;
+                case ReadyToRunHelper.CheckedWriteBarrier_EAX:
+                    mangledName = "RhpCheckedAssignRefEAX";
+                    break;
+                case ReadyToRunHelper.CheckedWriteBarrier_ECX:
+                    mangledName = "RhpCheckedAssignRefECX";
                     break;
 
                 case ReadyToRunHelper.Box:

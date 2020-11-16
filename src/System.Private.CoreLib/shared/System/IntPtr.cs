@@ -1,14 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 using System.Runtime.Versioning;
+using Internal.Runtime.CompilerServices;
 
 #pragma warning disable SA1121 // explicitly using type aliases instead of built-in types
-#if BIT64
+#if TARGET_64BIT
 using nint = System.Int64;
 #else
 using nint = System.Int32;
@@ -17,8 +18,9 @@ using nint = System.Int32;
 namespace System
 {
     [Serializable]
+    [StructLayout(LayoutKind.Sequential)]
     [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public readonly struct IntPtr : IEquatable<IntPtr>, ISerializable
+    public readonly struct IntPtr : IEquatable<IntPtr>, IComparable, IComparable<IntPtr>, IFormattable, ISerializable
     {
         // WARNING: We allow diagnostic tools to directly inspect this member (_value).
         // See https://github.com/dotnet/corert/blob/master/Documentation/design-docs/diagnostics/diagnostics-tools-contract.md for more details.
@@ -29,18 +31,16 @@ namespace System
         [Intrinsic]
         public static readonly IntPtr Zero;
 
-        [Intrinsic]
         [NonVersionable]
         public unsafe IntPtr(int value)
         {
             _value = (void*)value;
         }
 
-        [Intrinsic]
         [NonVersionable]
         public unsafe IntPtr(long value)
         {
-#if BIT64
+#if TARGET_64BIT
             _value = (void*)value;
 #else
             _value = (void*)checked((int)value);
@@ -48,7 +48,6 @@ namespace System
         }
 
         [CLSCompliant(false)]
-        [Intrinsic]
         [NonVersionable]
         public unsafe IntPtr(void* value)
         {
@@ -77,12 +76,9 @@ namespace System
             obj is IntPtr other &&
             _value == other._value;
 
-        unsafe bool IEquatable<IntPtr>.Equals(IntPtr other) =>
-            _value == other._value;
-
         public override unsafe int GetHashCode()
         {
-#if BIT64
+#if TARGET_64BIT
             long l = (long)_value;
             return unchecked((int)l) ^ (int)(l >> 32);
 #else
@@ -90,11 +86,10 @@ namespace System
 #endif
         }
 
-        [Intrinsic]
         [NonVersionable]
         public unsafe int ToInt32()
         {
-#if BIT64
+#if TARGET_64BIT
             long l = (long)_value;
             return checked((int)l);
 #else
@@ -102,38 +97,32 @@ namespace System
 #endif
         }
 
-        [Intrinsic]
         [NonVersionable]
         public unsafe long ToInt64() =>
             (nint)_value;
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe explicit operator IntPtr(int value) =>
             new IntPtr(value);
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe explicit operator IntPtr(long value) =>
             new IntPtr(value);
 
         [CLSCompliant(false)]
-        [Intrinsic]
         [NonVersionable]
         public static unsafe explicit operator IntPtr(void* value) =>
             new IntPtr(value);
 
         [CLSCompliant(false)]
-        [Intrinsic]
         [NonVersionable]
         public static unsafe explicit operator void*(IntPtr value) =>
             value._value;
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe explicit operator int(IntPtr value)
         {
-#if BIT64
+#if TARGET_64BIT
             long l = (long)value._value;
             return checked((int)l);
 #else
@@ -141,17 +130,14 @@ namespace System
 #endif
         }
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe explicit operator long(IntPtr value) =>
             (nint)value._value;
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe bool operator ==(IntPtr value1, IntPtr value2) =>
             value1._value == value2._value;
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe bool operator !=(IntPtr value1, IntPtr value2) =>
             value1._value != value2._value;
@@ -160,7 +146,6 @@ namespace System
         public static IntPtr Add(IntPtr pointer, int offset) =>
             pointer + offset;
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe IntPtr operator +(IntPtr pointer, int offset) =>
             new IntPtr((nint)pointer._value + offset);
@@ -169,27 +154,75 @@ namespace System
         public static IntPtr Subtract(IntPtr pointer, int offset) =>
             pointer - offset;
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe IntPtr operator -(IntPtr pointer, int offset) =>
             new IntPtr((nint)pointer._value - offset);
 
         public static int Size
         {
-            [Intrinsic]
             [NonVersionable]
             get => sizeof(nint);
         }
 
         [CLSCompliant(false)]
-        [Intrinsic]
         [NonVersionable]
         public unsafe void* ToPointer() => _value;
 
-        public override unsafe string ToString() =>
-            ((nint)_value).ToString(CultureInfo.InvariantCulture);
+        public static IntPtr MaxValue
+        {
+            [NonVersionable]
+            get => (IntPtr)nint.MaxValue;
+        }
 
-        public unsafe string ToString(string format) =>
-            ((nint)_value).ToString(format, CultureInfo.InvariantCulture);
+        public static IntPtr MinValue
+        {
+            [NonVersionable]
+            get => (IntPtr)nint.MinValue;
+        }
+
+        // Don't just delegate to nint.CompareTo as it needs to throw when not IntPtr
+        public unsafe int CompareTo(object? value)
+        {
+            if (value is null)
+            {
+                return 1;
+            }
+            if (value is IntPtr o)
+            {
+                nint i = (nint)o;
+                if ((nint)_value < i) return -1;
+                if ((nint)_value > i) return 1;
+                return 0;
+            }
+
+            throw new ArgumentException(SR.Arg_MustBeIntPtr);
+        }
+
+        public unsafe int CompareTo(IntPtr value) => ((nint)_value).CompareTo((nint)value);
+
+        [NonVersionable]
+        public unsafe bool Equals(IntPtr other) => (nint)_value == (nint)other;
+
+        public unsafe override string ToString() => ((nint)_value).ToString();
+        public unsafe string ToString(string? format) => ((nint)_value).ToString(format);
+        public unsafe string ToString(IFormatProvider? provider) => ((nint)_value).ToString(provider);
+        public unsafe string ToString(string? format, IFormatProvider? provider) => ((nint)_value).ToString(format, provider);
+
+        public static IntPtr Parse(string s) => (IntPtr)nint.Parse(s);
+        public static IntPtr Parse(string s, NumberStyles style) => (IntPtr)nint.Parse(s, style);
+        public static IntPtr Parse(string s, IFormatProvider? provider) => (IntPtr)nint.Parse(s, provider);
+        public static IntPtr Parse(string s, NumberStyles style, IFormatProvider? provider) => (IntPtr)nint.Parse(s, style, provider);
+
+        public static bool TryParse(string? s, out IntPtr result)
+        {
+            Unsafe.SkipInit(out result);
+            return nint.TryParse(s, out Unsafe.As<IntPtr, nint>(ref result));
+        }
+
+        public static bool TryParse(string? s, NumberStyles style, IFormatProvider? provider, out IntPtr result)
+        {
+            Unsafe.SkipInit(out result);
+            return nint.TryParse(s, style, provider, out Unsafe.As<IntPtr, nint>(ref result));
+        }
     }
 }

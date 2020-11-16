@@ -1,9 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #nullable enable
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
 #if MS_IO_REDIST
@@ -84,8 +84,7 @@ namespace System.IO
                 return basePath;
 
             int length = path.Length;
-            string? combinedPath = null;
-
+            string combinedPath;
             if (length >= 1 && PathInternal.IsDirectorySeparator(path[0]))
             {
                 // Path is current drive rooted i.e. starts with \:
@@ -136,8 +135,7 @@ namespace System.IO
 
         public static string GetTempPath()
         {
-            Span<char> initialBuffer = stackalloc char[PathInternal.MaxShortPath];
-            var builder = new ValueStringBuilder(initialBuffer);
+            var builder = new ValueStringBuilder(stackalloc char[PathInternal.MaxShortPath]);
 
             GetTempPath(ref builder);
 
@@ -165,13 +163,11 @@ namespace System.IO
         // name on disk.
         public static string GetTempFileName()
         {
-            Span<char> initialTempPathBuffer = stackalloc char[PathInternal.MaxShortPath];
-            ValueStringBuilder tempPathBuilder = new ValueStringBuilder(initialTempPathBuffer);
+            var tempPathBuilder = new ValueStringBuilder(stackalloc char[PathInternal.MaxShortPath]);
 
             GetTempPath(ref tempPathBuilder);
 
-            Span<char> initialBuffer = stackalloc char[PathInternal.MaxShortPath];
-            var builder = new ValueStringBuilder(initialBuffer);
+            var builder = new ValueStringBuilder(stackalloc char[PathInternal.MaxShortPath]);
 
             uint result = Interop.Kernel32.GetTempFileNameW(
                 ref tempPathBuilder.GetPinnableReference(), "tmp", 0, ref builder.GetPinnableReference());
@@ -190,7 +186,7 @@ namespace System.IO
 
         // Tests if the given path contains a root. A path is considered rooted
         // if it starts with a backslash ("\") or a valid drive letter and a colon (":").
-        public static bool IsPathRooted(string? path)
+        public static bool IsPathRooted([NotNullWhen(true)] string? path)
         {
             return path != null && IsPathRooted(path.AsSpan());
         }

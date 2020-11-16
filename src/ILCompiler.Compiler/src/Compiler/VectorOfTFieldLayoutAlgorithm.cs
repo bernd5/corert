@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using Internal.TypeSystem;
 
@@ -12,7 +11,7 @@ namespace ILCompiler
     /// Represents an algorithm that computes field layout for the SIMD Vector&lt;T&gt; type
     /// depending on the target details.
     /// </summary>
-    internal class VectorOfTFieldLayoutAlgorithm : FieldLayoutAlgorithm
+    public class VectorOfTFieldLayoutAlgorithm : FieldLayoutAlgorithm
     {
         private readonly FieldLayoutAlgorithm _fallbackAlgorithm;
 
@@ -65,13 +64,23 @@ namespace ILCompiler
 
         public override ValueTypeShapeCharacteristics ComputeValueTypeShapeCharacteristics(DefType type)
         {
+            if (type.Context.Target.Architecture == TargetArchitecture.ARM64 &&
+                            type.Instantiation[0].IsPrimitiveNumeric)
+            {
+                return type.InstanceFieldSize.AsInt switch
+                {
+                    8 => ValueTypeShapeCharacteristics.Vector64Aggregate,
+                    16 => ValueTypeShapeCharacteristics.Vector128Aggregate,
+                    _ => ValueTypeShapeCharacteristics.None
+                };
+            }
+
             return _fallbackAlgorithm.ComputeValueTypeShapeCharacteristics(type);
         }
 
-        public override DefType ComputeHomogeneousFloatAggregateElementType(DefType type)
+        public static bool IsVectorOfTType(DefType type)
         {
-            return _fallbackAlgorithm.ComputeHomogeneousFloatAggregateElementType(type);
+            return type.IsIntrinsic && type.Namespace == "System.Numerics" && type.Name == "Vector`1";
         }
-
     }
 }

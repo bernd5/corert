@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -151,7 +150,7 @@ namespace ILCompiler
 
         public bool HasLazyStaticConstructor(TypeDesc type)
         {
-            return TypeSystemContext.HasLazyStaticConstructor(type);
+            return NodeFactory.PreinitializationManager.HasLazyStaticConstructor(type);
         }
 
         public MethodDebugInformation GetDebugInfo(MethodIL methodIL)
@@ -240,6 +239,7 @@ namespace ILCompiler
                 case ReadyToRunHelperId.NecessaryTypeHandle:
                 case ReadyToRunHelperId.DefaultConstructor:
                 case ReadyToRunHelperId.TypeHandleForCasting:
+                case ReadyToRunHelperId.ObjectAllocator:
                     return ((TypeDesc)targetOfLookup).IsRuntimeDeterminedSubtype;
 
                 case ReadyToRunHelperId.MethodDictionary:
@@ -254,6 +254,13 @@ namespace ILCompiler
                 default:
                     throw new NotImplementedException();
             }
+        }
+
+        public ReadyToRunHelperId GetLdTokenHelperForType(TypeDesc type)
+        {
+            return _nodeFactory.MetadataManager.ShouldConsiderLdTokenReferenceAConstruction(type)
+                ? ReadyToRunHelperId.TypeHandle
+                : ReadyToRunHelperId.NecessaryTypeHandle;
         }
 
         public ISymbolNode ComputeConstantLookup(ReadyToRunHelperId lookupKind, object targetOfLookup)
@@ -290,6 +297,11 @@ namespace ILCompiler
                             ctor = classWithMissingCtor.GetParameterlessConstructor();
                         }
                         return NodeFactory.CanonicalEntrypoint(ctor);
+                    }
+                case ReadyToRunHelperId.ObjectAllocator:
+                    {
+                        var type = (TypeDesc)targetOfLookup;
+                        return NodeFactory.ExternSymbol(JitHelper.GetNewObjectHelperForType(type));
                     }
 
                 default:
@@ -363,15 +375,17 @@ namespace ILCompiler
                     {
                         int dictionaryOffset = dictionarySlot * pointerSize;
 
+                        bool indirectLastOffset = lookup.LookupResultReferenceType(_nodeFactory) == GenericLookupResultReferenceType.Indirect;
+
                         if (contextSource == GenericContextSource.MethodParameter)
                         {
-                            return GenericDictionaryLookup.CreateFixedLookup(contextSource, dictionaryOffset);
+                            return GenericDictionaryLookup.CreateFixedLookup(contextSource, dictionaryOffset, indirectLastOffset: indirectLastOffset);
                         }
                         else
                         {
                             int vtableSlot = VirtualMethodSlotHelper.GetGenericDictionarySlot(_nodeFactory, contextMethod.OwningType);
                             int vtableOffset = EETypeNode.GetVTableOffset(pointerSize) + vtableSlot * pointerSize;
-                            return GenericDictionaryLookup.CreateFixedLookup(contextSource, vtableOffset, dictionaryOffset);
+                            return GenericDictionaryLookup.CreateFixedLookup(contextSource, vtableOffset, dictionaryOffset, indirectLastOffset: indirectLastOffset);
                         }
                     }
                 }
@@ -393,6 +407,17 @@ namespace ILCompiler
             }
 
             return null;
+        }
+
+        public bool IsFatPointerCandidate(MethodDesc containingMethod, MethodSignature signature)
+        {
+            // Unmanaged calls are never fat pointers
+            if ((signature.Flags & MethodSignatureFlags.UnmanagedCallingConventionMask) != 0)
+                return false;
+
+            // Everything else except RawCalliHelpers could be a fat pointer
+            var owningType = containingMethod.OwningType as MetadataType;
+            return owningType?.Name != "RawCalliHelper";
         }
 
         CompilationResults ICompilation.Compile(string outputFile, ObjectDumper dumper)

@@ -10,7 +10,6 @@ This file defines Windows-specific steps in the build process for native AOT com
 
 Licensed to the .NET Foundation under one or more agreements.
 The .NET Foundation licenses this file to you under the MIT license.
-See the LICENSE file in the project root for more information.
 ***********************************************************************************************
 -->
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
@@ -62,12 +61,14 @@ See the LICENSE file in the project root for more information.
       <NativeLibrary Include="uuid.lib" />
       <NativeLibrary Include="bcrypt.lib" />
       <NativeLibrary Include="normaliz.lib" />
+      <NativeLibrary Include="crypt32.lib" />
     </ItemGroup>
 
     <ItemGroup>
       <LinkerArg Condition="$(NativeLib) == 'Shared'" Include="/DLL" />
       <LinkerArg Include="@(NativeLibrary->'&quot;%(Identity)&quot;')" />
-      <LinkerArg Include="/NOLOGO /DEBUG /MANIFEST:NO" />
+      <LinkerArg Include="/NOLOGO /MANIFEST:NO" />
+      <LinkerArg Condition="$(NativeDebugSymbols) == 'true'" Include="/DEBUG" />
       <!-- The runtime is not compatible with jump stubs inserted by incremental linking. -->
       <LinkerArg Include="/INCREMENTAL:NO" />
       <LinkerArg Condition="'$(OutputType)' == 'WinExe'" Include="/SUBSYSTEM:WINDOWS /ENTRY:wmainCRTStartup" />

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 
@@ -108,7 +107,7 @@ namespace System
 
         private static void AccumulateDecimalDigitsIntoBigInteger(ref NumberBuffer number, uint firstIndex, uint lastIndex, out BigInteger result)
         {
-            result = new BigInteger(0);
+            BigInteger.SetZero(out result);
 
             byte* src = number.GetDigitsPointer() + firstIndex;
             uint remaining = lastIndex - firstIndex;
@@ -484,7 +483,16 @@ namespace System
             }
 
             AccumulateDecimalDigitsIntoBigInteger(ref number, fractionalFirstIndex, fractionalLastIndex, out BigInteger fractionalNumerator);
-            Debug.Assert(!fractionalNumerator.IsZero());
+
+            if (fractionalNumerator.IsZero())
+            {
+                return ConvertBigIntegerToFloatingPointBits(
+                    ref integerValue,
+                    in info,
+                    integerBitsOfPrecision,
+                    fractionalDigitsPresent != 0
+                );
+            }
 
             BigInteger.Pow10(fractionalDenominatorExponent, out BigInteger fractionalDenominator);
 

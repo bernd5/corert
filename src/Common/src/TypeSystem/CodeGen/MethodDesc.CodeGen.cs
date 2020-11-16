@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 namespace Internal.TypeSystem
 {
@@ -50,6 +49,20 @@ namespace Internal.TypeSystem
         /// be aggressively optimized if possible.
         /// </summary>
         public virtual bool IsAggressiveOptimization
+        {
+            get
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether this method was marked with the
+        /// System.Security.DynamicSecurityMethod attribute. For such methods
+        /// runtime needs to be able to find their caller, their caller's caller
+        /// or the method itself on the call stack using stack walking.
+        /// </summary>
+        public virtual bool RequireSecObject
         {
             get
             {
@@ -108,7 +121,7 @@ namespace Internal.TypeSystem
         /// Gets a value specifying whether this method is directly callable
         /// by external unmanaged code.
         /// </summary>
-        public virtual bool IsNativeCallable
+        public virtual bool IsUnmanagedCallersOnly
         {
             get
             {
@@ -168,6 +181,14 @@ namespace Internal.TypeSystem
             }
         }
 
+        public override bool RequireSecObject
+        {
+            get
+            {
+                return _methodDef.RequireSecObject;
+            }
+        }
+
         public override bool IsNoOptimization
         {
             get
@@ -208,11 +229,11 @@ namespace Internal.TypeSystem
             }
         }
 
-        public override bool IsNativeCallable
+        public override bool IsUnmanagedCallersOnly
         {
             get
             {
-                return _methodDef.IsNativeCallable;
+                return _methodDef.IsUnmanagedCallersOnly;
             }
         }
 
@@ -249,6 +270,14 @@ namespace Internal.TypeSystem
             get
             {
                 return _typicalMethodDef.IsAggressiveOptimization;
+            }
+        }
+
+        public override bool RequireSecObject
+        {
+            get
+            {
+                return _typicalMethodDef.RequireSecObject;
             }
         }
 
@@ -292,11 +321,11 @@ namespace Internal.TypeSystem
             }
         }
 
-        public override bool IsNativeCallable
+        public override bool IsUnmanagedCallersOnly
         {
             get
             {
-                return _typicalMethodDef.IsNativeCallable;
+                return _typicalMethodDef.IsUnmanagedCallersOnly;
             }
         }
 

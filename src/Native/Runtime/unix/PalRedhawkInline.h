@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 // Implementation of Redhawk PAL inline functions
 
@@ -43,14 +42,10 @@ FORCEINLINE Int32 PalInterlockedCompareExchange(_Inout_ _Interlocked_operand_ In
 
 FORCEINLINE Int64 PalInterlockedCompareExchange64(_Inout_ _Interlocked_operand_ Int64 volatile *pDst, Int64 iValue, Int64 iComparand)
 {
-#if defined(_WASM_)
-    PORTABILITY_ASSERT("Emscripten does not support 64-bit atomics until version 1.37.33");
-#else // _WASM_
     return __sync_val_compare_and_swap(pDst, iComparand, iValue);
-#endif // _WASM_
 }
 
-#if defined(_AMD64_) || defined(_ARM64_)
+#if defined(HOST_AMD64) || defined(HOST_ARM64)
 FORCEINLINE UInt8 PalInterlockedCompareExchange128(_Inout_ _Interlocked_operand_ Int64 volatile *pDst, Int64 iValueHigh, Int64 iValueLow, Int64 *pComparandAndResult)
 {
     __int128_t iComparand = ((__int128_t)pComparandAndResult[1] << 64) + (UInt64)pComparandAndResult[0];
@@ -58,9 +53,9 @@ FORCEINLINE UInt8 PalInterlockedCompareExchange128(_Inout_ _Interlocked_operand_
     pComparandAndResult[0] = (Int64)iResult; pComparandAndResult[1] = (Int64)(iResult >> 64);
     return iComparand == iResult;
 }
-#endif // _AMD64_
+#endif // HOST_AMD64
 
-#ifdef BIT64
+#ifdef HOST_64BIT
 
 #define PalInterlockedExchangePointer(_pDst, _pValue) \
     ((void *)PalInterlockedExchange64((Int64 volatile *)(_pDst), (Int64)(size_t)(_pValue)))
@@ -68,7 +63,7 @@ FORCEINLINE UInt8 PalInterlockedCompareExchange128(_Inout_ _Interlocked_operand_
 #define PalInterlockedCompareExchangePointer(_pDst, _pValue, _pComparand) \
     ((void *)PalInterlockedCompareExchange64((Int64 volatile *)(_pDst), (Int64)(size_t)(_pValue), (Int64)(size_t)(_pComparand)))
 
-#else // BIT64
+#else // HOST_64BIT
 
 #define PalInterlockedExchangePointer(_pDst, _pValue) \
     ((void *)PalInterlockedExchange((Int32 volatile *)(_pDst), (Int32)(size_t)(_pValue)))
@@ -76,12 +71,12 @@ FORCEINLINE UInt8 PalInterlockedCompareExchange128(_Inout_ _Interlocked_operand_
 #define PalInterlockedCompareExchangePointer(_pDst, _pValue, _pComparand) \
     ((void *)PalInterlockedCompareExchange((Int32 volatile *)(_pDst), (Int32)(size_t)(_pValue), (Int32)(size_t)(_pComparand)))
 
-#endif // BIT64
+#endif // HOST_64BIT
 
 
 FORCEINLINE void PalYieldProcessor()
 {
-#if defined(_X86_) || defined(_AMD64_)
+#if defined(HOST_X86) || defined(HOST_AMD64)
     __asm__ __volatile__(
         "rep\n"
         "nop"

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 
 using System;
@@ -33,15 +32,15 @@ namespace Internal.Runtime.TypeLoader
                 }
             }
             return new TypeLoaderTypeSystemContext(new TargetDetails(
-#if ARM
+#if TARGET_ARM
             TargetArchitecture.ARM,
-#elif ARM64
+#elif TARGET_ARM64
             TargetArchitecture.ARM64,
-#elif X86
+#elif TARGET_X86
             TargetArchitecture.X86,
-#elif AMD64
+#elif TARGET_AMD64
             TargetArchitecture.X64,
-#elif WASM
+#elif TARGET_WASM
             TargetArchitecture.Wasm32,
 #else
 #error Unknown architecture

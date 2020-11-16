@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #nullable enable
 using System.Diagnostics;
@@ -384,8 +383,7 @@ namespace System.IO
                     maxSize++;
             }
 
-            Span<char> initialBuffer = stackalloc char[260];    // MaxShortPath on Windows
-            var builder = new ValueStringBuilder(initialBuffer);
+            var builder = new ValueStringBuilder(stackalloc char[260]); // MaxShortPath on Windows
             builder.EnsureCapacity(maxSize);
 
             for (int i = firstComponent; i < paths.Length; i++)
@@ -492,8 +490,7 @@ namespace System.IO
             }
             maxSize += paths.Length - 1;
 
-            Span<char> initialBuffer = stackalloc char[260];    // MaxShortPath on Windows
-            var builder = new ValueStringBuilder(initialBuffer);
+            var builder = new ValueStringBuilder(stackalloc char[260]); // MaxShortPath on Windows
             builder.EnsureCapacity(maxSize);
 
             for (int i = 0; i < paths.Length; i++)
@@ -861,7 +858,8 @@ namespace System.IO
             //  C:\Foo\Bar C:\Bar\Bar L3, S2 -> ..\..\Bar\Bar
             //  C:\Foo\Foo C:\Foo\Bar L7, S1 -> ..\Bar
 
-            StringBuilder sb = StringBuilderCache.Acquire(Math.Max(relativeTo.Length, path.Length));
+            var sb = new ValueStringBuilder(stackalloc char[260]);
+            sb.EnsureCapacity(Math.Max(relativeTo.Length, path.Length));
 
             // Add parent segments for segments past the common on the "from" path
             if (commonLength < relativeToLength)
@@ -896,10 +894,10 @@ namespace System.IO
                     sb.Append(DirectorySeparatorChar);
                 }
 
-                sb.Append(path, commonLength, differenceLength);
+                sb.Append(path.AsSpan(commonLength, differenceLength));
             }
 
-            return StringBuilderCache.GetStringAndRelease(sb);
+            return sb.ToString();
         }
 
         /// <summary>Returns a comparison that can be used to compare file and directory names for equality.</summary>
@@ -911,29 +909,21 @@ namespace System.IO
         /// <summary>
         /// Trims one trailing directory separator beyond the root of the path.
         /// </summary>
-        public static string TrimEndingDirectorySeparator(string path) =>
-            EndsInDirectorySeparator(path) && !PathInternal.IsRoot(path.AsSpan()) ?
-                path.Substring(0, path.Length - 1) :
-                path;
+        public static string TrimEndingDirectorySeparator(string path) => PathInternal.TrimEndingDirectorySeparator(path);
 
         /// <summary>
         /// Trims one trailing directory separator beyond the root of the path.
         /// </summary>
-        public static ReadOnlySpan<char> TrimEndingDirectorySeparator(ReadOnlySpan<char> path) =>
-            EndsInDirectorySeparator(path) && !PathInternal.IsRoot(path) ?
-                path.Slice(0, path.Length - 1) :
-                path;
+        public static ReadOnlySpan<char> TrimEndingDirectorySeparator(ReadOnlySpan<char> path) => PathInternal.TrimEndingDirectorySeparator(path);
 
         /// <summary>
         /// Returns true if the path ends in a directory separator.
         /// </summary>
-        public static bool EndsInDirectorySeparator(ReadOnlySpan<char> path)
-            => path.Length > 0 && PathInternal.IsDirectorySeparator(path[path.Length - 1]);
+        public static bool EndsInDirectorySeparator(ReadOnlySpan<char> path) => PathInternal.EndsInDirectorySeparator(path);
 
         /// <summary>
         /// Returns true if the path ends in a directory separator.
         /// </summary>
-        public static bool EndsInDirectorySeparator(string path)
-              => !string.IsNullOrEmpty(path) && PathInternal.IsDirectorySeparator(path[path.Length - 1]);
+        public static bool EndsInDirectorySeparator(string path) => PathInternal.EndsInDirectorySeparator(path);
     }
 }

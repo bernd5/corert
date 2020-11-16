@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Globalization;
@@ -41,23 +40,6 @@ namespace System.Reflection
             }
 
             return new RuntimeAssemblyName(assemblyName.Name, assemblyName.Version, assemblyName.CultureName, combinedFlags, pkCopy);
-        }
-
-        //
-        // Ensure that the PublicKeyOrPublicKeyToken (if non-null) is the short token form.
-        //
-        public static RuntimeAssemblyName CanonicalizePublicKeyToken(this RuntimeAssemblyName name)
-        {
-            AssemblyNameFlags flags = name.Flags;
-            if ((flags & AssemblyNameFlags.PublicKey) == 0)
-                return name;
-
-            flags &= ~AssemblyNameFlags.PublicKey;
-            byte[] publicKeyOrToken = name.PublicKeyOrToken;
-            if (publicKeyOrToken != null)
-                publicKeyOrToken = ComputePublicKeyToken(publicKeyOrToken);
-
-            return new RuntimeAssemblyName(name.Name, name.Version, name.CultureName, flags, publicKeyOrToken);
         }
 
         //

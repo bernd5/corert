@@ -1,18 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 
-#if ARM
-#define _TARGET_ARM_
+#if TARGET_ARM
 #define CALLDESCR_ARGREGS                          // CallDescrWorker has ArgumentRegister parameter
 #define CALLDESCR_FPARGREGS                        // CallDescrWorker has FloatArgumentRegisters parameter
 #define CALLDESCR_FPARGREGSARERETURNREGS           // The return value floating point registers are the same as the argument registers
 #define ENREGISTERED_RETURNTYPE_MAXSIZE
 #define ENREGISTERED_RETURNTYPE_INTEGER_MAXSIZE
 #define FEATURE_HFA
-#elif ARM64
-#define _TARGET_ARM64_
+#elif TARGET_ARM64
 #define CALLDESCR_ARGREGS                          // CallDescrWorker has ArgumentRegister parameter
 #define CALLDESCR_FPARGREGS                        // CallDescrWorker has FloatArgumentRegisters parameter
 #define CALLDESCR_FPARGREGSARERETURNREGS           // The return value floating point registers are the same as the argument registers
@@ -20,26 +17,23 @@
 #define ENREGISTERED_RETURNTYPE_INTEGER_MAXSIZE
 #define ENREGISTERED_PARAMTYPE_MAXSIZE
 #define FEATURE_HFA
-#elif X86
-#define _TARGET_X86_
+#elif TARGET_X86
 #define ENREGISTERED_RETURNTYPE_MAXSIZE
 #define ENREGISTERED_RETURNTYPE_INTEGER_MAXSIZE
 #define CALLDESCR_ARGREGS                          // CallDescrWorker has ArgumentRegister parameter
 #define CALLINGCONVENTION_CALLEE_POPS
-#elif AMD64
+#elif TARGET_AMD64
 #if UNIXAMD64
 #define UNIX_AMD64_ABI
 #define CALLDESCR_ARGREGS                          // CallDescrWorker has ArgumentRegister parameter
 #else
 #endif
 #define CALLDESCR_FPARGREGS                        // CallDescrWorker has FloatArgumentRegisters parameter
-#define _TARGET_AMD64_
 #define CALLDESCR_FPARGREGSARERETURNREGS           // The return value floating point registers are the same as the argument registers
 #define ENREGISTERED_RETURNTYPE_MAXSIZE
 #define ENREGISTERED_RETURNTYPE_INTEGER_MAXSIZE
 #define ENREGISTERED_PARAMTYPE_MAXSIZE
-#elif WASM
-#define _TARGET_WASM_
+#elif TARGET_WASM
 #else
 #error Unknown architecture!
 #endif
@@ -70,7 +64,7 @@ namespace Internal.Runtime.TypeLoader
         internal static IntPtr CommonInputThunkStub = IntPtr.Zero;
 #if CALLDESCR_FPARGREGSARERETURNREGS
 #else
-#if _TARGET_X86_
+#if TARGET_X86
         internal static IntPtr ReturnFloatingPointReturn4Thunk = IntPtr.Zero;
         internal static IntPtr ReturnFloatingPointReturn8Thunk = IntPtr.Zero;
 #endif
@@ -78,7 +72,7 @@ namespace Internal.Runtime.TypeLoader
         internal static IntPtr ReturnVoidReturnThunk = IntPtr.Zero;
         internal static IntPtr ReturnIntegerPointReturnThunk = IntPtr.Zero;
 
-#if _TARGET_X86_
+#if TARGET_X86
         // Correctness of using this data structure relies on thread static structs being allocated in a location which cannot be moved by the GC
         [ThreadStatic]
         internal static ReturnBlock t_NonArgRegisterReturnSpace;
@@ -113,7 +107,7 @@ namespace Internal.Runtime.TypeLoader
 #endif
                                                                      );
 
-#if _TARGET_ARM_
+#if TARGET_ARM
         [DllImport("*", ExactSpelling = true, EntryPoint = "CallingConventionConverter_SpecifyCommonStubData")]
         private extern static unsafe void CallingConventionConverter_SpecifyCommonStubData(IntPtr commonStubData);
 #endif
@@ -122,7 +116,7 @@ namespace Internal.Runtime.TypeLoader
 
         private static unsafe bool CallConverterThunk_LazyCctor()
         {
-#if PLATFORM_UNIX
+#if TARGET_UNIX
             // TODO
 #else
             CallingConventionConverter_GetStubs(out ReturnVoidReturnThunk, out ReturnIntegerPointReturnThunk, out CommonInputThunkStub
@@ -133,14 +127,14 @@ namespace Internal.Runtime.TypeLoader
                                                 );
             s_commonStubData.ManagedCallConverterThunk = Intrinsics.AddrOf<Func<IntPtr, IntPtr, IntPtr>>(CallConversionThunk);
             s_commonStubData.UniversalThunk = RuntimeAugments.GetUniversalTransitionThunk();
-#if _TARGET_ARM_
+#if TARGET_ARM
             fixed (CallingConventionConverter_CommonCallingStub_PointerData* commonStubData = &s_commonStubData)
             {
                 CallingConventionConverter_SpecifyCommonStubData((IntPtr)commonStubData);
             }
-#endif //_TARGET_ARM_
+#endif //TARGET_ARM
 
-#endif // PLATFORM_UNIX
+#endif // TARGET_UNIX
             return true;
         }
 
@@ -187,8 +181,7 @@ namespace Internal.Runtime.TypeLoader
         private const int ClosedInstanceThunkOverGenericMethod = 3;
         private const int DelegateInvokeThunk = 4;
         private const int OpenInstanceThunk = 5;
-        private const int ReversePinvokeThunk = 6;
-        private const int ObjectArrayThunk = 7;
+        private const int ObjectArrayThunk = 6;
 
 
         public static unsafe IntPtr MakeThunk(ThunkKind thunkKind,
@@ -262,13 +255,6 @@ namespace Internal.Runtime.TypeLoader
 
         public static unsafe IntPtr GetDelegateThunk(Delegate delegateObject, int thunkKind)
         {
-            if (thunkKind == ReversePinvokeThunk)
-            {
-                // Special unsupported thunk kind. Similar behavior to the thunks generated by the delegate ILTransform for this thunk kind
-                Action throwNotSupportedException = () => { throw new NotSupportedException(); };
-                return RuntimeAugments.GetDelegateLdFtnResult(throwNotSupportedException, out RuntimeTypeHandle _, out bool _, out bool _);
-            }
-
             RuntimeTypeHandle delegateType = RuntimeAugments.GetRuntimeTypeHandleFromObjectReference(delegateObject);
             Debug.Assert(RuntimeAugments.IsGenericType(delegateType));
 
@@ -1040,7 +1026,7 @@ namespace Internal.Runtime.TypeLoader
                 // of the callee pop argument to keep track of the ret buff location
                 SetupCallerPopArgument(callerTransitionBlock, conversionParams._callerArgs);
 #endif
-#if _TARGET_X86_
+#if TARGET_X86
                 SetupCallerActualReturnData(callerTransitionBlock);
                 // On X86 the return buffer pointer is returned in eax.
                 t_NonArgRegisterReturnSpace.returnValue = new IntPtr(incomingRetBufPointer);
@@ -1073,7 +1059,7 @@ namespace Internal.Runtime.TypeLoader
 
                 // The second simplest case is when there is a return buffer argument for both the caller and callee
                 // In that case, we simply treat this as if we are returning void
-#if _TARGET_X86_
+#if TARGET_X86
                 // Except on X86 where the return buffer is returned in the eax register, and looks like an integer return
 #else
                 if (conversionParams._callerArgs.HasRetBuffArg() && conversionParams._calleeArgs.HasRetBuffArg())
@@ -1092,7 +1078,7 @@ namespace Internal.Runtime.TypeLoader
                     if (thRetType.IsValueType())
                     {
                         returnValueToCopy = (void*)pinnedResultObject;
-#if _TARGET_X86_
+#if TARGET_X86
                         Debug.Assert(returnSize <= sizeof(ReturnBlock));
 
                         if (returnValueToCopy == null)
@@ -1109,7 +1095,7 @@ namespace Internal.Runtime.TypeLoader
                     else
                     {
                         returnValueToCopy = (void*)&pinnedResultObject;
-#if _TARGET_X86_
+#if TARGET_X86
                         ((TransitionBlock*)callerTransitionBlock)->m_returnBlock.returnValue = pinnedResultObject;
 #endif
                     }
@@ -1169,7 +1155,7 @@ namespace Internal.Runtime.TypeLoader
                     thRetType = default(TypeHandle);
                     returnSize = TypeHandle.GetElemSize(returnType, thRetType);
 
-#if _TARGET_X86_
+#if TARGET_X86
                     ((TransitionBlock*)callerTransitionBlock)->m_returnBlock.returnValue = pinnedResultObject;
 #endif
                 }
@@ -1208,16 +1194,16 @@ namespace Internal.Runtime.TypeLoader
 #endif
                     Debug.Assert(fpReturnSize <= sizeof(ArgumentRegisters));
 
-#if _TARGET_X86_
+#if TARGET_X86
                     SetupCallerActualReturnData(callerTransitionBlock);
                     t_NonArgRegisterReturnSpace = ((TransitionBlock*)callerTransitionBlock)->m_returnBlock;
-#elif _TARGET_WASM_
+#elif TARGET_WASM
                     throw new NotImplementedException();
 #else
 #error Platform not implemented
 #endif
 
-#if !_TARGET_WASM_
+#if !TARGET_WASM
                     if (fpReturnSize == 4)
                     {
                         conversionParams._invokeReturnValue = ReturnFloatingPointReturn4Thunk;
@@ -1227,11 +1213,11 @@ namespace Internal.Runtime.TypeLoader
                         conversionParams._invokeReturnValue = ReturnFloatingPointReturn8Thunk;
                     }
                     return;
-#endif // !_TARGET_WASM_
+#endif // !TARGET_WASM
 #endif
                 }
 
-#if _TARGET_X86_
+#if TARGET_X86
                 SetupCallerActualReturnData(callerTransitionBlock);
                 t_NonArgRegisterReturnSpace = ((TransitionBlock*)callerTransitionBlock)->m_returnBlock;
                 conversionParams._invokeReturnValue = ReturnIntegerPointReturnThunk;
@@ -1308,7 +1294,7 @@ namespace Internal.Runtime.TypeLoader
             {
                 case CorElementType.ELEMENT_TYPE_I1:
                 case CorElementType.ELEMENT_TYPE_I2:
-#if BIT64
+#if TARGET_64BIT
                 case CorElementType.ELEMENT_TYPE_I4:
 #endif
                     return true;
@@ -1326,7 +1312,7 @@ namespace Internal.Runtime.TypeLoader
                 case CorElementType.ELEMENT_TYPE_BOOLEAN:
                 case CorElementType.ELEMENT_TYPE_CHAR:
                 case CorElementType.ELEMENT_TYPE_U2:
-#if BIT64
+#if TARGET_64BIT
                 case CorElementType.ELEMENT_TYPE_U4:
 #endif
                     return true;
@@ -1351,7 +1337,7 @@ namespace Internal.Runtime.TypeLoader
                     *((IntPtr*)pDest) = new IntPtr(*(short*)pSrc);
                     break;
 
-#if BIT64
+#if TARGET_64BIT
                 // On 64 bit platforms, a 32 bit parameter may require truncation/extension
                 case 4:
                     *((IntPtr*)pDest) = new IntPtr(*(int*)pSrc);
@@ -1378,7 +1364,7 @@ namespace Internal.Runtime.TypeLoader
                     *((UIntPtr*)pDest) = new UIntPtr(*(ushort*)pSrc);
                     break;
 
-#if BIT64
+#if TARGET_64BIT
                 // On 64 bit platforms, a 32 bit parameter may require truncation/extension
                 case 4:
                     *((UIntPtr*)pDest) = new UIntPtr(*(uint*)pSrc);
@@ -1395,7 +1381,7 @@ namespace Internal.Runtime.TypeLoader
         {
             int argStackPopSize = callerArgs.CbStackPop();
 
-#if _TARGET_X86_
+#if TARGET_X86
             // In a callee pops architecture, we must specify how much stack space to pop to reset the frame
             // to the ReturnValue thunk.
             ((TransitionBlock*)callerTransitionBlock)->m_argumentRegisters.ecx = new IntPtr(argStackPopSize);
@@ -1405,7 +1391,7 @@ namespace Internal.Runtime.TypeLoader
         }
 #endif
 
-#if _TARGET_X86_
+#if TARGET_X86
         unsafe internal static void SetupCallerActualReturnData(byte* callerTransitionBlock)
         {
             // X86 needs to pass callee pop information to the return value thunks, so, since it

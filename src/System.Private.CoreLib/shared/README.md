@@ -1,19 +1,20 @@
 # System.Private.CoreLib Shared Sources
 
-This directory contains the shared sources for System.Private.CoreLib. These are shared between [mono/mono](https://github.com/mono/mono/tree/master/netcore/System.Private.CoreLib/shared), [dotnet/coreclr](https://github.com/dotnet/coreclr/tree/master/src/System.Private.CoreLib/shared) and [dotnet/corefx](https://github.com/dotnet/corefx/tree/master/src/Common/src/CoreLib).
+This directory contains the shared sources for System.Private.CoreLib library. It represents the majority of the CoreLib implementation.  Each flavor of the runtime (e.g. coreclr, mono) provides additional files as part of their build of CoreLib to complement this directory's contents.
 
-The sources are synchronized with a mirroring tool that watches for new commits on either side and creates new pull requests (as @dotnet-bot) in the other repository.
+The goal is to have the majority of code located in this folder, as that code is used by both Mono and CoreCLR runtimes. The source code can be shared as a whole file or at the member level by declaring a type as `partial` and having common parts stored here and the rest in runtime-specific location.
 
-## Conventions
+### File Naming Convention
 
-Code in the shared directory should have no code specific to CoreCLR, CoreRT or CoreFX. Parts of classes that need to have different implementations on different runtimes should use partial classes and &#42;.CoreCLR.cs/&#42;.CoreFX.cs files in the non shared portion. Code that is different based on platform (Windows/Unix) is fine to leave in the shared portion. Remember to follow the [style guidelines](https://github.com/dotnet/corefx/blob/master/Documentation/coding-guidelines/coding-style.md).
+Any runtime-specific `partial` part which also has a shared part sholud use a runtime-specific file name suffix to ease the navigation.
 
-## Getting clean CI and merging the mirror PRs
+* `*.CoreCLR.cs` for CoreCLR runtime
+* `*.Mono.cs` for Mono runtime
 
-Once the mirror PR is created there is a chance that the new code will require changes to get a clean CI. Any changes can be added to the PR by checking out the PR branch and adding new commits. Please follow the following guidelines for modifying these PRs.
+## System.Private.CoreLib CoreCLR Sources
 
- - **DO NOT** modify the commits made by @dotnet-bot in any way.
- - **TRY** to only make changes outside of shared.
-   - Changes made in the shared folder in additional commits will get mirrored properly if the mirror PR is merged with a **REBASE**
- - **ALWAYS** Merge the mirror PR with the **REBASE** option.
-   - Using one of the other options will cause the mirror to miss commits
+The CoreCLR specific sources can be found at [src/coreclr/src/System.Private.CoreLib](../../../coreclr/src/System.Private.CoreLib/).
+
+## System.Private.CoreLib Mono Sources
+
+The Mono specific sources can be found at [src/mono/netcore/System.Private.CoreLib](../../../mono/netcore/System.Private.CoreLib/).

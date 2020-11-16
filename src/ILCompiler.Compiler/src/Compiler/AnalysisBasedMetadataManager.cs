@@ -1,7 +1,7 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
+using System;
 using System.Collections.Generic;
 
 using Internal.TypeSystem;
@@ -24,6 +24,17 @@ namespace ILCompiler
         private readonly Dictionary<MethodDesc, MetadataCategory> _reflectableMethods = new Dictionary<MethodDesc, MetadataCategory>();
         private readonly Dictionary<FieldDesc, MetadataCategory> _reflectableFields = new Dictionary<FieldDesc, MetadataCategory>();
 
+        private readonly HashSet<TypeDesc> _ldtokenReferenceableTypes;
+
+        public AnalysisBasedMetadataManager(CompilerTypeSystemContext typeSystemContext)
+            : this(typeSystemContext, new FullyBlockedMetadataBlockingPolicy(),
+                new FullyBlockedManifestResourceBlockingPolicy(), null, new NoStackTraceEmissionPolicy(),
+                new NoDynamicInvokeThunkGenerationPolicy(), Array.Empty<ModuleDesc>(),
+                Array.Empty<ReflectableEntity<TypeDesc>>(), Array.Empty<ReflectableEntity<MethodDesc>>(),
+                Array.Empty<ReflectableEntity<FieldDesc>>(), Array.Empty<TypeDesc>())
+        {
+        }
+
         public AnalysisBasedMetadataManager(
             CompilerTypeSystemContext typeSystemContext,
             MetadataBlockingPolicy blockingPolicy,
@@ -34,7 +45,8 @@ namespace ILCompiler
             IEnumerable<ModuleDesc> modulesWithMetadata,
             IEnumerable<ReflectableEntity<TypeDesc>> reflectableTypes,
             IEnumerable<ReflectableEntity<MethodDesc>> reflectableMethods,
-            IEnumerable<ReflectableEntity<FieldDesc>> reflectableFields)
+            IEnumerable<ReflectableEntity<FieldDesc>> reflectableFields,
+            IEnumerable<TypeDesc> ldtokenReferenceableTypes)
             : base(typeSystemContext, blockingPolicy, resourceBlockingPolicy, logFile, stackTracePolicy, invokeThunkGenerationPolicy)
         {
             _modulesWithMetadata = new List<ModuleDesc>(modulesWithMetadata);
@@ -65,6 +77,8 @@ namespace ILCompiler
                     || (_reflectableTypes[refField.Entity.OwningType] & MetadataCategory.RuntimeMapping) != 0);
                 _reflectableFields.Add(refField.Entity, refField.Category);
             }
+
+            _ldtokenReferenceableTypes = new HashSet<TypeDesc>(ldtokenReferenceableTypes);
 
 #if DEBUG
             HashSet<ModuleDesc> moduleHash = new HashSet<ModuleDesc>(_modulesWithMetadata);
@@ -102,6 +116,11 @@ namespace ILCompiler
         public override IEnumerable<ModuleDesc> GetCompilationModulesWithMetadata()
         {
             return _modulesWithMetadata;
+        }
+
+        public override bool ShouldConsiderLdTokenReferenceAConstruction(TypeDesc type)
+        {
+            return _ldtokenReferenceableTypes.Contains(type);
         }
 
         protected override void ComputeMetadata(NodeFactory factory,
@@ -202,7 +221,6 @@ namespace ILCompiler
         private struct Policy : IMetadataPolicy
         {
             private readonly MetadataBlockingPolicy _blockingPolicy;
-            private readonly ExplicitScopeAssemblyPolicyMixin _explicitScopeMixin;
             private readonly AnalysisBasedMetadataManager _parent;
 
             public Policy(MetadataBlockingPolicy blockingPolicy, 
@@ -210,7 +228,6 @@ namespace ILCompiler
             {
                 _blockingPolicy = blockingPolicy;
                 _parent = parent;
-                _explicitScopeMixin = new ExplicitScopeAssemblyPolicyMixin();
             }
 
             public bool GeneratesMetadata(FieldDesc fieldDef)
@@ -236,11 +253,6 @@ namespace ILCompiler
             public bool IsBlocked(MethodDesc methodDef)
             {
                 return _blockingPolicy.IsBlocked(methodDef);
-            }
-
-            public ModuleDesc GetModuleOfType(MetadataType typeDef)
-            {
-                return _explicitScopeMixin.GetModuleOfType(typeDef);
             }
         }
     }

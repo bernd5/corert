@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 #include "common.h"
 
 #include "gcenv.h"
@@ -22,7 +21,6 @@
 
 #include "shash.h"
 #include "RWLock.h"
-#include "module.h"
 #include "RuntimeInstance.h"
 #include "threadstore.h"
 #include "threadstore.inl"
@@ -93,7 +91,7 @@ void GCToEEInterface::GcScanRoots(EnumGcRefCallbackFunc * fn,  int condemned, in
     if ((!GCHeapUtilities::IsServerHeap() || sc->thread_number == 0) ||(condemned == max_gen && sc->promotion))
     {
 #if defined(FEATURE_EVENT_TRACE) && !defined(DACCESS_COMPILE)
-        sc->dwEtwRootKind = kEtwGCRootStatic;
+        sc->dwEtwRootKind = kEtwGCRootKindHandle;
 #endif 
         EnumAllStaticGCRefs(fn, sc);
     }

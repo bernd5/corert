@@ -1,15 +1,10 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Diagnostics;
-using System.Text;
-using ILCompiler.Compiler.CppCodeGen;
 using Internal.TypeSystem;
-using LLVMSharp;
-using ILCompiler.CodeGen;
-using System.Collections.Generic;
+using LLVMSharp.Interop;
 
 namespace Internal.IL
 {
@@ -199,7 +194,7 @@ namespace Internal.IL
             else if (kind == StackValueKind.Int64)
                 return ValueAsInt64(builder, signExtend);
             else if (kind == StackValueKind.Float)
-                return ValueAsType(Type.IsWellKnownType(WellKnownType.Single) ? LLVM.FloatType() : LLVM.DoubleType(), builder);
+                return ValueAsType(Type.IsWellKnownType(WellKnownType.Single) ? ILImporter.Context.FloatType : ILImporter.Context.DoubleType, builder);
             else if (kind == StackValueKind.NativeInt || kind == StackValueKind.ByRef || kind == StackValueKind.ObjRef)
                 return ValueAsInt32(builder, false);
             else
@@ -208,12 +203,12 @@ namespace Internal.IL
 
         public LLVMValueRef ValueAsInt32(LLVMBuilderRef builder, bool signExtend)
         {
-            return ValueAsTypeInternal(LLVM.Int32Type(), builder, signExtend);
+            return ValueAsTypeInternal(ILImporter.Context.Int32Type, builder, signExtend);
         }
 
         public LLVMValueRef ValueAsInt64(LLVMBuilderRef builder, bool signExtend)
         {
-            return ValueAsTypeInternal(LLVM.Int64Type(), builder, signExtend);
+            return ValueAsTypeInternal(ILImporter.Context.Int64Type, builder, signExtend);
         }
 
         protected abstract LLVMValueRef ValueAsTypeInternal(LLVMTypeRef type, LLVMBuilderRef builder, bool signExtend);
@@ -280,21 +275,21 @@ namespace Internal.IL
 
         protected override LLVMValueRef ValueAsTypeInternal(LLVMTypeRef type, LLVMBuilderRef builder, bool signExtend)
         {
-            if (type.TypeKind == LLVMTypeKind.LLVMPointerTypeKind && Value == 0)
+            if (type.Kind == LLVMTypeKind.LLVMPointerTypeKind && Value == 0)
             {
-                return LLVM.ConstPointerNull(type);
+                return LLVMValueRef.CreateConstPointerNull(type); 
             }
-            else if (type.TypeKind == LLVMTypeKind.LLVMPointerTypeKind && Value != 0)
+            else if (type.Kind == LLVMTypeKind.LLVMPointerTypeKind && Value != 0)
             {
-                return LLVM.ConstIntToPtr(LLVM.ConstInt(LLVM.Int32Type(), (ulong)Value, LLVMMisc.False), type);
+                return LLVMValueRef.CreateConstIntToPtr(LLVMValueRef.CreateConstInt(ILImporter.Context.Int32Type, (ulong)Value), type);
             }
-            else if (type.TypeKind != LLVMTypeKind.LLVMIntegerTypeKind)
+            else if (type.Kind != LLVMTypeKind.LLVMIntegerTypeKind)
             {
                 throw new NotImplementedException();
             }
             else
             {
-                return LLVM.ConstInt(type, (ulong)Value, LLVMMisc.False);
+                return LLVMValueRef.CreateConstInt(type, (ulong)Value);
             }
         }
 
@@ -340,21 +335,21 @@ namespace Internal.IL
 
         protected override LLVMValueRef ValueAsTypeInternal(LLVMTypeRef type, LLVMBuilderRef builder, bool signExtend)
         {
-            if (type.TypeKind == LLVMTypeKind.LLVMPointerTypeKind && Value == 0)
+            if (type.Kind == LLVMTypeKind.LLVMPointerTypeKind && Value == 0)
             {
-                return LLVM.ConstPointerNull(type);
+                return LLVMValueRef.CreateConstPointerNull(type);
             }
-            else if (type.TypeKind == LLVMTypeKind.LLVMPointerTypeKind && Value != 0)
+            else if (type.Kind == LLVMTypeKind.LLVMPointerTypeKind && Value != 0)
             {
-                return LLVM.ConstIntToPtr(LLVM.ConstInt(LLVM.Int64Type(), (ulong)Value, LLVMMisc.False), type);
+                return LLVMValueRef.CreateConstIntToPtr(LLVMValueRef.CreateConstInt(ILImporter.Context.Int64Type, (ulong)Value), type);
             }
-            else if (type.TypeKind != LLVMTypeKind.LLVMIntegerTypeKind)
+            else if (type.Kind != LLVMTypeKind.LLVMIntegerTypeKind)
             {
                 throw new NotImplementedException();
             }
             else
             {
-                return LLVM.ConstInt(type, (ulong)Value, LLVMMisc.False);
+                return LLVMValueRef.CreateConstInt(type, (ulong)Value);
             }
         }
 
@@ -394,7 +389,7 @@ namespace Internal.IL
 
         protected override LLVMValueRef ValueAsTypeInternal(LLVMTypeRef type, LLVMBuilderRef builder, bool signExtend)
         {
-            return LLVM.ConstReal(type, Value);
+            return LLVMValueRef.CreateConstReal(type, Value);
         }
 
         public override StackEntry Duplicate(LLVMBuilderRef builder)
@@ -432,8 +427,17 @@ namespace Internal.IL
 
         protected override LLVMValueRef ValueAsTypeInternal(LLVMTypeRef type, LLVMBuilderRef builder, bool signExtend)
         {
-            //TODO: deal with sign extension here
-            return ILImporter.CastIfNecessary(builder, RawLLVMValue, type, Name);
+            if (type.IsPackedStruct && type.Handle != RawLLVMValue.TypeOf.Handle)
+            {
+                var destStruct = type.Undef;
+                for (uint elemNo = 0; elemNo < RawLLVMValue.TypeOf.StructElementTypesCount; elemNo++)
+                {
+                    var elemValRef = builder.BuildExtractValue(RawLLVMValue, 0, "ex" + elemNo);
+                    destStruct = builder.BuildInsertValue(destStruct, elemValRef, elemNo, "st" + elemNo);
+                }
+                return destStruct;
+            }
+            return ILImporter.CastIfNecessary(builder, RawLLVMValue, type, Name, !signExtend);
         }
     }
 
@@ -526,7 +530,7 @@ namespace Internal.IL
 
         protected override LLVMValueRef ValueAsTypeInternal(LLVMTypeRef type, LLVMBuilderRef builder, bool signExtend)
         {
-            if (RawLLVMValue.Pointer == IntPtr.Zero)
+            if (RawLLVMValue.Handle == IntPtr.Zero)
                 throw new NullReferenceException();
 
             return ILImporter.CastIfNecessary(builder, RawLLVMValue, type, Name);
@@ -573,7 +577,7 @@ namespace Internal.IL
             LLVMTypeRef origLLVMType = ILImporter.GetLLVMTypeForTypeDesc(Type);
             LLVMValueRef value = _importer.LoadTemp(LocalIndex, origLLVMType);
 
-            return ILImporter.CastIfNecessary(builder, value, type);
+            return ILImporter.CastIfNecessary(builder, value, type, unsigned: !signExtend);
         }
 
         public override StackEntry Duplicate(LLVMBuilderRef builder)

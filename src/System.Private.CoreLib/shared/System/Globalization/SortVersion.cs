@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Runtime.CompilerServices;
 
@@ -8,10 +7,7 @@ namespace System.Globalization
 {
     [Serializable]
     [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public sealed class SortVersion :
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-        IEquatable<SortVersion>
-#nullable restore
+    public sealed class SortVersion : IEquatable<SortVersion?>
     {
         private readonly int m_NlsVersion; // Do not rename (binary serialization)
         private Guid m_SortId; // Do not rename (binary serialization)
@@ -70,7 +66,7 @@ namespace System.Globalization
             // so it can become a simple test
             if (right is null)
             {
-                // return true/false not the test result https://github.com/dotnet/coreclr/issues/914
+                // return true/false not the test result https://github.com/dotnet/runtime/issues/4207
                 return (left is null) ? true : false;
             }
 

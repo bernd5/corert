@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 //
 // This module provides data storage and implementations needed by gcrhenv.h to help provide an isolated build
@@ -30,7 +29,7 @@
 
 #include "shash.h"
 #include "RWLock.h"
-#include "module.h"
+#include "TypeManager.h"
 #include "RuntimeInstance.h"
 #include "objecthandle.h"
 #include "eetype.inl"
@@ -188,8 +187,12 @@ bool RedhawkGCInterface::InitializeSubsystems()
     if (!g_SuspendEELock.InitNoThrow(CrstSuspendEE))
         return false;
 
+#ifdef FEATURE_SVR_GC
     // TODO: This should use the logical CPU count adjusted for process affinity and cgroup limits
     g_heap_type = (g_pRhConfig->GetUseServerGC() && PalGetProcessCpuCount() > 1) ? GC_HEAP_SVR : GC_HEAP_WKS;
+#else
+    g_heap_type = GC_HEAP_WKS;
+#endif
 
     HRESULT hr = GCHeapUtilities::InitializeDefaultGC();
     if (FAILED(hr))
@@ -233,13 +236,13 @@ COOP_PINVOKE_HELPER(void*, RhpGcAlloc, (EEType *pEEType, UInt32 uFlags, UIntNati
     ASSERT(!pThread->IsDoNotTriggerGcSet());
 
     size_t max_object_size;
-#ifdef BIT64
+#ifdef HOST_64BIT
     if (g_pConfig->GetGCAllowVeryLargeObjects())
     {
         max_object_size = (INT64_MAX - 7 - min_obj_size);
     }
     else
-#endif // BIT64
+#endif // HOST_64BIT
     {
         max_object_size = (INT32_MAX - 7 - min_obj_size);
     }
@@ -276,16 +279,13 @@ COOP_PINVOKE_HELPER(void*, RhpGcAlloc, (EEType *pEEType, UInt32 uFlags, UIntNati
         }
     }
 
+    if (cbSize > RH_LARGE_OBJECT_SIZE)
+        uFlags |= GC_ALLOC_LARGE_OBJECT_HEAP;
+
     // Save the EEType for instrumentation purposes.
     RedhawkGCInterface::SetLastAllocEEType(pEEType);
 
-    Object * pObject;
-#ifdef FEATURE_64BIT_ALIGNMENT
-    if (uFlags & GC_ALLOC_ALIGN8)
-        pObject = GCHeapUtilities::GetGCHeap()->AllocAlign8(pThread->GetAllocContext(), cbSize, uFlags);
-    else
-#endif // FEATURE_64BIT_ALIGNMENT
-        pObject = GCHeapUtilities::GetGCHeap()->Alloc(pThread->GetAllocContext(), cbSize, uFlags);
+    Object * pObject = GCHeapUtilities::GetGCHeap()->Alloc(pThread->GetAllocContext(), cbSize, uFlags);
 
     // NOTE: we cannot call PublishObject here because the object isn't initialized!
 
@@ -371,7 +371,7 @@ bool IsOnReadablePortionOfThread(EnumGcRefScanContext * pSc, PTR_VOID pointer)
     return true;
 }
 
-#ifdef BIT64
+#ifdef HOST_64BIT
 #define CONSERVATIVE_REGION_MAGIC_NUMBER 0x87DF7A104F09E0A9ULL
 #else
 #define CONSERVATIVE_REGION_MAGIC_NUMBER 0x4F09E0A9
@@ -608,7 +608,6 @@ COOP_PINVOKE_HELPER(void, RhpInitializeGcStress, ())
 {
     g_fGcStressStarted = UInt32_TRUE;
     g_pConfig->SetGCStressLevel(EEConfig::GCSTRESS_INSTR_NGEN);   // this is the closest CLR equivalent to what we do.
-    GetRuntimeInstance()->EnableGcPollStress();
 }
 #endif // FEATURE_GC_STRESS
 
@@ -750,118 +749,6 @@ COOP_PINVOKE_HELPER(Boolean, RhCompareObjectContentsAndPadding, (Object* pObj1, 
     return (memcmp(pbFields1, pbFields2, cbFields) == 0) ? Boolean_true : Boolean_false;
 }
 
-COOP_PINVOKE_HELPER(void, RhpBox, (Object * pObj, void * pData))
-{
-    EEType * pEEType = pObj->get_EEType();
-
-    // Can box value types only (which also implies no finalizers).
-    ASSERT(pEEType->get_IsValueType() && !pEEType->HasFinalizer());
-
-    // cbObject includes ObjHeader (sync block index) and the EEType* field from Object and is rounded up to
-    // suit GC allocation alignment requirements. cbFields on the other hand is just the raw size of the field
-    // data.
-    size_t cbFieldPadding = pEEType->get_ValueTypeFieldPadding();
-    size_t cbObject = pEEType->get_BaseSize();
-    size_t cbFields = cbObject - (sizeof(ObjHeader) + sizeof(EEType*) + cbFieldPadding);
-    
-    UInt8 * pbFields = (UInt8*)pObj + sizeof(EEType*);
-
-    // Copy the unboxed value type data into the new object.
-    // Perform any write barriers necessary for embedded reference fields.
-    if (pEEType->HasReferenceFields())
-    {
-        GCSafeCopyMemoryWithWriteBarrier(pbFields, pData, cbFields);
-    }
-    else
-    {
-        memcpy(pbFields, pData, cbFields);
-    }
-}
-
-bool EETypesEquivalentEnoughForUnboxing(EEType *pObjectEEType, EEType *pUnboxToEEType)
-{
-    if (pObjectEEType->IsEquivalentTo(pUnboxToEEType))
-        return true;
-
-    if (pObjectEEType->GetCorElementType() == pUnboxToEEType->GetCorElementType())
-    {
-        // Enums and primitive types can unbox if their CorElementTypes exactly match
-        switch (pObjectEEType->GetCorElementType())
-        {
-        case ELEMENT_TYPE_I1:
-        case ELEMENT_TYPE_U1:
-        case ELEMENT_TYPE_I2:
-        case ELEMENT_TYPE_U2:
-        case ELEMENT_TYPE_I4:
-        case ELEMENT_TYPE_U4:
-        case ELEMENT_TYPE_I8:
-        case ELEMENT_TYPE_U8:
-        case ELEMENT_TYPE_I:
-        case ELEMENT_TYPE_U:
-            return true;
-        default:
-            break;
-        }
-    }
-
-    return false;
-}
-
-COOP_PINVOKE_HELPER(void, RhUnbox, (Object * pObj, void * pData, EEType * pUnboxToEEType))
-{
-    // When unboxing to a Nullable the input object may be null.
-    if (pObj == NULL)
-    {
-        ASSERT(pUnboxToEEType && pUnboxToEEType->IsNullable());
-
-        // The first field of the Nullable is a Boolean which we must set to false in this case to indicate no
-        // value is present.
-        *(Boolean*)pData = Boolean_false;
-
-        // Clear the value (in case there were GC references we wish to stop reporting).
-        EEType * pEEType = pUnboxToEEType->GetNullableType();
-        size_t cbFieldPadding = pEEType->get_ValueTypeFieldPadding();
-        size_t cbFields = pEEType->get_BaseSize() - (sizeof(ObjHeader) + sizeof(EEType*) + cbFieldPadding);
-        GCSafeZeroMemory((UInt8*)pData + pUnboxToEEType->GetNullableValueOffset(), cbFields);
-
-        return;
-    }
-
-    EEType * pEEType = pObj->get_EEType();
-
-    // Can unbox value types only.
-    ASSERT(pEEType->get_IsValueType());
-
-    // A special case is that we can unbox a value type T into a Nullable<T>. It's the only case where
-    // pUnboxToEEType is useful.
-    ASSERT((pUnboxToEEType == NULL) || EETypesEquivalentEnoughForUnboxing(pEEType, pUnboxToEEType) || pUnboxToEEType->IsNullable());
-    if (pUnboxToEEType && pUnboxToEEType->IsNullable())
-    {
-        ASSERT(pUnboxToEEType->GetNullableType()->IsEquivalentTo(pEEType));
-
-        // Set the first field of the Nullable to true to indicate the value is present.
-        *(Boolean*)pData = Boolean_true;
-
-        // Adjust the data pointer so that it points at the value field in the Nullable.
-        pData = (UInt8*)pData + pUnboxToEEType->GetNullableValueOffset();
-    }
-
-    size_t cbFieldPadding = pEEType->get_ValueTypeFieldPadding();
-    size_t cbFields = pEEType->get_BaseSize() - (sizeof(ObjHeader) + sizeof(EEType*) + cbFieldPadding);
-    UInt8 * pbFields = (UInt8*)pObj + sizeof(EEType*);
-
-    if (pEEType->HasReferenceFields())
-    {
-        // Copy the boxed fields into the new location in a GC safe manner
-        GCSafeCopyMemoryWithWriteBarrier(pData, pbFields, cbFields);
-    }
-    else
-    {
-        // Copy the boxed fields into the new location.
-        memcpy(pData, pbFields, cbFields);
-    }
-}
-
 // Thread static representing the last allocation.
 // This is used to log the type information for each slow allocation.
 DECLSPEC_THREAD
@@ -883,7 +770,7 @@ uint64_t RedhawkGCInterface::s_DeadThreadsNonAllocBytes = 0;
 
 uint64_t RedhawkGCInterface::GetDeadThreadsNonAllocBytes()
 {
-#ifdef BIT64
+#ifdef HOST_64BIT
     return s_DeadThreadsNonAllocBytes;
 #else
     // As it could be noticed we read 64bit values that may be concurrently updated.
@@ -930,6 +817,16 @@ void GCToEEInterface::SuspendEE(SUSPEND_REASON reason)
 void GCToEEInterface::RestartEE(bool /*bFinishedGC*/)
 {
     FireEtwGCRestartEEBegin_V1(GetClrInstanceId());
+
+#if defined(TARGET_ARM) || defined(TARGET_ARM64)
+    // Flush the store buffers on all CPUs, to ensure that they all see changes made
+    // by the GC threads. This only matters on weak memory ordered processors as 
+    // the strong memory ordered processors wouldn't have reordered the relevant reads.
+    // This is needed to synchronize threads that were running in preemptive mode while
+    // the runtime was suspended and that will return to cooperative mode after the runtime 
+    // is restarted. 
+    ::FlushProcessWriteBuffers();
+#endif //TARGET_ARM || TARGET_ARM64
 
     SyncClean::CleanUp();
 
@@ -1252,14 +1149,14 @@ void GCToEEInterface::DiagWalkSurvivors(void* gcContext, bool fCompacting)
 #endif // FEATURE_EVENT_TRACE
 }
 
-void GCToEEInterface::DiagWalkLOHSurvivors(void* gcContext)
+void GCToEEInterface::DiagWalkUOHSurvivors(void* gcContext, int gen)
 {
 #ifdef FEATURE_EVENT_TRACE
     if (ShouldTrackSurvivorsForProfilerOrEtw())
     {
         size_t context = 0;
         ETW::GCLog::BeginMovedReferences(&context);
-        GCHeapUtilities::GetGCHeap()->DiagWalkSurvivorsWithType(gcContext, &WalkMovedReferences, (void*)context, walk_for_loh);
+        GCHeapUtilities::GetGCHeap()->DiagWalkSurvivorsWithType(gcContext, &WalkMovedReferences, (void*)context, walk_for_uoh, gen);
         ETW::GCLog::EndMovedReferences(context);
     }
 #else
@@ -1281,6 +1178,10 @@ void GCToEEInterface::DiagWalkBGCSurvivors(void* gcContext)
     UNREFERENCED_PARAMETER(gcContext);
 #endif // FEATURE_EVENT_TRACE
 }
+
+#if defined(FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP) && (!defined(TARGET_ARM64) || !defined(TARGET_UNIX))
+#error FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP is only implemented for ARM64 and UNIX
+#endif
 
 void GCToEEInterface::StompWriteBarrier(WriteBarrierParameters* args)
 {
@@ -1311,6 +1212,14 @@ void GCToEEInterface::StompWriteBarrier(WriteBarrierParameters* args)
         g_card_bundle_table = args->card_bundle_table;
 #endif
 
+#ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+        if (g_sw_ww_enabled_for_gc_heap && (args->write_watch_table != nullptr))
+        {
+            assert(args->is_runtime_suspended);
+            g_write_watch_table = args->write_watch_table;
+        }
+#endif // FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+
         // IMPORTANT: managed heap segments may surround unmanaged/stack segments. In such cases adding another managed 
         //     heap segment may put a stack/unmanaged write inside the new heap range. However the old card table would 
         //     not cover it. Therefore we must ensure that the write barriers see the new table before seeing the new bounds.
@@ -1318,7 +1227,7 @@ void GCToEEInterface::StompWriteBarrier(WriteBarrierParameters* args)
         //     On architectures with strong ordering, we only need to prevent compiler reordering.
         //     Otherwise we put a process-wide fence here (so that we could use an ordinary read in the barrier)
 
-#if defined(_ARM64_) || defined(_ARM_)
+#if defined(HOST_ARM64) || defined(HOST_ARM)
         if (!is_runtime_suspended)
         {
             // If runtime is not suspended, force all threads to see the changed table before seeing updated heap boundaries.
@@ -1330,7 +1239,7 @@ void GCToEEInterface::StompWriteBarrier(WriteBarrierParameters* args)
         g_lowest_address = args->lowest_address;
         g_highest_address = args->highest_address;
 
-#if defined(_ARM64_) || defined(_ARM_)
+#if defined(HOST_ARM64) || defined(HOST_ARM)
         if (!is_runtime_suspended)
         {
             // If runtime is not suspended, force all threads to see the changed state before observing future allocations.
@@ -1364,14 +1273,35 @@ void GCToEEInterface::StompWriteBarrier(WriteBarrierParameters* args)
         g_card_bundle_table = args->card_bundle_table;
 #endif
 
+#ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+        assert(g_write_watch_table == nullptr);
+        g_write_watch_table = args->write_watch_table;
+#endif
+
         g_lowest_address = args->lowest_address;
         g_highest_address = args->highest_address;
         g_ephemeral_low = args->ephemeral_low;
         g_ephemeral_high = args->ephemeral_high;
         return;
     case WriteBarrierOp::SwitchToWriteWatch:
+#ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+        assert(args->is_runtime_suspended && "the runtime must be suspended here!");
+        assert(args->write_watch_table != nullptr);
+        g_write_watch_table = args->write_watch_table;
+        g_sw_ww_enabled_for_gc_heap = true;
+#else
+        assert(!"should never be called without FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP");
+#endif // FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+        break;
+
     case WriteBarrierOp::SwitchToNonWriteWatch:
-        assert(!"CoreRT does not have an implementation of non-OS WriteWatch");
+#ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+        assert(args->is_runtime_suspended && "the runtime must be suspended here!");
+        g_write_watch_table = nullptr;
+        g_sw_ww_enabled_for_gc_heap = false;
+#else
+        assert(!"should never be called without FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP");
+#endif // FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
         return;
     default:
         assert(!"Unknokwn WriteBarrierOp enum");
@@ -1527,22 +1457,22 @@ MethodTable* GCToEEInterface::GetFreeObjectMethodTable()
     return (MethodTable*)g_pFreeObjectEEType;
 }
 
-bool GCToEEInterface::GetBooleanConfigValue(const char* key, bool* value)
+bool GCToEEInterface::GetBooleanConfigValue(const char* privateKey, const char* publicKey, bool* value)
 {
     // these configuration values are given to us via startup flags.
-    if (strcmp(key, "gcServer") == 0)
+    if (strcmp(privateKey, "gcServer") == 0)
     {
         *value = g_heap_type == GC_HEAP_SVR;
         return true;
     }
 
-    if (strcmp(key, "gcConcurrent") == 0)
+    if (strcmp(privateKey, "gcConcurrent") == 0)
     {
         *value = !g_pRhConfig->GetDisableBGC();
         return true;
     }
 
-    if (strcmp(key, "gcConservative") == 0)
+    if (strcmp(privateKey, "gcConservative") == 0)
     {
         *value = g_pConfig->GetGCConservative();
         return true;
@@ -1551,17 +1481,17 @@ bool GCToEEInterface::GetBooleanConfigValue(const char* key, bool* value)
     return false;
 }
 
-bool GCToEEInterface::GetIntConfigValue(const char* key, int64_t* value)
+bool GCToEEInterface::GetIntConfigValue(const char* privateKey, const char* publicKey, int64_t* value)
 {
-    if (strcmp(key, "HeapVerify") == 0)
+    if (strcmp(privateKey, "HeapVerify") == 0)
     {
         *value = g_pRhConfig->GetHeapVerify();
         return true;
     }
 
-    if (strcmp(key, "GCgen0size") == 0)
+    if (strcmp(privateKey, "GCgen0size") == 0)
     {
-#ifdef USE_PORTABLE_HELPERS
+#if defined(USE_PORTABLE_HELPERS) && !defined(HOST_WASM)
         // CORERT-TODO: remove this
         //              https://github.com/dotnet/corert/issues/2033
         *value = 100 * 1024 * 1024;
@@ -1574,9 +1504,10 @@ bool GCToEEInterface::GetIntConfigValue(const char* key, int64_t* value)
     return false;
 }
 
-bool GCToEEInterface::GetStringConfigValue(const char* key, const char** value)
+bool GCToEEInterface::GetStringConfigValue(const char* privateKey, const char* publicKey, const char** value)
 {
-    UNREFERENCED_PARAMETER(key);
+    UNREFERENCED_PARAMETER(privateKey);
+    UNREFERENCED_PARAMETER(publicKey);
     UNREFERENCED_PARAMETER(value);
     return false;
 }

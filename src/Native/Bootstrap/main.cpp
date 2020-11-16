@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #include "common.h"
 
@@ -236,26 +235,72 @@ Object * __load_string_literal(const char * string)
     return pString;
 }
 
+#if defined(HOST_WASM)
+// Exception wrapper type that allows us to differentiate managed and native exceptions
+class ManagedExceptionWrapper : exception
+{
+public:
+    ManagedExceptionWrapper(void* pManagedException)
+    {
+        m_pManagedException = pManagedException;
+    }
+
+public:
+    void* m_pManagedException;
+};
+#endif
+
 extern "C" void RhpThrowEx(void * pEx)
 {
+#if defined(HOST_WASM)
+    throw ManagedExceptionWrapper(pEx);
+#else 
     throw "RhpThrowEx";
+#endif
 }
+
 extern "C" void RhpThrowHwEx()
 {
     throw "RhpThrowHwEx";
 }
-extern "C" void RhpCallCatchFunclet()
+
+#if defined(HOST_WASM)
+// returns the Leave target
+extern "C" uint32_t LlvmCatchFunclet(void* pHandlerIP, void* pvRegDisplay); 
+extern "C" uint32_t RhpCallCatchFunclet(void * exceptionObj, void* pHandlerIP, void* pvRegDisplay, void *exInfo)
+{
+    return LlvmCatchFunclet(pHandlerIP, pvRegDisplay);
+}
+
+extern "C" uint32_t LlvmFilterFunclet(void* pHandlerIP, void* pvRegDisplay);
+extern "C" uint32_t RhpCallFilterFunclet(void* exceptionObj, void * pHandlerIP, void* shadowStack)
+{
+    return LlvmFilterFunclet(pHandlerIP, shadowStack);
+}
+#else 
+extern "C" uint32_t RhpCallCatchFunclet(void *, void*, void*, void*)
 {
     throw "RhpCallCatchFunclet";
 }
-extern "C" void RhpCallFilterFunclet()
+extern "C" void* RhpCallFilterFunclet(void*, void*, void*)
 {
     throw "RhpCallFilterFunclet";
 }
-extern "C" void RhpCallFinallyFunclet()
+#endif
+
+#if defined(HOST_WASM)
+extern "C" void LlvmFinallyFunclet(void *finallyHandler, void *shadowStack);
+extern "C" void RhpCallFinallyFunclet(void *finallyHandler, void *shadowStack)
+{
+    LlvmFinallyFunclet(finallyHandler, shadowStack);
+}
+#else 
+extern "C" void RhpCallFinallyFunclet(void *, void*)
 {
     throw "RhpCallFinallyFunclet";
 }
+#endif
+
 extern "C" void RhpUniversalTransition()
 {
     throw "RhpUniversalTransition";
@@ -264,7 +309,7 @@ extern "C" void RhpUniversalTransition_DebugStepTailCall()
 {
     throw "RhpUniversalTransition_DebugStepTailCall";
 }
-extern "C" void ConstrainedCallSupport_GetStubs()
+extern "C" void ConstrainedCallSupport_GetStubs(void*, void*)
 {
     throw "ConstrainedCallSupport_GetStubs";
 }
@@ -342,7 +387,7 @@ static int InitializeRuntime()
     if (!RhInitialize())
         return -1;
 
-#if defined(CPPCODEGEN)
+#if defined(CPPCODEGEN) || defined(HOST_WASM)
     RhpEnableConservativeStackReporting();
 #endif // CPPCODEGEN
 
@@ -362,8 +407,8 @@ static int InitializeRuntime()
 
 #ifndef CPPCODEGEN
     InitializeModules(osModule, __modules_a, (int)((__modules_z - __modules_a)), (void **)&c_classlibFunctions, _countof(c_classlibFunctions));
-#elif defined _WASM_
-    InitializeModules(nullptr, (void**)RtRHeaderWrapper(), 1, nullptr, 0);
+#elif defined HOST_WASM
+    InitializeModules(nullptr, (void**)RtRHeaderWrapper(), 1, (void **)&c_classlibFunctions, _countof(c_classlibFunctions));
 #else // !CPPCODEGEN
     InitializeModules(nullptr, (void**)RtRHeaderWrapper(), 2, (void **)&c_classlibFunctions, _countof(c_classlibFunctions));
 #endif // !CPPCODEGEN

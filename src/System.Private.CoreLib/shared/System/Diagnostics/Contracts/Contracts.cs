@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 /*============================================================
 **
@@ -617,7 +616,7 @@ namespace System.Diagnostics.Contracts
         #region Private Methods
 
         /// <summary>
-        /// This method is used internally to trigger a failure indicating to the "programmer" that he is using the interface incorrectly.
+        /// This method is used internally to trigger a failure indicating to the "programmer" that they are using the interface incorrectly.
         /// It is NEVER used to indicate failure of actual contracts at runtime.
         /// </summary>
         private static void AssertMustUseRewriter(ContractFailureKind kind, string contractKind)

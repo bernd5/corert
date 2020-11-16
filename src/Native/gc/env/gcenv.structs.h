@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 #ifndef __GCENV_STRUCTS_INCLUDED__
 #define __GCENV_STRUCTS_INCLUDED__
 //
@@ -16,7 +15,7 @@ struct GCSystemInfo
 
 typedef void * HANDLE;
 
-#ifdef PLATFORM_UNIX
+#ifdef TARGET_UNIX
 
 typedef char TCHAR;
 #define _T(s) s
@@ -30,7 +29,7 @@ typedef wchar_t TCHAR;
 
 #endif
 
-#ifdef PLATFORM_UNIX
+#ifdef TARGET_UNIX
 
 class EEThreadId
 {
@@ -57,7 +56,7 @@ public:
     }
 };
 
-#else // PLATFORM_UNIX
+#else // TARGET_UNIX
 
 #ifndef _INC_WINDOWS
 extern "C" uint32_t __stdcall GetCurrentThreadId();
@@ -84,11 +83,11 @@ public:
     }
 };
 
-#endif // PLATFORM_UNIX
+#endif // TARGET_UNIX
 
 #ifndef _INC_WINDOWS
 
-#ifdef PLATFORM_UNIX
+#ifdef TARGET_UNIX
 
 typedef struct _RTL_CRITICAL_SECTION {
     pthread_mutex_t mutex;

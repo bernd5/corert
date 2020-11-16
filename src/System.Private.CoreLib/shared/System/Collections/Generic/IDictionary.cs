@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics.CodeAnalysis;
 
@@ -10,7 +9,7 @@ namespace System.Collections.Generic
     // Keys can be any non-null object.  Values can be any object.
     // You can look up a value in an IDictionary via the default indexed
     // property, Items.
-    public interface IDictionary<TKey, TValue> : ICollection<KeyValuePair<TKey, TValue>> where TKey : notnull
+    public interface IDictionary<TKey, TValue> : ICollection<KeyValuePair<TKey, TValue>>
     {
         // Interfaces are not serializable
         // The Item property provides methods to read and edit entries

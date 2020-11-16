@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -611,6 +610,7 @@ namespace ILCompiler.DependencyAnalysis
                 int end = frameInfo.EndOffset;
                 int len = frameInfo.BlobData.Length;
                 byte[] blob = frameInfo.BlobData;
+                byte[] unwindData = frameInfo.UnwindData;
 
                 ObjectNodeSection lsdaSection = LsdaSection;
                 if (ShouldShareSymbol(node))
@@ -626,6 +626,18 @@ namespace ILCompiler.DependencyAnalysis
                 FrameInfoFlags flags = frameInfo.Flags;
                 flags |= ehInfo != null ? FrameInfoFlags.HasEHInfo : 0;
                 flags |= associatedDataNode != null ? FrameInfoFlags.HasAssociatedData : 0;
+
+                if (unwindData != null)
+                {
+                    if (unwindData.Length == 2)
+                    {
+                        flags |= FrameInfoFlags.HasCompactUnwindInfo;
+                    }
+                    else
+                    {
+                        flags |= FrameInfoFlags.HasFullUnwindInfo;
+                    }
+                }
 
                 EmitIntValue((byte)flags, 1);
 
@@ -650,6 +662,18 @@ namespace ILCompiler.DependencyAnalysis
                     EmitSymbolRef(_sb.Clear().Append("_ehInfo").Append(_currentNodeZeroTerminatedName), RelocType.IMAGE_REL_BASED_RELPTR32);
                 }
 
+                if (unwindData != null)
+                {
+                    if (unwindData.Length == 2)
+                    {
+                        EmitBlob(unwindData);
+                    }
+                    else
+                    {
+                        EmitSymbolRef(_sb.Clear().Append("_uwInfo").Append(i.ToStringInvariant()).Append(_currentNodeZeroTerminatedName), RelocType.IMAGE_REL_BASED_RELPTR32);
+                    }
+                }
+
                 if (gcInfo != null)
                 {
                     EmitBlob(gcInfo);
@@ -661,14 +685,22 @@ namespace ILCompiler.DependencyAnalysis
                     // TODO: Place EHInfo into different section for better locality
                     Debug.Assert(ehInfo.Alignment == 1);
                     Debug.Assert(ehInfo.DefinedSymbols.Length == 0);
-                    EmitSymbolDef(_sb /* ehInfo */);
+                    EmitSymbolDef(_sb.Clear().Append("_ehInfo").Append(_currentNodeZeroTerminatedName));
                     EmitBlobWithRelocs(ehInfo.Data, ehInfo.Relocs);
                     ehInfo = null;
                 }
 
+                if (unwindData != null && unwindData.Length > 2)
+                {
+                    // TODO: Place unwind into different section for better locality?
+                    EmitSymbolDef(_sb.Clear().Append("_uwInfo").Append(i.ToStringInvariant()).Append(_currentNodeZeroTerminatedName));
+                    EmitBlob(unwindData);
+                }
+
+                // Store the CFI data for the debugger even if we have or own unwinder for the target
                 // For Unix, we build CFI blob map for each offset.
                 Debug.Assert(len % CfiCodeSize == 0);
-
+                
                 // Record start/end of frames which shouldn't be overlapped.
                 _offsetToCfiStart.Add(start);
                 _offsetToCfiEnd.Add(end);
@@ -1041,10 +1073,10 @@ namespace ILCompiler.DependencyAnalysis
                     // Build symbol definition map.
                     objectWriter.BuildSymbolDefinitionMap(node, nodeContents.DefinedSymbols);
 
-                    // The DWARF CFI unwind is implemented for AMD64 & ARM32 only.
+                    // The DWARF CFI unwind is only implemented for some architectures.
                     TargetArchitecture tarch = factory.Target.Architecture;
                     if (!factory.Target.IsWindows &&
-                        (tarch == TargetArchitecture.X64 || tarch == TargetArchitecture.ARM))
+                        (tarch == TargetArchitecture.X64 || tarch == TargetArchitecture.ARM || tarch == TargetArchitecture.ARM64))
                         objectWriter.BuildCFIMap(factory, node);
 
                     // Build debug location map
@@ -1090,17 +1122,24 @@ namespace ILCompiler.DependencyAnalysis
                             }
                             int size = objectWriter.EmitSymbolReference(reloc.Target, (int)delta, reloc.RelocType);
 
-                            // Emit a copy of original Thumb2 instruction that came from RyuJIT
-                            if (reloc.RelocType == RelocType.IMAGE_REL_BASED_THUMB_MOV32 ||
-                                reloc.RelocType == RelocType.IMAGE_REL_BASED_THUMB_BRANCH24)
+                            // Emit a copy of original Thumb2/ARM64 instruction that came from RyuJIT
+
+                            switch (reloc.RelocType)
                             {
-                                unsafe
-                                {
-                                    fixed (void* location = &nodeContents.Data[i])
+                                case RelocType.IMAGE_REL_BASED_THUMB_MOV32:
+                                case RelocType.IMAGE_REL_BASED_THUMB_BRANCH24:
+                                case RelocType.IMAGE_REL_BASED_ARM64_BRANCH26:
+                                case RelocType.IMAGE_REL_BASED_ARM64_PAGEBASE_REL21:
+                                case RelocType.IMAGE_REL_BASED_ARM64_PAGEOFFSET_12A:
+                                case RelocType.IMAGE_REL_BASED_ARM64_PAGEOFFSET_12L:
+                                    unsafe
                                     {
-                                        objectWriter.EmitBytes((IntPtr)location, size);
+                                        fixed (void* location = &nodeContents.Data[i])
+                                        {
+                                            objectWriter.EmitBytes((IntPtr)location, size);
+                                        }
                                     }
-                                }
+                                    break;
                             }
 
                             // Update nextRelocIndex/Offset
@@ -1226,7 +1265,7 @@ namespace ILCompiler.DependencyAnalysis
                     arch = "x86_64";
                     break;
                 case TargetArchitecture.X86:
-                    arch = "x86";
+                    arch = "i686";
                     break;
                 case TargetArchitecture.Wasm32:
                     arch = "wasm32";

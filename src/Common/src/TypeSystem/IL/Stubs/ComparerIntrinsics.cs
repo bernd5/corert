@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -59,9 +58,25 @@ namespace Internal.IL.Stubs
             ILEmitter emitter = new ILEmitter();
             var codeStream = emitter.NewCodeStream();
 
+            FieldDesc defaultField = owningType.GetKnownField("s_default");
+
+            TypeSystemContext  context = comparerType.Context;
+            TypeDesc objectType = context.GetWellKnownType(WellKnownType.Object);
+            MethodDesc compareExchangeObject = context.SystemModule.
+                GetKnownType("System.Threading", "Interlocked").
+                    GetKnownMethod("CompareExchange",
+                        new MethodSignature(
+                            MethodSignatureFlags.Static,
+                            genericParameterCount: 0,
+                            returnType: objectType,
+                            parameters: new TypeDesc[] { objectType.MakeByRefType(), objectType, objectType }));
+
+            codeStream.Emit(ILOpcode.ldsflda, emitter.NewToken(defaultField));
             codeStream.Emit(ILOpcode.newobj, emitter.NewToken(comparerType.GetParameterlessConstructor()));
-            codeStream.Emit(ILOpcode.dup);
-            codeStream.Emit(ILOpcode.stsfld, emitter.NewToken(owningType.GetKnownField("_default")));
+            codeStream.Emit(ILOpcode.ldnull);
+            codeStream.Emit(ILOpcode.call, emitter.NewToken(compareExchangeObject));
+            codeStream.Emit(ILOpcode.pop);
+            codeStream.Emit(ILOpcode.ldsfld, emitter.NewToken(defaultField));
             codeStream.Emit(ILOpcode.ret);
 
             return emitter.Link(methodBeingGenerated);

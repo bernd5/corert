@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Runtime.CompilerServices;
 using System.Security;
@@ -77,15 +76,6 @@ namespace System.Runtime.InteropServices
         public static IntPtr CoTaskMemReAlloc(IntPtr pv, IntPtr cb)
         {
             return Interop.mincore.CoTaskMemRealloc(pv, cb);
-        }
-
-        public static IntPtr SecureStringToBSTR(SecureString s)
-        {
-            if (s == null)
-            {
-                throw new ArgumentNullException(nameof(s));
-            }
-            return s.MarshalToBSTR();
         }
 
         internal static IntPtr AllocBSTR(int length)

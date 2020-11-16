@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 #include "common.h"
 #include "CommonTypes.h"
 #include "CommonMacros.h"
@@ -15,8 +14,6 @@ EXTERN_C REDHAWK_API UInt64 REDHAWK_CALLCONV RhpDbl2ULng(double val)
     return((UInt64)val);
 }
 
-// On ProjectN the arguments to these helpers are inverted
-#ifndef PROJECTN
 #undef min
 #undef max
 #include <cmath>
@@ -80,9 +77,7 @@ EXTERN_C REDHAWK_API float REDHAWK_CALLCONV RhpFltRound(float value)
     return roundf(value);
 }
 
-#endif // !PROJECTN
-
-#ifdef _ARM_
+#ifdef HOST_ARM
 EXTERN_C REDHAWK_API Int32 REDHAWK_CALLCONV RhpIDiv(Int32 i, Int32 j)
 {
     ASSERT(j && "Divide by zero!");
@@ -181,4 +176,4 @@ EXTERN_C REDHAWK_API double REDHAWK_CALLCONV RhpULng2Dbl(UInt64 val)
     return (double)val;
 }
 
-#endif // _ARM_
+#endif // HOST_ARM

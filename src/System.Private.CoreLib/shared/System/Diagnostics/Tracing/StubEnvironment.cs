@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 #if ES_BUILD_PCL || ES_BUILD_PN
@@ -120,9 +119,9 @@ namespace Microsoft.Internal
         public override string ToString()
         {
             StringBuilder sb = new StringBuilder();
-            sb.Append("(");
+            sb.Append('(');
             sb.Append(m_Item1);
-            sb.Append(")");
+            sb.Append(')');
             return sb.ToString();
         }
 
@@ -153,11 +152,11 @@ namespace Microsoft.Internal
         public override string ToString()
         {
             StringBuilder sb = new StringBuilder();
-            sb.Append("(");
+            sb.Append('(');
             sb.Append(m_Item1);
             sb.Append(", ");
             sb.Append(m_Item2);
-            sb.Append(")");
+            sb.Append(')');
             return sb.ToString();
         }
 

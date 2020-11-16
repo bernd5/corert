@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #define C_VAR(Name) rip + C_FUNC(Name)
 
@@ -113,6 +112,15 @@ C_FUNC(\Name):
         // NOTE: We cannot use ".cfi_restore \Reg" here, 
         // the xmm registers are not supported by the libunwind
         
+.endm
+
+.macro RESET_FRAME_WITH_RBP
+
+        mov     rsp, rbp
+        set_cfa_register rsp, 16
+        pop_nonvol_reg rbp
+        .cfi_same_value rbp
+
 .endm
 
 .macro PUSH_CALLEE_SAVED_REGISTERS

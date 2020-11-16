@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 
@@ -83,8 +82,8 @@ namespace Internal.Runtime
                     return SR.InvalidProgram_Vararg;
                 case ExceptionStringID.InvalidProgramCallVirtFinalize:
                     return SR.InvalidProgram_CallVirtFinalize;
-                case ExceptionStringID.InvalidProgramNativeCallable:
-                    return SR.InvalidProgram_NativeCallable;
+                case ExceptionStringID.InvalidProgramUnmanagedCallersOnly:
+                    return SR.InvalidProgram_UnmanagedCallersOnly;
                 case ExceptionStringID.MissingField:
                     return SR.EE_MissingField;
                 case ExceptionStringID.MissingMethod:

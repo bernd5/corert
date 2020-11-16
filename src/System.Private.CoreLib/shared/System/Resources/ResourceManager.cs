@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.IO;
 using System.Globalization;
@@ -236,7 +235,7 @@ namespace System.Resources
         // security check in each constructor prevents it.
         private void CommonAssemblyInit()
         {
-#if FEATURE_APPX || ENABLE_WINRT
+#if FEATURE_APPX
             SetUapConfiguration();
 #endif
 
@@ -501,8 +500,7 @@ namespace System.Resources
             lock (localResourceSets)
             {
                 // If another thread added this culture, return that.
-                ResourceSet? lostRace;
-                if (localResourceSets.TryGetValue(cultureName, out lostRace))
+                if (localResourceSets.TryGetValue(cultureName, out ResourceSet? lostRace))
                 {
                     if (!object.ReferenceEquals(lostRace, rs))
                     {
@@ -599,7 +597,7 @@ namespace System.Resources
             if (null == name)
                 throw new ArgumentNullException(nameof(name));
 
-#if FEATURE_APPX || ENABLE_WINRT
+#if FEATURE_APPX
             if (_useUapResourceManagement)
             {
                 // Throws WinRT hresults.

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -11,7 +10,7 @@ using Internal.NativeFormat;
 
 namespace Internal.TypeSystem
 {
-    public abstract partial class TypeSystemContext
+    public abstract partial class TypeSystemContext : IModuleResolver
     {
         public TypeSystemContext() : this(new TargetDetails(TargetArchitecture.Unknown, TargetOS.Unknown, TargetAbi.Unknown))
         {
@@ -71,6 +70,11 @@ namespace Internal.TypeSystem
             if (throwIfNotFound)
                 throw new NotSupportedException();
             return null;
+        }
+
+        ModuleDesc IModuleResolver.ResolveModule(IAssemblyDesc referencingModule, string fileName, bool throwIfNotFound)
+        {
+            return ResolveModule(referencingModule, fileName, throwIfNotFound);
         }
 
         //
@@ -773,6 +777,25 @@ namespace Internal.TypeSystem
                 flags |= TypeFlags.HasStaticConstructorComputed;
             }
 
+            // We are looking to compute IsIDynamicInterfaceCastable and we haven't yet assigned a value
+            if ((mask & TypeFlags.IsIDynamicInterfaceCastableComputed) == TypeFlags.IsIDynamicInterfaceCastableComputed)
+            {
+                TypeDesc typeDefinition = type.GetTypeDefinition();
+                if (!typeDefinition.IsValueType)
+                {
+                    foreach (DefType interfaceType in typeDefinition.RuntimeInterfaces)
+                    {
+                        if (IsIDynamicInterfaceCastableInterface(interfaceType))
+                        {
+                            flags |= TypeFlags.IsIDynamicInterfaceCastable;
+                            break;
+                        }
+                    }
+                }
+
+                flags |= TypeFlags.IsIDynamicInterfaceCastableComputed;
+            }
+
             return flags;
         }
 
@@ -780,5 +803,10 @@ namespace Internal.TypeSystem
         /// Algorithm to control which types are considered to have static constructors
         /// </summary>
         protected internal abstract bool ComputeHasStaticConstructor(TypeDesc type);
+
+        /// <summary>
+        /// Determine if the type implements <code>IDynamicInterfaceCastable</code>
+        /// </summary>
+        protected internal abstract bool IsIDynamicInterfaceCastableInterface(DefType type);
     }
 }

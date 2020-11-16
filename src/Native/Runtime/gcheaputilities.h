@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #ifndef _GCHEAPUTILITIES_H_
 #define _GCHEAPUTILITIES_H_
@@ -28,6 +27,12 @@ extern "C" uint32_t* g_card_bundle_table;
 
 extern "C" uint8_t* g_ephemeral_low;
 extern "C" uint8_t* g_ephemeral_high;
+
+#ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+extern "C" bool g_sw_ww_enabled_for_gc_heap;
+extern "C" uint8_t* g_write_watch_table;
+#endif // FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+
 
 // g_gc_dac_vars is a structure of pointers to GC globals that the
 // DAC uses. It is not exposed directly to the DAC.

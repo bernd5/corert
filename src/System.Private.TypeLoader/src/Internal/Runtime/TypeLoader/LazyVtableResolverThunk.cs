@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -718,7 +717,7 @@ namespace Internal.Runtime.TypeLoader
                     methodAddress = RuntimeAugments.ResolveDispatchOnType(instanceType.GetRuntimeTypeHandle(),
                                                                           targetMethod.OwningType.GetRuntimeTypeHandle(),
                                                                           interfaceSlot);
-                    Debug.Assert(methodAddress != IntPtr.Zero); // TODO! This should happen for ICastable dispatch...
+                    Debug.Assert(methodAddress != IntPtr.Zero);
                     return true;
                 }
                 else
@@ -759,7 +758,7 @@ namespace Internal.Runtime.TypeLoader
                                                                           targetMethod.OwningType.GetRuntimeTypeHandle(),
                                                                           interfaceSlot);
 
-                    Debug.Assert(methodAddress != IntPtr.Zero); // TODO! This should happen for ICastable dispatch...
+                    Debug.Assert(methodAddress != IntPtr.Zero);
                     return true;
                 }
             }

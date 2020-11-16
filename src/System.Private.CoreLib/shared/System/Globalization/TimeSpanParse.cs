@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 ////////////////////////////////////////////////////////////////////////////
 //
@@ -268,7 +267,7 @@ namespace System.Globalization
                 {
                     if (!_posLocInit)
                     {
-                        _posLoc = new TimeSpanFormat.FormatLiterals();
+                        _posLoc = default;
                         _posLoc.Init(_fullPosPattern, false);
                         _posLocInit = true;
                     }
@@ -282,7 +281,7 @@ namespace System.Globalization
                 {
                     if (!_negLocInit)
                     {
-                        _negLoc = new TimeSpanFormat.FormatLiterals();
+                        _negLoc = default;
                         _negLoc.Init(_fullNegPattern, false);
                         _negLocInit = true;
                     }
@@ -652,7 +651,7 @@ namespace System.Globalization
             return false;
         }
 
-        internal static TimeSpan ParseExactMultiple(ReadOnlySpan<char> input, string[] formats, IFormatProvider? formatProvider, TimeSpanStyles styles)
+        internal static TimeSpan ParseExactMultiple(ReadOnlySpan<char> input, string?[]? formats, IFormatProvider? formatProvider, TimeSpanStyles styles)
         {
             var parseResult = new TimeSpanResult(throwOnFailure: true, originalTimeSpanString: input);
             bool success = TryParseExactMultipleTimeSpan(input, formats, formatProvider, styles, ref parseResult);
@@ -660,7 +659,7 @@ namespace System.Globalization
             return parseResult.parsedTimeSpan;
         }
 
-        internal static bool TryParseExactMultiple(ReadOnlySpan<char> input, string[] formats, IFormatProvider? formatProvider, TimeSpanStyles styles, out TimeSpan result)
+        internal static bool TryParseExactMultiple(ReadOnlySpan<char> input, string?[]? formats, IFormatProvider? formatProvider, TimeSpanStyles styles, out TimeSpan result)
         {
             var parseResult = new TimeSpanResult(throwOnFailure: false, originalTimeSpanString: input);
 
@@ -685,7 +684,7 @@ namespace System.Globalization
 
             var tokenizer = new TimeSpanTokenizer(input);
 
-            var raw = new TimeSpanRawInfo();
+            TimeSpanRawInfo raw = default;
             raw.Init(DateTimeFormatInfo.GetInstance(formatProvider));
 
             TimeSpanToken tok = tokenizer.GetNextToken();
@@ -729,7 +728,7 @@ namespace System.Globalization
         {
             if (raw._lastSeenTTT == TTT.Num)
             {
-                TimeSpanToken tok = new TimeSpanToken();
+                TimeSpanToken tok = default;
                 tok._ttt = TTT.Sep;
                 if (!raw.ProcessToken(ref tok, ref result))
                 {
@@ -792,9 +791,8 @@ namespace System.Globalization
 
             if (match)
             {
-                long ticks;
 
-                if (!TryTimeToTicks(positive, raw._numbers0, raw._numbers1, raw._numbers2, raw._numbers3, raw._numbers4, out ticks))
+                if (!TryTimeToTicks(positive, raw._numbers0, raw._numbers1, raw._numbers2, raw._numbers3, raw._numbers4, out long ticks))
                 {
                     return result.SetOverflowFailure();
                 }
@@ -1117,10 +1115,9 @@ namespace System.Globalization
 
             if (match)
             {
-                long ticks;
                 var zero = new TimeSpanToken(0);
 
-                if (!TryTimeToTicks(positive, zero, raw._numbers0, raw._numbers1, zero, zero, out ticks))
+                if (!TryTimeToTicks(positive, zero, raw._numbers0, raw._numbers1, zero, zero, out long ticks))
                 {
                     return result.SetOverflowFailure();
                 }
@@ -1187,10 +1184,9 @@ namespace System.Globalization
 
             if (match)
             {
-                long ticks;
                 var zero = new TimeSpanToken(0);
 
-                if (!TryTimeToTicks(positive, raw._numbers0, zero, zero, zero, zero, out ticks))
+                if (!TryTimeToTicks(positive, raw._numbers0, zero, zero, zero, zero, out long ticks))
                 {
                     return result.SetOverflowFailure();
                 }
@@ -1459,7 +1455,7 @@ namespace System.Globalization
         /// and exists for performance/appcompat with legacy callers who cannot move onto the globalized Parse overloads.
         /// </summary>
         private static bool TryParseTimeSpanConstant(ReadOnlySpan<char> input, ref TimeSpanResult result) =>
-            new StringParser().TryParse(input, ref result);
+            default(StringParser).TryParse(input, ref result);
 
         private ref struct StringParser
         {
@@ -1520,8 +1516,7 @@ namespace System.Globalization
                 }
                 else
                 {
-                    int days;
-                    if (!ParseInt((int)(0x7FFFFFFFFFFFFFFFL / TimeSpan.TicksPerDay), out days, ref result))
+                    if (!ParseInt((int)(0x7FFFFFFFFFFFFFFFL / TimeSpan.TicksPerDay), out int days, ref result))
                     {
                         return false;
                     }
@@ -1531,8 +1526,7 @@ namespace System.Globalization
                     if (_ch == '.')
                     {
                         NextChar();
-                        long remainingTime;
-                        if (!ParseTime(out remainingTime, ref result))
+                        if (!ParseTime(out long remainingTime, ref result))
                         {
                             return false;
                         }
@@ -1604,9 +1598,8 @@ namespace System.Globalization
             internal bool ParseTime(out long time, ref TimeSpanResult result)
             {
                 time = 0;
-                int unit;
 
-                if (!ParseInt(23, out unit, ref result))
+                if (!ParseInt(23, out int unit, ref result))
                 {
                     return false;
                 }
@@ -1663,7 +1656,7 @@ namespace System.Globalization
         }
 
         /// <summary>Common private ParseExactMultiple method called by both ParseExactMultiple and TryParseExactMultiple.</summary>
-        private static bool TryParseExactMultipleTimeSpan(ReadOnlySpan<char> input, string[] formats, IFormatProvider? formatProvider, TimeSpanStyles styles, ref TimeSpanResult result)
+        private static bool TryParseExactMultipleTimeSpan(ReadOnlySpan<char> input, string?[]? formats, IFormatProvider? formatProvider, TimeSpanStyles styles, ref TimeSpanResult result)
         {
             if (formats == null)
             {
@@ -1684,7 +1677,9 @@ namespace System.Globalization
             // one of the formats.
             for (int i = 0; i < formats.Length; i++)
             {
-                if (formats[i] == null || formats[i].Length == 0)
+                string? format = formats[i];
+
+                if (string.IsNullOrEmpty(format))
                 {
                     return result.SetBadFormatSpecifierFailure();
                 }
@@ -1692,7 +1687,7 @@ namespace System.Globalization
                 // Create a new non-throwing result each time to ensure the runs are independent.
                 TimeSpanResult innerResult = new TimeSpanResult(throwOnFailure: false, originalTimeSpanString: input);
 
-                if (TryParseExactTimeSpan(input, formats[i], formatProvider, styles, ref innerResult))
+                if (TryParseExactTimeSpan(input, format, formatProvider, styles, ref innerResult))
                 {
                     result.parsedTimeSpan = innerResult.parsedTimeSpan;
                     return true;

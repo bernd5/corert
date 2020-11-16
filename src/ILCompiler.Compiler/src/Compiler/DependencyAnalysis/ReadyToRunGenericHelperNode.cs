@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -67,6 +66,8 @@ namespace ILCompiler.DependencyAnalysis
                     return ((DelegateCreationInfo)target).GetLookupKind(factory);
                 case ReadyToRunHelperId.DefaultConstructor:
                     return factory.GenericLookup.DefaultCtorLookupResult((TypeDesc)target);
+                case ReadyToRunHelperId.ObjectAllocator:
+                    return factory.GenericLookup.ObjectAllocator((TypeDesc)target);
                 default:
                     throw new NotImplementedException();
             }
@@ -88,7 +89,7 @@ namespace ILCompiler.DependencyAnalysis
                 layout.EnsureEntry(_lookupSignature);
 
                 if ((_id == ReadyToRunHelperId.GetGCStaticBase || _id == ReadyToRunHelperId.GetThreadStaticBase) &&
-                    factory.TypeSystemContext.HasLazyStaticConstructor((TypeDesc)_target))
+                    factory.PreinitializationManager.HasLazyStaticConstructor((TypeDesc)_target))
                 {
                     // If the type has a lazy static constructor, we also need the non-GC static base
                     // because that's where the class constructor context is.
@@ -112,7 +113,7 @@ namespace ILCompiler.DependencyAnalysis
                         // because that's where the class constructor context is.
                         TypeDesc type = (TypeDesc)_target;
 
-                        if (factory.TypeSystemContext.HasLazyStaticConstructor(type))
+                        if (factory.PreinitializationManager.HasLazyStaticConstructor(type))
                         {
                             result.Add(
                                 new DependencyListEntry(
@@ -209,7 +210,7 @@ namespace ILCompiler.DependencyAnalysis
                 // a template dictionary node.
                 TypeDesc type = (TypeDesc)_target;
                 Debug.Assert(templateLayout != null);
-                if (factory.TypeSystemContext.HasLazyStaticConstructor(type))
+                if (factory.PreinitializationManager.HasLazyStaticConstructor(type))
                 {
                     GenericLookupResult nonGcRegionLookup = factory.GenericLookup.TypeNonGCStaticBase(type);
                     conditionalDependencies.Add(new CombinedDependencyListEntry(nonGcRegionLookup.TemplateDictionaryNode(factory),
@@ -252,6 +253,7 @@ namespace ILCompiler.DependencyAnalysis
                 case ReadyToRunHelperId.GetNonGCStaticBase:
                 case ReadyToRunHelperId.GetThreadStaticBase:
                 case ReadyToRunHelperId.DefaultConstructor:
+                case ReadyToRunHelperId.ObjectAllocator:
                     return comparer.Compare((TypeDesc)_target, (TypeDesc)((ReadyToRunGenericHelperNode)other)._target);
                 case ReadyToRunHelperId.MethodHandle:
                 case ReadyToRunHelperId.MethodDictionary:

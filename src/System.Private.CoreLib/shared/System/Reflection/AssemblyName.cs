@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Configuration.Assemblies;
 using System.Runtime.Serialization;
@@ -272,7 +271,7 @@ namespace System.Reflection
             return new string(dest, 0, position);
         }
 
-        // This implementation of EscapeString has been copied from System.Private.Uri from corefx repo
+        // This implementation of EscapeString has been copied from System.Private.Uri from the runtime repo
         // - forceX characters are always escaped if found
         // - rsvd character will remain unescaped
         //
@@ -399,8 +398,8 @@ namespace System.Reflection
         internal static void EscapeAsciiChar(char ch, char[] to, ref int pos)
         {
             to[pos++] = '%';
-            to[pos++] = s_hexUpperChars[(ch & 0xf0) >> 4];
-            to[pos++] = s_hexUpperChars[ch & 0xf];
+            to[pos++] = HexConverter.ToCharUpper(ch >> 4);
+            to[pos++] = HexConverter.ToCharUpper(ch);
         }
 
         internal static char EscapedAscii(char digit, char next)
@@ -464,9 +463,6 @@ namespace System.Reflection
             return IsAsciiLetter(character) || (character >= '0' && character <= '9');
         }
 
-        private static readonly char[] s_hexUpperChars = {
-                                   '0', '1', '2', '3', '4', '5', '6', '7',
-                                   '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
         internal const char c_DummyChar = (char)0xFFFF;     // An Invalid Unicode character used as a dummy char passed into the parameter
         private const short c_MaxAsciiCharsReallocate = 40;
         private const short c_MaxUnicodeCharsReallocate = 40;

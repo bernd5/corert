@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 //Internal.Runtime.Augments
 //-------------------------------------------------
@@ -19,21 +18,16 @@
 
 using System;
 using System.Runtime;
-using System.Reflection;
 using System.Diagnostics;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
-using Internal.Runtime;
-using Internal.Reflection.Core.NonPortable;
+using Internal.Runtime.CompilerHelpers;
 using Internal.Runtime.CompilerServices;
 
-using Volatile = System.Threading.Volatile;
-
-#if BIT64
+#if TARGET_64BIT
 using nuint = System.UInt64;
 #else
 using nuint = System.UInt32;
@@ -41,6 +35,9 @@ using nuint = System.UInt32;
 
 namespace Internal.Runtime.Augments
 {
+    using BinderBundle = System.Reflection.BinderBundle;
+    using Pointer = System.Reflection.Pointer;
+
     [ReflectionBlocked]
     public static class RuntimeAugments
     {
@@ -164,12 +161,26 @@ namespace Internal.Runtime.Augments
             return Array.NewMultiDimArray(typeHandleForArrayType.ToEETypePtr(), pLengths, lengths.Length);
         }
 
+        // 
+        // Helper to create an array from a newobj instruction
+        // 
+        public static unsafe Array NewObjArray(RuntimeTypeHandle typeHandleForArrayType, int[] arguments)
+        {
+            EETypePtr eeTypePtr = typeHandleForArrayType.ToEETypePtr();
+            Debug.Assert(eeTypePtr.IsArray);
+
+            fixed (int* pArguments = arguments)
+            {
+                return ArrayHelpers.NewObjArray((IntPtr)eeTypePtr.ToPointer(), arguments.Length, pArguments);
+            }
+        }
+
         public static ref byte GetSzArrayElementAddress(Array array, int index)
         {
             if ((uint)index >= (uint)array.Length)
                 throw new IndexOutOfRangeException();
 
-            ref byte start = ref array.GetRawSzArrayData();
+            ref byte start = ref Unsafe.As<RawArrayData>(array).Data;
             return ref Unsafe.Add(ref start, (IntPtr)((nuint)index * array.ElementSize));
         }
 
@@ -196,12 +207,12 @@ namespace Internal.Runtime.Augments
 
         public static IntPtr GetDispatchMapForType(RuntimeTypeHandle typeHandle)
         {
-            return RuntimeImports.RhGetDispatchMapForType(CreateEETypePtr(typeHandle));
+            return CreateEETypePtr(typeHandle).DispatchMap;
         }
 
         public static IntPtr GetFallbackDefaultConstructor()
         {
-            return System.Runtime.InteropServices.AddrofIntrinsics.AddrOf<Action>(System.Activator.ClassWithMissingConstructor.MissingDefaultConstructorStaticEntryPoint);
+            return Activator.GetFallbackDefaultConstructor();
         }
 
         //
@@ -258,14 +269,9 @@ namespace Internal.Runtime.Augments
             return new RuntimeTypeHandle(new EETypePtr(ldTokenResult));
         }
 
-        public static unsafe IntPtr GetThreadStaticFieldAddress(RuntimeTypeHandle typeHandle, int threadStaticsBlockOffset, int fieldOffset)
-        {
-            return new IntPtr(RuntimeImports.RhGetThreadStaticFieldAddress(typeHandle.ToEETypePtr(), threadStaticsBlockOffset, fieldOffset));
-        }
-
         public static unsafe void StoreValueTypeField(IntPtr address, object fieldValue, RuntimeTypeHandle fieldType)
         {
-            RuntimeImports.RhUnbox(fieldValue, *(void**)&address, fieldType.ToEETypePtr());
+            RuntimeImports.RhUnbox(fieldValue, ref *(byte*)address, fieldType.ToEETypePtr());
         }
 
         public static unsafe ref byte GetRawData(object obj)
@@ -275,7 +281,7 @@ namespace Internal.Runtime.Augments
 
         public static unsafe object LoadValueTypeField(IntPtr address, RuntimeTypeHandle fieldType)
         {
-            return RuntimeImports.RhBox(fieldType.ToEETypePtr(), *(void**)&address);
+            return RuntimeImports.RhBox(fieldType.ToEETypePtr(), ref *(byte*)address);
         }
 
         public static unsafe object LoadPointerTypeField(IntPtr address, RuntimeTypeHandle fieldType)
@@ -290,32 +296,20 @@ namespace Internal.Runtime.Augments
 
         public static unsafe void StoreValueTypeField(object obj, int fieldOffset, object fieldValue, RuntimeTypeHandle fieldType)
         {
-            fixed (IntPtr* pObj = &obj.m_pEEType)
-            {
-                IntPtr pData = (IntPtr)pObj;
-                IntPtr pField = pData + fieldOffset;
-                StoreValueTypeField(pField, fieldValue, fieldType);
-            }
+            ref byte address = ref Unsafe.AddByteOffset(ref obj.GetRawData(), new IntPtr(fieldOffset - ObjectHeaderSize));
+            RuntimeImports.RhUnbox(fieldValue, ref address, fieldType.ToEETypePtr());
         }
 
         public static unsafe object LoadValueTypeField(object obj, int fieldOffset, RuntimeTypeHandle fieldType)
         {
-            fixed (IntPtr* pObj = &obj.m_pEEType)
-            {
-                IntPtr pData = (IntPtr)pObj;
-                IntPtr pField = pData + fieldOffset;
-                return LoadValueTypeField(pField, fieldType);
-            }
+            ref byte address = ref Unsafe.AddByteOffset(ref obj.GetRawData(), new IntPtr(fieldOffset - ObjectHeaderSize));
+            return RuntimeImports.RhBox(fieldType.ToEETypePtr(), ref address);
         }
 
         public static unsafe object LoadPointerTypeField(object obj, int fieldOffset, RuntimeTypeHandle fieldType)
         {
-            fixed (IntPtr* pObj = &obj.m_pEEType)
-            {
-                IntPtr pData = (IntPtr)pObj;
-                IntPtr pField = pData + fieldOffset;
-                return LoadPointerTypeField(pField, fieldType);
-            }
+            ref byte address = ref Unsafe.AddByteOffset(ref obj.GetRawData(), new IntPtr(fieldOffset - ObjectHeaderSize));
+            return Pointer.Box((void*)Unsafe.As<byte,IntPtr>(ref address), Type.GetTypeFromHandle(fieldType));
         }
 
         public static unsafe void StoreReferenceTypeField(IntPtr address, object fieldValue)
@@ -328,24 +322,16 @@ namespace Internal.Runtime.Augments
             return Volatile.Read<Object>(ref Unsafe.As<IntPtr, object>(ref *(IntPtr*)address));
         }
 
-        public static unsafe void StoreReferenceTypeField(object obj, int fieldOffset, object fieldValue)
+        public static void StoreReferenceTypeField(object obj, int fieldOffset, object fieldValue)
         {
-            fixed (IntPtr* pObj = &obj.m_pEEType)
-            {
-                IntPtr pData = (IntPtr)pObj;
-                IntPtr pField = pData + fieldOffset;
-                StoreReferenceTypeField(pField, fieldValue);
-            }
+            ref byte address = ref Unsafe.AddByteOffset(ref obj.GetRawData(), new IntPtr(fieldOffset - ObjectHeaderSize));
+            Volatile.Write<Object>(ref Unsafe.As<byte, object>(ref address), fieldValue);
         }
 
-        public static unsafe object LoadReferenceTypeField(object obj, int fieldOffset)
+        public static object LoadReferenceTypeField(object obj, int fieldOffset)
         {
-            fixed (IntPtr* pObj = &obj.m_pEEType)
-            {
-                IntPtr pData = (IntPtr)pObj;
-                IntPtr pField = pData + fieldOffset;
-                return LoadReferenceTypeField(pField);
-            }
+            ref byte address = ref Unsafe.AddByteOffset(ref obj.GetRawData(), new IntPtr(fieldOffset - ObjectHeaderSize));
+            return Unsafe.As<byte, object>(ref address);
         }
 
         [CLSCompliant(false)]
@@ -382,16 +368,18 @@ namespace Internal.Runtime.Augments
         }
 
         [CLSCompliant(false)]
-        public static object LoadPointerTypeFieldValueFromValueType(TypedReference typedReference, int fieldOffset, RuntimeTypeHandle fieldTypeHandle)
+        public static unsafe object LoadPointerTypeFieldValueFromValueType(TypedReference typedReference, int fieldOffset, RuntimeTypeHandle fieldTypeHandle)
         {
             Debug.Assert(TypedReference.TargetTypeToken(typedReference).ToEETypePtr().IsValueType);
             Debug.Assert(fieldTypeHandle.ToEETypePtr().IsPointer);
 
             IntPtr ptrValue = Unsafe.As<byte, IntPtr>(ref Unsafe.Add<byte>(ref typedReference.Value, fieldOffset));
-            unsafe
-            {
-                return Pointer.Box((void*)ptrValue, Type.GetTypeFromHandle(fieldTypeHandle));
-            }
+            return Pointer.Box((void*)ptrValue, Type.GetTypeFromHandle(fieldTypeHandle));
+        }
+
+        public static unsafe object GetThreadStaticBase(IntPtr cookie)
+        {
+            return ThreadStatics.GetThreadStaticBaseForType(*(TypeManagerSlot**)cookie, (int)*((IntPtr*)(cookie) + 1));
         }
 
         public static unsafe int ObjectHeaderSize => sizeof(EETypePtr);
@@ -441,28 +429,28 @@ namespace Internal.Runtime.Augments
         {
             Debug.Assert(enumTypeHandle.ToEETypePtr().IsEnum);
 
-            RuntimeImports.RhCorElementType corElementType = enumTypeHandle.ToEETypePtr().CorElementType;
-            switch (corElementType)
+            EETypeElementType elementType = enumTypeHandle.ToEETypePtr().ElementType;
+            switch (elementType)
             {
-                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_BOOLEAN:
+                case EETypeElementType.Boolean:
                     return CommonRuntimeTypes.Boolean;
-                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_CHAR:
+                case EETypeElementType.Char:
                     return CommonRuntimeTypes.Char;
-                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I1:
+                case EETypeElementType.SByte:
                     return CommonRuntimeTypes.SByte;
-                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U1:
+                case EETypeElementType.Byte:
                     return CommonRuntimeTypes.Byte;
-                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I2:
+                case EETypeElementType.Int16:
                     return CommonRuntimeTypes.Int16;
-                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U2:
+                case EETypeElementType.UInt16:
                     return CommonRuntimeTypes.UInt16;
-                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I4:
+                case EETypeElementType.Int32:
                     return CommonRuntimeTypes.Int32;
-                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U4:
+                case EETypeElementType.UInt32:
                     return CommonRuntimeTypes.UInt32;
-                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_I8:
+                case EETypeElementType.Int64:
                     return CommonRuntimeTypes.Int64;
-                case RuntimeImports.RhCorElementType.ELEMENT_TYPE_U8:
+                case EETypeElementType.UInt64:
                     return CommonRuntimeTypes.UInt64;
                 default:
                     throw new NotSupportedException();
@@ -487,7 +475,7 @@ namespace Internal.Runtime.Augments
 
         public static unsafe object Box(RuntimeTypeHandle type, IntPtr address)
         {
-            return RuntimeImports.RhBox(type.ToEETypePtr(), address.ToPointer());
+            return RuntimeImports.RhBox(type.ToEETypePtr(), ref *(byte*)address);
         }
 
         // Used to mutate the first parameter in a closed static delegate.  Note that this does no synchronization of any kind;
@@ -594,17 +582,6 @@ namespace Internal.Runtime.Augments
         {
             EETypePtr eeType = CreateEETypePtr(typeHandle);
             return RuntimeImports.RhGetGCDescSize(eeType);
-        }
-
-        public static unsafe bool CreateGenericInstanceDescForType(RuntimeTypeHandle typeHandle, int arity, int nonGcStaticDataSize,
-            int nonGCStaticDataOffset, int gcStaticDataSize, int threadStaticsOffset, IntPtr gcStaticsDesc, IntPtr threadStaticsDesc, int[] genericVarianceFlags)
-        {
-            EETypePtr eeType = CreateEETypePtr(typeHandle);
-            fixed (int* pGenericVarianceFlags = genericVarianceFlags)
-            {
-                return RuntimeImports.RhCreateGenericInstanceDescForType2(eeType, arity, nonGcStaticDataSize, nonGCStaticDataOffset, gcStaticDataSize,
-                    threadStaticsOffset, gcStaticsDesc.ToPointer(), threadStaticsDesc.ToPointer(), pGenericVarianceFlags);
-            }
         }
 
         public static int GetInterfaceCount(RuntimeTypeHandle typeHandle)
@@ -799,15 +776,15 @@ namespace Internal.Runtime.Augments
         /// <param name="moduleBase">Module base address</param>
         public static unsafe string TryGetFullPathToApplicationModule(IntPtr moduleBase)
         {
-#if PLATFORM_UNIX
+#if TARGET_UNIX
             byte* pModuleNameUtf8;
             int numUtf8Chars = RuntimeImports.RhGetModuleFileName(moduleBase, out pModuleNameUtf8);
             String modulePath = System.Text.Encoding.UTF8.GetString(pModuleNameUtf8, numUtf8Chars);
-#else // PLATFORM_UNIX
+#else // TARGET_UNIX
             char* pModuleName;
             int numChars = RuntimeImports.RhGetModuleFileName(moduleBase, out pModuleName);
             string modulePath = new string(pModuleName, 0, numChars);
-#endif // PLATFORM_UNIX
+#endif // TARGET_UNIX
             return modulePath;
         }
 
@@ -940,11 +917,6 @@ namespace Internal.Runtime.Augments
             return new RuntimeTypeHandle(obj.EETypePtr);
         }
 
-        public static int GetCorElementType(RuntimeTypeHandle type)
-        {
-            return (int)type.ToEETypePtr().CorElementType;
-        }
-
         // Move memory which may be on the heap which may have object references in it.
         // In general, a memcpy on the heap is unsafe, but this is able to perform the
         // correct write barrier such that the GC is not incorrectly impacted.
@@ -1061,7 +1033,7 @@ namespace Internal.Runtime.Augments
                 int cbBufferAligned = (cbBuffer + (sizeof(IntPtr) - 1)) & ~(sizeof(IntPtr) - 1);
                 // The conservative region must be IntPtr aligned, and a multiple of IntPtr in size
                 void* region = stackalloc IntPtr[cbBufferAligned / sizeof(IntPtr)];
-                Buffer.ZeroMemory((byte*)region, cbBufferAligned);
+                Buffer.ZeroMemory((byte*)region, (nuint)cbBufferAligned);
                 RuntimeImports.RhInitializeConservativeReportingRegion(pRegionDesc, region, cbBufferAligned);
 
                 RawCalliHelper.Call<T>(pfnTargetToInvoke, region, ref context);
@@ -1099,7 +1071,7 @@ namespace Internal.Runtime.Augments
                 int cbBufferAligned = (cbBuffer + (sizeof(IntPtr) - 1)) & ~(sizeof(IntPtr) - 1);
                 // The conservative region must be IntPtr aligned, and a multiple of IntPtr in size
                 void* region = stackalloc IntPtr[cbBufferAligned / sizeof(IntPtr)];
-                Buffer.ZeroMemory((byte*)region, cbBufferAligned);
+                Buffer.ZeroMemory((byte*)region, (nuint)cbBufferAligned);
                 RuntimeImports.RhInitializeConservativeReportingRegion(pRegionDesc, region, cbBufferAligned);
 
                 RawCalliHelper.Call<T, U>(pfnTargetToInvoke, region, ref context, ref context2);
@@ -1140,11 +1112,6 @@ namespace Internal.Runtime.Augments
         public static unsafe uint RhpRecordDebuggeeInitiatedHandle(IntPtr objectHandle)
         {
             return RuntimeImports.RhpRecordDebuggeeInitiatedHandle((void*)objectHandle);
-        }
-
-        public static unsafe object RhBoxAny(IntPtr pData, IntPtr pEEType)
-        {
-            return RuntimeImports.RhBoxAny((void*)pData, new EETypePtr(pEEType));
         }
 
         public static IntPtr RhHandleAlloc(object value, GCHandleType type)

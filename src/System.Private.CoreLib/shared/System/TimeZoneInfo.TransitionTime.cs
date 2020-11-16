@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Runtime.Serialization;
 
@@ -99,7 +98,7 @@ namespace System
                     throw new ArgumentOutOfRangeException(nameof(dayOfWeek), SR.ArgumentOutOfRange_DayOfWeek);
                 }
 
-                timeOfDay.GetDatePart(out int timeOfDayYear, out int timeOfDayMonth, out int timeOfDayDay);
+                timeOfDay.GetDate(out int timeOfDayYear, out int timeOfDayMonth, out int timeOfDayDay);
                 if (timeOfDayYear != 1 || timeOfDayMonth != 1 || timeOfDayDay != 1 || (timeOfDay.Ticks % TimeSpan.TicksPerMillisecond != 0))
                 {
                     throw new ArgumentException(SR.Argument_DateTimeHasTicks, nameof(timeOfDay));

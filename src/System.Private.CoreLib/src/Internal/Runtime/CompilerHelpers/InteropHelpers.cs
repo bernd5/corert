@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Diagnostics;
@@ -12,6 +11,15 @@ using System.Text;
 using System.Threading;
 
 using Internal.Runtime.Augments;
+
+#pragma warning disable SA1121 // explicitly using type aliases instead of built-in types
+#if TARGET_64BIT
+using nint = System.Int64;
+using nuint = System.UInt64;
+#else
+using nint = System.Int32;
+using nuint = System.UInt32;
+#endif
 
 namespace Internal.Runtime.CompilerHelpers
 {
@@ -122,11 +130,6 @@ namespace Internal.Runtime.CompilerHelpers
                 *(buffer + stringLength) = '\0';
             }
             return buffer;
-        }
-
-        public static unsafe string UnicodeBufferToString(char* buffer)
-        {
-            return new string(buffer);
         }
 
         public static unsafe byte* AllocMemoryForAnsiStringBuilder(StringBuilder sb)
@@ -253,7 +256,7 @@ namespace Internal.Runtime.CompilerHelpers
 
         internal static unsafe void FreeLibrary(IntPtr hModule)
         {
-#if !PLATFORM_UNIX
+#if !TARGET_UNIX
             Interop.mincore.FreeLibrary(hModule);
 #else
             Interop.Sys.FreeLibrary(hModule);
@@ -286,7 +289,7 @@ namespace Internal.Runtime.CompilerHelpers
                 // NativeLibrary callback didn't resolve the library. Use built-in rules.
                 NativeLibrary.LoadLibErrorTracker loadLibErrorTracker = default;
 
-                hModule = NativeLibrary.LoadLibraryModuleBySearch(
+                hModule = NativeLibrary.LoadBySearch(
                     callingAssembly,
                     searchAssemblyDirectory: false,
                     dllImportSearchPathFlags: 0,
@@ -319,33 +322,47 @@ namespace Internal.Runtime.CompilerHelpers
         internal static unsafe void FixupMethodCell(IntPtr hModule, MethodFixupCell* pCell)
         {
             byte* methodName = (byte*)pCell->MethodName;
+            IntPtr pTarget;
 
-#if PLATFORM_WINDOWS
-            pCell->Target = GetProcAddress(hModule, methodName, pCell->CharSetMangling);
+#if TARGET_WINDOWS
+            CharSet charSetMangling = pCell->CharSetMangling;
+            if (charSetMangling == 0)
+            {
+                // Look for the user-provided entry point name only
+                pTarget = Interop.mincore.GetProcAddress(hModule, methodName);
+            }
+            else
+            if (charSetMangling == CharSet.Ansi)
+            {
+                // For ANSI, look for the user-provided entry point name first.
+                // If that does not exist, try the charset suffix.
+                pTarget = Interop.mincore.GetProcAddress(hModule, methodName);
+                if (pTarget == IntPtr.Zero)
+                    pTarget = GetProcAddressWithSuffix(hModule, methodName, (byte)'A');
+            }
+            else
+            {
+                // For Unicode, look for the entry point name with the charset suffix first.
+                // The 'W' API takes precedence over the undecorated one.
+                pTarget = GetProcAddressWithSuffix(hModule, methodName, (byte)'W');
+                if (pTarget == IntPtr.Zero)
+                    pTarget = Interop.mincore.GetProcAddress(hModule, methodName);
+            }
 #else
-            pCell->Target = Interop.Sys.GetProcAddress(hModule, methodName);
+            pTarget = Interop.Sys.GetProcAddress(hModule, methodName);
 #endif
-            if (pCell->Target == IntPtr.Zero)
+            if (pTarget == IntPtr.Zero)
             {
                 string entryPointName = Encoding.UTF8.GetString(methodName, string.strlen(methodName));
                 throw new EntryPointNotFoundException(SR.Format(SR.Arg_EntryPointNotFoundExceptionParameterized, entryPointName, GetModuleName(pCell->Module)));
             }
+
+            pCell->Target = pTarget;
         }
 
-#if PLATFORM_WINDOWS
-        private static unsafe IntPtr GetProcAddress(IntPtr hModule, byte* methodName, CharSet charSetMangling)
+#if TARGET_WINDOWS
+        private static unsafe IntPtr GetProcAddressWithSuffix(IntPtr hModule, byte* methodName, byte suffix)
         {
-            // First look for the unmangled name.  If it is unicode function, we are going
-            // to need to check for the 'W' API because it takes precedence over the
-            // unmangled one (on NT some APIs have unmangled ANSI exports).
-            
-            var exactMatch = Interop.mincore.GetProcAddress(hModule, methodName);
-
-            if ((charSetMangling == CharSet.Ansi && exactMatch != IntPtr.Zero) || charSetMangling == 0)
-            {
-                return exactMatch;
-            }
-
             int nameLength = string.strlen(methodName);
 
             // We need to add an extra byte for the suffix, and an extra byte for the null terminator
@@ -358,15 +375,9 @@ namespace Internal.Runtime.CompilerHelpers
 
             probedMethodName[nameLength + 1] = 0;
 
-            probedMethodName[nameLength] = (charSetMangling == CharSet.Ansi) ? (byte)'A' : (byte)'W';
+            probedMethodName[nameLength] = suffix;
 
-            IntPtr probedMethod = Interop.mincore.GetProcAddress(hModule, probedMethodName);
-            if (probedMethod != IntPtr.Zero)
-            {
-                return probedMethod;
-            }
-
-            return exactMatch;
+            return Interop.mincore.GetProcAddress(hModule, probedMethodName);
         }
 #endif
 
@@ -378,23 +389,13 @@ namespace Internal.Runtime.CompilerHelpers
             // PInvokeMarshal.CoTaskMemAlloc will throw OOMException if out of memory
             Debug.Assert(ptr != null);
 
-            Buffer.ZeroMemory((byte*)ptr, size.ToInt64());
+            Buffer.ZeroMemory((byte*)ptr, (nuint)(nint)size);
             return ptr;
         }
 
         internal unsafe static void CoTaskMemFree(void* p)
         {
             PInvokeMarshal.CoTaskMemFree((IntPtr)p);
-        }
-
-        public static IntPtr GetFunctionPointerForDelegate(Delegate del)
-        {
-            return PInvokeMarshal.GetFunctionPointerForDelegate(del);
-        }
-
-        public static Delegate GetDelegateForFunctionPointer(IntPtr ptr, RuntimeTypeHandle delegateType)
-        {
-            return PInvokeMarshal.GetDelegateForFunctionPointer(ptr, delegateType);
         }
 
         /// <summary>
@@ -411,6 +412,26 @@ namespace Internal.Runtime.CompilerHelpers
         public static T GetCurrentCalleeDelegate<T>() where T : class // constraint can't be System.Delegate
         {
             return PInvokeMarshal.GetCurrentCalleeDelegate<T>();
+        }
+
+        public static IntPtr ConvertManagedComInterfaceToNative(object pUnk)
+        {
+            if (pUnk == null)
+            {
+                return IntPtr.Zero;
+            }
+
+            throw new PlatformNotSupportedException(SR.PlatformNotSupported_ComInterop);
+        }
+
+        public static object ConvertNativeComInterfaceToManaged(IntPtr pUnk)
+        {
+            if (pUnk == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            throw new PlatformNotSupportedException(SR.PlatformNotSupported_ComInterop);
         }
 
         internal static int AsAnyGetNativeSize(object o)

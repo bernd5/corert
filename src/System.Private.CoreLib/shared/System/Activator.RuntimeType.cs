@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Reflection;
 using System.Globalization;
@@ -12,6 +11,10 @@ namespace System
 {
     public static partial class Activator
     {
+        //
+        // Note: CreateInstance returns null for Nullable<T>, e.g. CreateInstance(typeof(int?)) returns null.
+        //
+
         public static object? CreateInstance(Type type, BindingFlags bindingAttr, Binder? binder, object?[]? args, CultureInfo? culture, object?[]? activationAttributes)
         {
             if (type is null)
@@ -121,8 +124,7 @@ namespace System
                 else
                 {
                     // Classic managed type
-                    assembly = RuntimeAssembly.InternalLoadAssemblyName(
-                        assemblyName, ref stackMark, AssemblyLoadContext.CurrentContextualReflectionContext);
+                    assembly = RuntimeAssembly.InternalLoad(assemblyName, ref stackMark, AssemblyLoadContext.CurrentContextualReflectionContext);
                 }
             }
 
@@ -139,7 +141,7 @@ namespace System
         [System.Runtime.CompilerServices.Intrinsic]
         public static T CreateInstance<T>()
         {
-            return (T)((RuntimeType)typeof(T)).CreateInstanceDefaultCtor(publicOnly: true, skipCheckThis: true, fillCache: true, wrapExceptions: true);
+            return (T)((RuntimeType)typeof(T)).CreateInstanceDefaultCtor(publicOnly: true, skipCheckThis: true, fillCache: true, wrapExceptions: true)!;
         }
 
         private static T CreateDefaultInstance<T>() where T : struct => default;

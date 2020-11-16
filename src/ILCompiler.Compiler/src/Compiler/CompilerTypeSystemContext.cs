@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.IO;
@@ -20,8 +19,6 @@ namespace ILCompiler
         private readonly MetadataRuntimeInterfacesAlgorithm _metadataRuntimeInterfacesAlgorithm = new MetadataRuntimeInterfacesAlgorithm();
         private readonly MetadataVirtualMethodAlgorithm _virtualMethodAlgorithm = new MetadataVirtualMethodAlgorithm();
 
-        protected SimdHelper _simdHelper;
-        
         private MetadataStringDecoder _metadataStringDecoder;
 
         private class ModuleData
@@ -108,31 +105,22 @@ namespace ILCompiler
             return GetModuleForSimpleName(name.Name, throwIfNotFound);
         }
 
-        public ModuleDesc GetModuleForSimpleName(string simpleName, bool throwIfNotFound = true)
+        public EcmaModule GetModuleForSimpleName(string simpleName, bool throwIfNotFound = true)
         {
-            ModuleData existing;
-            if (_simpleNameHashtable.TryGetValue(simpleName, out existing))
+            if (_simpleNameHashtable.TryGetValue(simpleName, out ModuleData existing))
                 return existing.Module;
 
-            string filePath;
-            if (!InputFilePaths.TryGetValue(simpleName, out filePath))
-            {
-                if (!ReferenceFilePaths.TryGetValue(simpleName, out filePath))
-                {
-                    // We allow the CanonTypesModule to not be an EcmaModule.
-                    if (((IAssemblyDesc)CanonTypesModule).GetName().Name == simpleName)
-                        return CanonTypesModule;
+            if (InputFilePaths.TryGetValue(simpleName, out string filePath)
+                || ReferenceFilePaths.TryGetValue(simpleName, out filePath))
+                return AddModule(filePath, simpleName, true);
 
-                    // TODO: the exception is wrong for two reasons: for one, this should be assembly full name, not simple name.
-                    // The other reason is that on CoreCLR, the exception also captures the reason. We should be passing two
-                    // string IDs. This makes this rather annoying.
-                    if (throwIfNotFound)
-                        ThrowHelper.ThrowFileNotFoundException(ExceptionStringID.FileLoadErrorGeneric, simpleName);
-                    return null;
-                }
-            }
+            // TODO: the exception is wrong for two reasons: for one, this should be assembly full name, not simple name.
+            // The other reason is that on CoreCLR, the exception also captures the reason. We should be passing two
+            // string IDs. This makes this rather annoying.
+            if (throwIfNotFound)
+                ThrowHelper.ThrowFileNotFoundException(ExceptionStringID.FileLoadErrorGeneric, simpleName);
 
-            return AddModule(filePath, simpleName, true);
+            return null;
         }
 
         public EcmaModule GetModuleFromPath(string filePath)

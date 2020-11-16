@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 namespace System.Text
 {
@@ -56,7 +55,7 @@ namespace System.Text
                 }
 
                 EncodingProvider[] providers = new EncodingProvider[s_providers.Length + 1];
-                Array.Copy(s_providers, 0, providers, 0, s_providers.Length);
+                Array.Copy(s_providers, providers, s_providers.Length);
                 providers[^1] = provider;
                 s_providers = providers;
             }

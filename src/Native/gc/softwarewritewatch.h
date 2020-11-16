@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #ifndef __SOFTWARE_WRITE_WATCH_H__
 #define __SOFTWARE_WRITE_WATCH_H__
@@ -217,7 +216,7 @@ inline void SoftwareWriteWatch::DisableForGCHeap()
 
     VerifyCreated();
     assert(IsEnabledForGCHeap());
-    g_gc_sw_ww_enabled_for_gc_heap = false;     
+    g_gc_sw_ww_enabled_for_gc_heap = false;
 
     WriteBarrierParameters args = {};
     args.operation = WriteBarrierOp::SwitchToNonWriteWatch;

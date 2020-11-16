@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Runtime.InteropServices;
@@ -63,6 +62,25 @@ namespace ILCompiler.Compiler.Tests.Assets
             {
                 new Base();
                 new Derived().CallBaseGenericVirtualDirectly<object>();
+            }
+        }
+
+        class TypeofDoesntTriggerFullTypeTest
+        {
+            static Type s_somefield = null;
+
+            class NeverAllocated { }
+
+            class ShouldBeAllocated { }
+
+            [NoConstructedEEType(typeof(NeverAllocated))]
+            [GeneratesConstructedEEType(typeof(ShouldBeAllocated))]
+            public static void Entrypoint()
+            {
+                if (s_somefield == typeof(NeverAllocated))
+                    Entrypoint();
+
+                typeof(ShouldBeAllocated).GetHashCode();
             }
         }
     }

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Diagnostics;
@@ -9,6 +8,12 @@ using System.Text;
 
 using Internal.Runtime.Augments;
 using Internal.Runtime.CompilerServices;
+
+#if TARGET_64BIT
+using nuint = System.UInt64;
+#else
+using nuint = System.UInt32;
+#endif
 
 namespace System
 {
@@ -35,7 +40,7 @@ namespace System.Runtime.InteropServices
             if (String.IsNullOrEmpty(fieldName))
                 throw new ArgumentNullException(nameof(fieldName));
 
-            if (t.TypeHandle.IsGenericType() || t.TypeHandle.IsGenericTypeDefinition())
+            if (t.TypeHandle.IsGenericTypeDefinition())
                 throw new ArgumentException(SR.Argument_NeedNonGenericType, nameof(t));
 
             return new IntPtr(RuntimeAugments.InteropCallbacks.GetStructFieldOffset(t.TypeHandle, fieldName));
@@ -68,9 +73,6 @@ namespace System.Runtime.InteropServices
         {
             RuntimeTypeHandle structureTypeHandle = structure.GetType().TypeHandle;
 
-            // Boxed struct start at offset 1 (EEType* at offset 0) while class start at offset 0
-            int offset = structureTypeHandle.IsValueType() ? 1 : 0;
-
             IntPtr unmarshalStub;
             if (structureTypeHandle.IsBlittable())
             {
@@ -86,28 +88,28 @@ namespace System.Runtime.InteropServices
 
             if (unmarshalStub != IntPtr.Zero)
             {
-                InteropExtensions.PinObjectAndCall(structure,
-                    unboxedStructPtr =>
-                    {
-                        CalliIntrinsics.Call<int>(
-                            unmarshalStub,
-                            (void*)ptr,                                     // unsafe (no need to adjust as it is always struct)
-                            ((void*)((IntPtr*)unboxedStructPtr + offset))   // safe (need to adjust offset as it could be class)
-                        );
-                    });
+                if (structureTypeHandle.IsValueType())
+                {
+                    CalliIntrinsics.Call(
+                        unmarshalStub,
+                        ref *(byte*)ptr,
+                        ref structure.GetRawData());
+                }
+                else
+                {
+                    CalliIntrinsics.Call(
+                        unmarshalStub,
+                        ref *(byte*)ptr,
+                        structure);
+                }
             }
             else
             {
-                int structSize = Marshal.SizeOf(structure);
-                InteropExtensions.PinObjectAndCall(structure,
-                    unboxedStructPtr =>
-                    {
-                        InteropExtensions.Memcpy(
-                            (IntPtr)((IntPtr*)unboxedStructPtr + offset),   // safe (need to adjust offset as it could be class)
-                            ptr,                                            // unsafe (no need to adjust as it is always struct)
-                            structSize
-                        );
-                    });
+                nuint size = (nuint)RuntimeAugments.InteropCallbacks.GetStructUnsafeStructSize(structureTypeHandle);
+                fixed (byte* pDest = &structure.GetRawData())
+                {
+                    Buffer.Memmove(pDest, (byte*)ptr, size);
+                }
             }
         }
 
@@ -140,13 +142,12 @@ namespace System.Runtime.InteropServices
             IntPtr destroyStructureStub = RuntimeAugments.InteropCallbacks.GetDestroyStructureStub(structureTypeHandle, out bool hasInvalidLayout);
             if (hasInvalidLayout)
                 throw new ArgumentException(SR.Format(SR.Argument_MustHaveLayoutOrBeBlittable, structureTypeHandle.LastResortToString));
-            // DestroyStructureStub == IntPtr.Zero means its fields don't need to be destroied
+            // DestroyStructureStub == IntPtr.Zero means its fields don't need to be destroyed
             if (destroyStructureStub != IntPtr.Zero)
             {
-                CalliIntrinsics.Call<int>(
+                CalliIntrinsics.Call(
                     destroyStructureStub,
-                    (void*)ptr                                     // unsafe (no need to adjust as it is always struct)
-                );
+                    ref *(byte*)ptr);
             }
         }
 
@@ -170,9 +171,6 @@ namespace System.Runtime.InteropServices
                 throw new ArgumentException(nameof(structure), SR.Argument_NeedNonGenericObject);
             }
 
-            // Boxed struct start at offset 1 (EEType* at offset 0) while class start at offset 0
-            int offset = structureTypeHandle.IsValueType() ? 1 : 0;
-
             IntPtr marshalStub;
             if (structureTypeHandle.IsBlittable())
             {
@@ -188,28 +186,26 @@ namespace System.Runtime.InteropServices
 
             if (marshalStub != IntPtr.Zero)
             {
-                InteropExtensions.PinObjectAndCall(structure,
-                    unboxedStructPtr =>
-                    {
-                        CalliIntrinsics.Call<int>(
-                            marshalStub,
-                            ((void*)((IntPtr*)unboxedStructPtr + offset)),  // safe (need to adjust offset as it could be class)
-                            (void*)ptr                                      // unsafe (no need to adjust as it is always struct)
-                        );
-                    });
+                if (structureTypeHandle.IsValueType())
+                {
+                    CalliIntrinsics.Call(marshalStub,
+                        ref structure.GetRawData(),
+                        ref *(byte*)ptr);
+                }
+                else
+                {
+                    CalliIntrinsics.Call(marshalStub,
+                        structure,
+                        ref *(byte*)ptr);
+                }
             }
             else
             {
-                int structSize = Marshal.SizeOf(structure);
-                InteropExtensions.PinObjectAndCall(structure,
-                    unboxedStructPtr =>
-                    {
-                        InteropExtensions.Memcpy(
-                            ptr,                                            // unsafe (no need to adjust as it is always struct)
-                            (IntPtr)((IntPtr*)unboxedStructPtr + offset),   // safe (need to adjust offset as it could be class)
-                            structSize
-                        );
-                    });
+                nuint size = (nuint)RuntimeAugments.InteropCallbacks.GetStructUnsafeStructSize(structureTypeHandle);
+                fixed (byte* pSrc = &structure.GetRawData())
+                {
+                    Buffer.Memmove((byte*)ptr, pSrc, size);
+                }
             }
         }
 
@@ -295,11 +291,12 @@ namespace System.Runtime.InteropServices
 
         public static string PtrToStringBSTR(IntPtr ptr)
         {
-#if PLATFORM_WINDOWS
-            return PtrToStringUni(ptr, (int)Interop.OleAut32.SysStringLen(ptr));
-#else
-            throw new PlatformNotSupportedException();
-#endif
+            if (ptr == IntPtr.Zero)
+            {
+                throw new ArgumentNullException(nameof(ptr));
+            }
+
+            return PtrToStringUni(ptr, (int)(SysStringByteLen(ptr) / sizeof(char)));
         }
 
         public static byte ReadByte(object ptr, int ofs)
@@ -360,7 +357,7 @@ namespace System.Runtime.InteropServices
                 throw new ArgumentOutOfRangeException(nameof(ofs));
 
             IntPtr nativeBytes = AllocCoTaskMem(size);
-            Buffer.ZeroMemory((byte*)nativeBytes, (long)size);
+            Buffer.ZeroMemory((byte*)nativeBytes, (nuint)size);
 
             try
             {
@@ -393,7 +390,7 @@ namespace System.Runtime.InteropServices
             if (s.Length + 1 < s.Length)
                 throw new ArgumentOutOfRangeException(nameof(s));
 
-#if PLATFORM_WINDOWS
+#if TARGET_WINDOWS
             IntPtr bstr = Interop.OleAut32.SysAllocStringLen(s, s.Length);
             if (bstr == IntPtr.Zero)
                 throw new OutOfMemoryException();
@@ -456,7 +453,7 @@ namespace System.Runtime.InteropServices
                 throw new ArgumentOutOfRangeException(nameof(ofs));
 
             IntPtr nativeBytes = AllocCoTaskMem(size);
-            Buffer.ZeroMemory((byte*)nativeBytes, (long)size);
+            Buffer.ZeroMemory((byte*)nativeBytes, (nuint)size);
 
             try
             {
@@ -474,16 +471,19 @@ namespace System.Runtime.InteropServices
         [McgIntrinsics]
         internal static unsafe partial class CalliIntrinsics
         {
-            internal static T Call<T>(
-            System.IntPtr pfn,
-            void* arg0,
-            void* arg1)
+            internal static void Call(IntPtr pfn, ref byte arg0, ref byte arg1)
             {
                 throw new NotSupportedException();
             }
-            internal static T Call<T>(
-            System.IntPtr pfn,
-            void* arg0)
+            internal static void Call(IntPtr pfn, object arg0, ref byte arg1)
+            {
+                throw new NotSupportedException();
+            }
+            internal static void Call(IntPtr pfn, ref byte arg0, object arg1)
+            {
+                throw new NotSupportedException();
+            }
+            internal static void Call(IntPtr pfn, ref byte arg0)
             {
                 throw new NotSupportedException();
             }

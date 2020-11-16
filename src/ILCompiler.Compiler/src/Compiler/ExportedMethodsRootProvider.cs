@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
 
@@ -30,7 +29,7 @@ namespace ILCompiler
                     foreach (var method in type.GetMethods())
                     {
                         EcmaMethod ecmaMethod = (EcmaMethod)method;
-                        if (ecmaMethod.IsRuntimeExport || ecmaMethod.IsNativeCallable)
+                        if (ecmaMethod.IsRuntimeExport || ecmaMethod.IsUnmanagedCallersOnly)
                             yield return ecmaMethod;
                     }
                 }
@@ -47,11 +46,11 @@ namespace ILCompiler
                     if (runtimeExportName != null)
                         rootProvider.AddCompilationRoot((MethodDesc)ecmaMethod, "Runtime export", runtimeExportName);
                 }
-                else if (ecmaMethod.IsNativeCallable)
+                else if (ecmaMethod.IsUnmanagedCallersOnly)
                 {
-                    string nativeCallableExportName = ecmaMethod.GetNativeCallableExportName();
-                    if (nativeCallableExportName != null)
-                        rootProvider.AddCompilationRoot((MethodDesc)ecmaMethod, "Native callable", nativeCallableExportName);
+                    string unmanagedCallersOnlyExportName = ecmaMethod.GetUnmanagedCallersOnlyExportName();
+                    if (unmanagedCallersOnlyExportName != null)
+                        rootProvider.AddCompilationRoot((MethodDesc)ecmaMethod, "Native callable", unmanagedCallersOnlyExportName);
                 }
             }
         }

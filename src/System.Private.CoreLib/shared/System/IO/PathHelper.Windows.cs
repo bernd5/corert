@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #nullable enable
 using System.Diagnostics;
@@ -26,8 +25,7 @@ namespace System.IO
         /// <returns>Normalized path</returns>
         internal static string Normalize(string path)
         {
-            Span<char> initialBuffer = stackalloc char[PathInternal.MaxShortPath];
-            var builder = new ValueStringBuilder(initialBuffer);
+            var builder = new ValueStringBuilder(stackalloc char[PathInternal.MaxShortPath]);
 
             // Get the full path
             GetFullPathName(path.AsSpan(), ref builder);
@@ -51,8 +49,7 @@ namespace System.IO
         /// </remarks>
         internal static string Normalize(ref ValueStringBuilder path)
         {
-            Span<char> initialBuffer = stackalloc char[PathInternal.MaxShortPath];
-            var builder = new ValueStringBuilder(initialBuffer);
+            var builder = new ValueStringBuilder(stackalloc char[PathInternal.MaxShortPath]);
 
             // Get the full path
             GetFullPathName(path.AsSpan(terminate: true), ref builder);
@@ -148,7 +145,7 @@ namespace System.IO
             bool isDevice = PathInternal.IsDevice(outputBuilder.AsSpan());
 
             // As this is a corner case we're not going to add a stackalloc here to keep the stack pressure down.
-            var inputBuilder = new ValueStringBuilder();
+            ValueStringBuilder inputBuilder = default;
 
             bool isDosUnc = false;
             int rootDifference = 0;

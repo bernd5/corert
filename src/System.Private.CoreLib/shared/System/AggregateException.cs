@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -377,7 +376,7 @@ namespace System
             while (exceptionsToFlatten.Count > nDequeueIndex)
             {
                 // dequeue one from exceptionsToFlatten
-                IList<Exception> currentInnerExceptions = exceptionsToFlatten[nDequeueIndex++].InnerExceptions;
+                ReadOnlyCollection<Exception> currentInnerExceptions = exceptionsToFlatten[nDequeueIndex++].InnerExceptions;
 
                 for (int i = 0; i < currentInnerExceptions.Count; i++)
                 {
@@ -401,8 +400,7 @@ namespace System
                 }
             }
 
-
-            return new AggregateException(Message, flattenedExceptions);
+            return new AggregateException(GetType() == typeof(AggregateException) ? base.Message : Message, flattenedExceptions);
         }
 
         /// <summary>Gets a message that describes the exception.</summary>

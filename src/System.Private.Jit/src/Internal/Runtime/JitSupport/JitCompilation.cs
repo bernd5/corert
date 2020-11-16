@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Diagnostics;
@@ -130,6 +129,11 @@ namespace ILCompiler
             throw new NotImplementedException();
         }
 
+        public ReadyToRunHelperId GetLdTokenHelperForType(TypeDesc type)
+        {
+            return ReadyToRunHelperId.TypeHandle;
+        }
+
         public ISymbolNode ComputeConstantLookup(ReadyToRunHelperId lookupKind, object targetOfLookup)
         {
             // The current plan seem to be to copy paste from ILCompiler.Compilation, but that's not a sustainable plan
@@ -152,6 +156,12 @@ namespace ILCompiler
             // The current plan seem to be to copy paste from ILCompiler.Compilation, but that's not a sustainable plan
             throw new NotImplementedException();
 
+        }
+
+        public bool IsFatPointerCandidate(MethodDesc containingMethod, MethodSignature signature)
+        {
+            // The current plan seem to be to copy paste from ILCompiler.Compilation, but that's not a sustainable plan
+            throw new NotImplementedException();
         }
 
         public sealed class LazyPInvokePolicy : PInvokeILEmitterConfiguration

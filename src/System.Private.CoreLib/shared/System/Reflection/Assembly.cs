@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.IO;
 using System.Globalization;
@@ -161,7 +160,7 @@ namespace System.Reflection
             // so it can become a simple test
             if (right is null)
             {
-                // return true/false not the test result https://github.com/dotnet/coreclr/issues/914
+                // return true/false not the test result https://github.com/dotnet/runtime/issues/4207
                 return (left is null) ? true : false;
             }
 
@@ -190,6 +189,17 @@ namespace System.Reflection
                 return m.Assembly;
         }
 
+        // internal test hook
+        private static bool s_forceNullEntryPoint = false;
+
+        public static Assembly? GetEntryAssembly()
+        {
+            if (s_forceNullEntryPoint)
+                return null;
+
+            return GetEntryAssemblyInternal();
+        }
+
         public static Assembly Load(byte[] rawAssembly) => Load(rawAssembly, rawSymbolStore: null);
 
         // Loads the assembly with a COFF based IMAGE containing
@@ -203,11 +213,6 @@ namespace System.Reflection
             if (rawAssembly.Length == 0)
                 throw new BadImageFormatException(SR.BadImageFormat_BadILFormat);
 
-#if FEATURE_APPX
-            if (ApplicationModel.IsUap)
-                throw new NotSupportedException(SR.Format(SR.NotSupported_AppX, "Assembly.Load(byte[], ...)"));
-#endif
-
             SerializationInfo.ThrowIfDeserializationInProgress("AllowAssembliesFromByteArrays",
                 ref s_cachedSerializationSwitch);
 
@@ -220,14 +225,9 @@ namespace System.Reflection
             if (path == null)
                 throw new ArgumentNullException(nameof(path));
 
-#if FEATURE_APPX
-            if (ApplicationModel.IsUap)
-                throw new NotSupportedException(SR.Format(SR.NotSupported_AppX, "Assembly.LoadFile"));
-#endif
-
             if (PathInternal.IsPartiallyQualified(path))
             {
-                throw new ArgumentException(SR.Argument_AbsolutePathRequired, nameof(path));
+                throw new ArgumentException(SR.Format(SR.Argument_AbsolutePathRequired, path), nameof(path));
             }
 
             string normalizedPath = Path.GetFullPath(path);
@@ -268,7 +268,15 @@ namespace System.Reflection
             {
                 // If the requestor assembly was not loaded using LoadFrom, exit.
                 if (!s_loadFromAssemblyList.Contains(requestorPath))
+                {
+#if CORECLR
+                    if (AssemblyLoadContext.IsTracingEnabled())
+                    {
+                        AssemblyLoadContext.TraceAssemblyLoadFromResolveHandlerInvoked(args.Name, false, requestorPath, null);
+                    }
+#endif // CORECLR
                     return null;
+                }
             }
 
             // Requestor assembly was loaded using loadFrom, so look for its dependencies
@@ -276,7 +284,12 @@ namespace System.Reflection
             // Form the name of the assembly using the path of the assembly that requested its load.
             AssemblyName requestedAssemblyName = new AssemblyName(args.Name!);
             string requestedAssemblyPath = Path.Combine(Path.GetDirectoryName(requestorPath)!, requestedAssemblyName.Name + ".dll");
-
+#if CORECLR
+            if (AssemblyLoadContext.IsTracingEnabled())
+            {
+                AssemblyLoadContext.TraceAssemblyLoadFromResolveHandlerInvoked(args.Name, true, requestorPath, requestedAssemblyPath);
+            }
+#endif // CORECLR
             try
             {
                 // Load the dependency via LoadFrom so that it goes through the same path of being in the LoadFrom list.

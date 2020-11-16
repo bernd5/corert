@@ -1,6 +1,5 @@
 ;; Licensed to the .NET Foundation under one or more agreements.
 ;; The .NET Foundation licenses this file to you under the MIT license.
-;; See the LICENSE file in the project root for more information.
 
 ;;
 ;; Define the helpers used to implement the write barrier required when writing an object reference into a
@@ -272,6 +271,7 @@ CmpXchgRetry
 CmpXchgNoUpdate
         ;; x10 still contains the original value.
         mov     x0, x10
+        ArmInterlockedOperationBarrier
         ret     lr
 
     LEAF_END RhpCheckedLockCmpXchg
@@ -312,6 +312,7 @@ ExchangeRetry
 
         ;; x10 still contains the original value.
         mov     x0, x10
+        ArmInterlockedOperationBarrier
         ret
 
     LEAF_END RhpCheckedXchg

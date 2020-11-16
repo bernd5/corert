@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Buffers.Text;
 using System.Diagnostics;
@@ -502,7 +501,7 @@ namespace System.Globalization
             /* factory method for static invariant FormatLiterals */
             internal static FormatLiterals InitInvariant(bool isNegative)
             {
-                FormatLiterals x = new FormatLiterals();
+                FormatLiterals x = default;
                 x._literals = new string[6];
                 x._literals[0] = isNegative ? "-" : string.Empty;
                 x._literals[1] = ".";

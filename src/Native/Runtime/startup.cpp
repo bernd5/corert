@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 #include "common.h"
 #include "CommonTypes.h"
 #include "CommonMacros.h"
@@ -34,14 +33,14 @@
 unsigned __int64 g_startupTimelineEvents[NUM_STARTUP_TIMELINE_EVENTS] = { 0 };
 #endif // PROFILE_STARTUP
 
-#ifdef PLATFORM_UNIX
+#ifdef TARGET_UNIX
 Int32 RhpHardwareExceptionHandler(UIntNative faultCode, UIntNative faultAddress, PAL_LIMITED_CONTEXT* palContext, UIntNative* arg0Reg, UIntNative* arg1Reg);
 #else
 Int32 __stdcall RhpVectoredExceptionHandler(PEXCEPTION_POINTERS pExPtrs);
 #endif
 
 static void CheckForPalFallback();
-static void DetectCPUFeatures();
+static bool DetectCPUFeatures();
 
 extern RhConfig * g_pRhConfig;
 
@@ -50,9 +49,11 @@ EXTERN_C bool g_fHasFastFxsave = false;
 CrstStatic g_CastCacheLock;
 CrstStatic g_ThunkPoolLock;
 
-#if defined(_X86_) || defined(_AMD64_)
+#if defined(HOST_X86) || defined(HOST_AMD64) || defined(HOST_ARM64)
 // This field is inspected from the generated code to determine what intrinsics are available.
 EXTERN_C int g_cpuFeatures = 0;
+// This field is defined in the generated code and sets the ISA expectations.
+EXTERN_C int g_requiredCpuFeatures;
 #endif
 
 static bool InitDLL(HANDLE hPalInstance)
@@ -73,19 +74,20 @@ static bool InitDLL(HANDLE hPalInstance)
     if (!RestrictedCallouts::Initialize())
         return false;
 
+    //
+    // Initialize RuntimeInstance state
+    //
+    if (!RuntimeInstance::Initialize(hPalInstance))
+        return false;
+
+    // Note: The global exception handler uses RuntimeInstance
 #if !defined(APP_LOCAL_RUNTIME) && !defined(USE_PORTABLE_HELPERS)
-#ifndef PLATFORM_UNIX
+#ifndef TARGET_UNIX
     PalAddVectoredExceptionHandler(1, RhpVectoredExceptionHandler);
 #else
     PalSetHardwareExceptionHandler(RhpHardwareExceptionHandler);
 #endif
 #endif // !APP_LOCAL_RUNTIME && !USE_PORTABLE_HELPERS
-
-    //
-    // init per-instance state
-    //
-    if (!RuntimeInstance::Initialize(hPalInstance))
-        return false;
 
     InitializeYieldProcessorNormalizedCrst();
 
@@ -111,7 +113,8 @@ static bool InitDLL(HANDLE hPalInstance)
 #endif // STRESS_LOG
 
 #ifndef USE_PORTABLE_HELPERS
-    DetectCPUFeatures();
+    if (!DetectCPUFeatures())
+        return false;
 #endif
 
     if (!g_CastCacheLock.InitNoThrow(CrstType::CrstCastCache))
@@ -152,26 +155,16 @@ static void CheckForPalFallback()
 }
 
 #ifndef USE_PORTABLE_HELPERS
-// Should match the constants defined in the compiler in HardwareIntrinsicHelpers.cs
-enum XArchIntrinsicConstants
-{
-    XArchIntrinsicConstants_Aes = 0x0001,
-    XArchIntrinsicConstants_Pclmulqdq = 0x0002,
-    XArchIntrinsicConstants_Sse3 = 0x0004,
-    XArchIntrinsicConstants_Ssse3 = 0x0008,
-    XArchIntrinsicConstants_Sse41 = 0x0010,
-    XArchIntrinsicConstants_Sse42 = 0x0020,
-    XArchIntrinsicConstants_Popcnt = 0x0040,
-    XArchIntrinsicConstants_Lzcnt = 0x0080,
-};
 
-void DetectCPUFeatures()
+bool DetectCPUFeatures()
 {
-#if defined(_X86_) || defined(_AMD64_)
+#if defined(HOST_X86) || defined(HOST_AMD64) || defined(HOST_ARM64)
+
+#if defined(HOST_X86) || defined(HOST_AMD64)
     
     unsigned char buffer[16];
 
-#ifdef _AMD64_
+#ifdef HOST_AMD64
     // AMD has a "fast" mode for fxsave/fxrstor, which omits the saving of xmm registers.  The OS will enable this mode
     // if it is supported.  So if we continue to use fxsave/fxrstor, we must manually save/restore the xmm registers.
     // fxsr_opt is bit 25 of EDX
@@ -225,9 +218,47 @@ void DetectCPUFeatures()
                             {
                                 g_cpuFeatures |= XArchIntrinsicConstants_Popcnt;
                             }
+
+                            if ((buffer[11] & 0x18) == 0x18)                // AVX & OSXSAVE
+                            {
+                                if (PalIsAvxEnabled() && (xmmYmmStateSupport() == 1))
+                                {
+                                    g_cpuFeatures |= XArchIntrinsicConstants_Avx;
+
+                                    if ((buffer[9] & 0x10) != 0)            // FMA
+                                    {
+                                        g_cpuFeatures |= XArchIntrinsicConstants_Fma;
+                                    }
+
+                                    if (maxCpuId >= 0x07)
+                                    {
+                                        (void)getextcpuid(0, 0x07, buffer);
+
+                                        if ((buffer[4] & 0x20) != 0)        // AVX2
+                                        {
+                                            g_cpuFeatures |= XArchIntrinsicConstants_Avx2;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+
+        if (maxCpuId >= 0x07)
+        {
+            (void)getextcpuid(0, 0x07, buffer);
+
+            if ((buffer[4] & 0x08) != 0)            // BMI1
+            {
+                g_cpuFeatures |= XArchIntrinsicConstants_Bmi1;
+            }
+
+            if ((buffer[5] & 0x01) != 0)            // BMI2
+            {
+                g_cpuFeatures |= XArchIntrinsicConstants_Bmi2;
             }
         }
     }
@@ -247,8 +278,19 @@ void DetectCPUFeatures()
             g_cpuFeatures |= XArchIntrinsicConstants_Lzcnt;
         }
     }
+#endif // HOST_X86 || HOST_AMD64
 
-#endif // _X86_ || _AMD64_
+#if defined(HOST_ARM64)
+    PAL_GetCpuCapabilityFlags (&g_cpuFeatures);
+#endif
+
+    if ((g_cpuFeatures & g_requiredCpuFeatures) != g_requiredCpuFeatures)
+    {
+        return false;
+    }
+#endif // HOST_X86 || HOST_AMD64 || HOST_ARM64
+
+    return true;
 }
 #endif // !USE_PORTABLE_HELPERS
 
@@ -349,31 +391,6 @@ void RuntimeThreadShutdown(void* thread)
     }
 }
 
-COOP_PINVOKE_HELPER(UInt32_BOOL, RhpRegisterModule, (ModuleHeader *pModuleHeader))
-{
-#ifdef PROFILE_STARTUP
-    if (g_registerModuleCount < NUM_REGISTER_MODULE_TRACES)
-    {
-        PalQueryPerformanceCounter(&g_registerModuleTraces[g_registerModuleCount].Begin);
-    }
-#endif // PROFILE_STARTUP
-
-    RuntimeInstance * pInstance = GetRuntimeInstance();
-
-    if (!pInstance->RegisterModule(pModuleHeader))
-        return UInt32_FALSE;
-
-#ifdef PROFILE_STARTUP
-    if (g_registerModuleCount < NUM_REGISTER_MODULE_TRACES)
-    {
-        PalQueryPerformanceCounter(&g_registerModuleTraces[g_registerModuleCount].End);
-        g_registerModuleCount++;
-    }
-#endif // PROFILE_STARTUP
-
-    return UInt32_TRUE;
-}
-
 extern "C" bool RhInitialize()
 {
     if (!PalInit())
@@ -400,9 +417,6 @@ COOP_PINVOKE_HELPER(void, RhpEnableConservativeStackReporting, ())
 //
 COOP_PINVOKE_HELPER(void, RhpShutdown, ())
 {
-#ifdef FEATURE_PROFILING
-    GetRuntimeInstance()->WriteProfileInfo();
-#endif // FEATURE_PROFILING
     // Indicate that runtime shutdown is complete and that the caller is about to start shutting down the entire process.
     g_processShutdownHasStarted = true;
 }

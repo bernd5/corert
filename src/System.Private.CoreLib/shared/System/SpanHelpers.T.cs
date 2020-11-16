@@ -1,20 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
-#if !netstandard
+
 using Internal.Runtime.CompilerServices;
-#endif
 
 namespace System
 {
     internal static partial class SpanHelpers // .T
     {
-        public static int IndexOf<T>(ref T searchSpace, int searchSpaceLength, ref T value, int valueLength)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static int IndexOf<T>(ref T searchSpace, int searchSpaceLength, ref T value, int valueLength) where T : IEquatable<T>
         {
             Debug.Assert(searchSpaceLength >= 0);
             Debug.Assert(valueLength >= 0);
@@ -50,16 +45,13 @@ namespace System
         }
 
         // Adapted from IndexOf(...)
-        public static unsafe bool Contains<T>(ref T searchSpace, T value, int length)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static unsafe bool Contains<T>(ref T searchSpace, T value, int length) where T : IEquatable<T>
         {
             Debug.Assert(length >= 0);
 
             IntPtr index = (IntPtr)0; // Use IntPtr for arithmetic to avoid unnecessary 64->32->64 truncations
 
-            if (default(T)! != null || (object)value != null) // TODO-NULLABLE: default(T) == null warning (https://github.com/dotnet/roslyn/issues/34757)
+            if (default(T) != null || (object)value != null)
             {
                 while (length >= 8)
                 {
@@ -123,15 +115,12 @@ namespace System
             return true;
         }
 
-        public static unsafe int IndexOf<T>(ref T searchSpace, T value, int length)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static unsafe int IndexOf<T>(ref T searchSpace, T value, int length) where T : IEquatable<T>
         {
             Debug.Assert(length >= 0);
 
             IntPtr index = (IntPtr)0; // Use IntPtr for arithmetic to avoid unnecessary 64->32->64 truncations
-            if (default(T)! != null || (object)value != null) // TODO-NULLABLE: default(T) == null warning (https://github.com/dotnet/roslyn/issues/34757)
+            if (default(T) != null || (object)value != null)
             {
                 while (length >= 8)
                 {
@@ -195,7 +184,7 @@ namespace System
             }
             return -1;
 
-        Found: // Workaround for https://github.com/dotnet/coreclr/issues/13549
+        Found: // Workaround for https://github.com/dotnet/runtime/issues/8795
             return (int)(byte*)index;
         Found1:
             return (int)(byte*)(index + 1);
@@ -213,16 +202,13 @@ namespace System
             return (int)(byte*)(index + 7);
         }
 
-        public static int IndexOfAny<T>(ref T searchSpace, T value0, T value1, int length)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static int IndexOfAny<T>(ref T searchSpace, T value0, T value1, int length) where T : IEquatable<T>
         {
             Debug.Assert(length >= 0);
 
             T lookUp;
             int index = 0;
-            if (default(T)! != null || ((object)value0 != null && (object)value1 != null)) // TODO-NULLABLE: default(T) == null warning (https://github.com/dotnet/roslyn/issues/34757)
+            if (default(T) != null || ((object)value0 != null && (object)value1 != null))
             {
                 while ((length - index) >= 8)
                 {
@@ -302,7 +288,7 @@ namespace System
 
             return -1;
 
-        Found: // Workaround for https://github.com/dotnet/coreclr/issues/13549
+        Found: // Workaround for https://github.com/dotnet/runtime/issues/8795
             return index;
         Found1:
             return index + 1;
@@ -320,16 +306,13 @@ namespace System
             return index + 7;
         }
 
-        public static int IndexOfAny<T>(ref T searchSpace, T value0, T value1, T value2, int length)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static int IndexOfAny<T>(ref T searchSpace, T value0, T value1, T value2, int length) where T : IEquatable<T>
         {
             Debug.Assert(length >= 0);
 
             T lookUp;
             int index = 0;
-            if (default(T)! != null || ((object)value0 != null && (object)value1 != null && (object)value2 != null)) // TODO-NULLABLE: default(T) == null warning (https://github.com/dotnet/roslyn/issues/34757)
+            if (default(T) != null || ((object)value0 != null && (object)value1 != null && (object)value2 != null))
             {
                 while ((length - index) >= 8)
                 {
@@ -408,7 +391,7 @@ namespace System
             }
             return -1;
 
-        Found: // Workaround for https://github.com/dotnet/coreclr/issues/13549
+        Found: // Workaround for https://github.com/dotnet/runtime/issues/8795
             return index;
         Found1:
             return index + 1;
@@ -426,10 +409,7 @@ namespace System
             return index + 7;
         }
 
-        public static int IndexOfAny<T>(ref T searchSpace, int searchSpaceLength, ref T value, int valueLength)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static int IndexOfAny<T>(ref T searchSpace, int searchSpaceLength, ref T value, int valueLength) where T : IEquatable<T>
         {
             Debug.Assert(searchSpaceLength >= 0);
             Debug.Assert(valueLength >= 0);
@@ -454,16 +434,13 @@ namespace System
             return index;
         }
 
-        public static int LastIndexOf<T>(ref T searchSpace, int searchSpaceLength, ref T value, int valueLength)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static int LastIndexOf<T>(ref T searchSpace, int searchSpaceLength, ref T value, int valueLength) where T : IEquatable<T>
         {
             Debug.Assert(searchSpaceLength >= 0);
             Debug.Assert(valueLength >= 0);
 
             if (valueLength == 0)
-                return 0;  // A zero-length sequence is always treated as "found" at the start of the search space.
+                return searchSpaceLength;  // A zero-length sequence is always treated as "found" at the end of the search space.
 
             T valueHead = value;
             ref T valueTail = ref Unsafe.Add(ref value, 1);
@@ -491,14 +468,11 @@ namespace System
             return -1;
         }
 
-        public static int LastIndexOf<T>(ref T searchSpace, T value, int length)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static int LastIndexOf<T>(ref T searchSpace, T value, int length) where T : IEquatable<T>
         {
             Debug.Assert(length >= 0);
 
-            if (default(T)! != null || (object)value != null) // TODO-NULLABLE: default(T) == null warning (https://github.com/dotnet/roslyn/issues/34757)
+            if (default(T) != null || (object)value != null)
             {
                 while (length >= 8)
                 {
@@ -557,7 +531,7 @@ namespace System
 
             return -1;
 
-        Found: // Workaround for https://github.com/dotnet/coreclr/issues/13549
+        Found: // Workaround for https://github.com/dotnet/runtime/issues/8795
             return length;
         Found1:
             return length + 1;
@@ -575,15 +549,12 @@ namespace System
             return length + 7;
         }
 
-        public static int LastIndexOfAny<T>(ref T searchSpace, T value0, T value1, int length)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static int LastIndexOfAny<T>(ref T searchSpace, T value0, T value1, int length) where T : IEquatable<T>
         {
             Debug.Assert(length >= 0);
 
             T lookUp;
-            if (default(T)! != null || ((object)value0 != null && (object)value1 != null)) // TODO-NULLABLE: default(T) == null warning (https://github.com/dotnet/roslyn/issues/34757)
+            if (default(T) != null || ((object)value0 != null && (object)value1 != null))
             {
                 while (length >= 8)
                 {
@@ -663,7 +634,7 @@ namespace System
 
             return -1;
 
-        Found: // Workaround for https://github.com/dotnet/coreclr/issues/13549
+        Found: // Workaround for https://github.com/dotnet/runtime/issues/8795
             return length;
         Found1:
             return length + 1;
@@ -681,15 +652,12 @@ namespace System
             return length + 7;
         }
 
-        public static int LastIndexOfAny<T>(ref T searchSpace, T value0, T value1, T value2, int length)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static int LastIndexOfAny<T>(ref T searchSpace, T value0, T value1, T value2, int length) where T : IEquatable<T>
         {
             Debug.Assert(length >= 0);
 
             T lookUp;
-            if (default(T)! != null || ((object)value0 != null && (object)value1 != null)) // TODO-NULLABLE: default(T) == null warning (https://github.com/dotnet/roslyn/issues/34757)
+            if (default(T) != null || ((object)value0 != null && (object)value1 != null))
             {
                 while (length >= 8)
                 {
@@ -769,7 +737,7 @@ namespace System
 
             return -1;
 
-        Found: // Workaround for https://github.com/dotnet/coreclr/issues/13549
+        Found: // Workaround for https://github.com/dotnet/runtime/issues/8795
             return length;
         Found1:
             return length + 1;
@@ -787,10 +755,7 @@ namespace System
             return length + 7;
         }
 
-        public static int LastIndexOfAny<T>(ref T searchSpace, int searchSpaceLength, ref T value, int valueLength)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static int LastIndexOfAny<T>(ref T searchSpace, int searchSpaceLength, ref T value, int valueLength) where T : IEquatable<T>
         {
             Debug.Assert(searchSpaceLength >= 0);
             Debug.Assert(valueLength >= 0);
@@ -808,10 +773,7 @@ namespace System
             return index;
         }
 
-        public static bool SequenceEqual<T>(ref T first, ref T second, int length)
-#nullable disable // to enable use with both T and T? for reference types due to IEquatable<T> being invariant
-            where T : IEquatable<T>
-#nullable restore
+        public static bool SequenceEqual<T>(ref T first, ref T second, int length) where T : IEquatable<T>
         {
             Debug.Assert(length >= 0);
 
@@ -898,7 +860,7 @@ namespace System
         Equal:
             return true;
 
-        NotEqual: // Workaround for https://github.com/dotnet/coreclr/issues/13549
+        NotEqual: // Workaround for https://github.com/dotnet/runtime/issues/8795
             return false;
         }
 

@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -16,7 +15,7 @@ namespace ILCompiler.DependencyAnalysis
     /// they are used by the dynamic type loader when dynamically instantiating types at runtime.
     /// The data that we emit on canonical type instantiations should just be the minimum that is needed by the template 
     /// type loader. 
-    /// Similarly, the dependencies that we track for canonicl type instantiations are minimal, and are just the ones used
+    /// Similarly, the dependencies that we track for canonical type instantiations are minimal, and are just the ones used
     /// by the dynamic type loader
     /// </summary>
     public sealed class CanonicalEETypeNode : EETypeNode

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Numerics;
@@ -315,58 +314,6 @@ namespace System
             private int _length;
             private fixed uint _blocks[MaxBlockCount];
 
-            public BigInteger(uint value)
-            {
-                _blocks[0] = value;
-                _length = (value == 0) ? 0 : 1;
-            }
-
-            public BigInteger(ulong value)
-            {
-                uint lower = (uint)(value);
-                uint upper = (uint)(value >> 32);
-
-                _blocks[0] = lower;
-                _blocks[1] = upper;
-
-                _length = (upper == 0) ? 1 : 2;
-            }
-
-            public static void Add(ref BigInteger lhs, uint value, ref BigInteger result)
-            {
-                if (lhs.IsZero())
-                {
-                    result.SetUInt32(value);
-                    return;
-                }
-
-                if (value == 0)
-                {
-                    result.SetValue(ref lhs);
-                    return;
-                }
-
-                int lhsLength = lhs._length;
-                int index = 0;
-                uint carry = value;
-
-                while (index < lhsLength)
-                {
-                    ulong sum = (ulong)(lhs._blocks[index]) + carry;
-                    lhs._blocks[index] = (uint)(sum);
-                    carry = (uint)(sum >> 32);
-
-                    index++;
-                }
-
-                if (carry != 0)
-                {
-                    Debug.Assert(unchecked((uint)(lhsLength)) + 1 <= MaxBlockCount);
-                    result._blocks[index] = carry;
-                    result._length = (lhsLength + 1);
-                }
-            }
-
             public static void Add(ref BigInteger lhs, ref BigInteger rhs, out BigInteger result)
             {
                 // determine which operand has the smaller length
@@ -377,7 +324,6 @@ namespace System
                 int smallLength = small._length;
 
                 // The output will be at least as long as the largest input
-                result = new BigInteger(0);
                 result._length = largeLength;
 
                 // Add each block and add carry the overflow to the next block
@@ -480,16 +426,15 @@ namespace System
 
             public static void DivRem(ref BigInteger lhs, ref BigInteger rhs, out BigInteger quo, out BigInteger rem)
             {
-                // This is modified from the CoreFX BigIntegerCalculator.DivRem.cs implementation:
-                // https://github.com/dotnet/corefx/blob/0bb106232745aedfc0d0c5a84ff2b244bf190317/src/System.Runtime.Numerics/src/System/Numerics/BigIntegerCalculator.DivRem.cs
+                // This is modified from the libraries BigIntegerCalculator.DivRem.cs implementation:
+                // https://github.com/dotnet/runtime/blob/master/src/libraries/System.Runtime.Numerics/src/System/Numerics/BigIntegerCalculator.DivRem.cs
 
                 Debug.Assert(!rhs.IsZero());
 
-                quo = new BigInteger(0);
-                rem = new BigInteger(0);
-
                 if (lhs.IsZero())
                 {
+                    SetZero(out quo);
+                    SetZero(out rem);
                     return;
                 }
 
@@ -499,8 +444,8 @@ namespace System
                 if ((lhsLength == 1) && (rhsLength == 1))
                 {
                     uint quotient = Math.DivRem(lhs._blocks[0], rhs._blocks[0], out uint remainder);
-                    quo = new BigInteger(quotient);
-                    rem = new BigInteger(remainder);
+                    SetUInt32(out quo, quotient);
+                    SetUInt32(out rem, remainder);
                     return;
                 }
 
@@ -529,20 +474,21 @@ namespace System
                     }
 
                     quo._length = quoLength;
-                    rem.SetUInt32((uint)(carry));
+                    SetUInt32(out rem, (uint)(carry));
 
                     return;
                 }
                 else if (rhsLength > lhsLength)
                 {
                     // Handle the case where we have no quotient
-                    rem.SetValue(ref lhs);
+                    SetZero(out quo);
+                    SetValue(out rem, ref lhs);
                     return;
                 }
                 else
                 {
                     int quoLength = lhsLength - rhsLength + 1;
-                    rem.SetValue(ref lhs);
+                    SetValue(out rem, ref lhs);
                     int remLength = lhsLength;
 
                     // Executes the "grammar-school" algorithm for computing q = a / b.
@@ -738,17 +684,17 @@ namespace System
                 return quotient;
             }
 
-            public static void Multiply(ref BigInteger lhs, uint value, ref BigInteger result)
+            public static void Multiply(ref BigInteger lhs, uint value, out BigInteger result)
             {
                 if (lhs.IsZero() || (value == 1))
                 {
-                    result.SetValue(ref lhs);
+                    SetValue(out result, ref lhs);
                     return;
                 }
 
                 if (value == 0)
                 {
-                    result.SetZero();
+                    SetZero(out result);
                     return;
                 }
 
@@ -771,19 +717,23 @@ namespace System
                     result._blocks[index] = carry;
                     result._length = (lhsLength + 1);
                 }
+                else
+                {
+                    result._length = lhsLength;
+                }
             }
 
-            public static void Multiply(ref BigInteger lhs, ref BigInteger rhs, ref BigInteger result)
+            public static void Multiply(ref BigInteger lhs, ref BigInteger rhs, out BigInteger result)
             {
                 if (lhs.IsZero() || rhs.IsOne())
                 {
-                    result.SetValue(ref lhs);
+                    SetValue(out result, ref lhs);
                     return;
                 }
 
                 if (rhs.IsZero())
                 {
-                    result.SetZero();
+                    SetZero(out result);
                     return;
                 }
 
@@ -806,7 +756,8 @@ namespace System
                 Debug.Assert(unchecked((uint)(maxResultLength)) <= MaxBlockCount);
 
                 // Zero out result internal blocks.
-                Buffer.ZeroMemory((byte*)(result.GetBlocksPointer()), maxResultLength * sizeof(uint));
+                result._length = maxResultLength;
+                Buffer.ZeroMemory((byte*)result.GetBlocksPointer(), (uint)maxResultLength * sizeof(uint));
 
                 int smallIndex = 0;
                 int resultStartIndex = 0;
@@ -841,18 +792,20 @@ namespace System
 
                 if ((maxResultLength > 0) && (result._blocks[maxResultLength - 1] == 0))
                 {
-                    result._length = (maxResultLength - 1);
-                }
-                else
-                {
-                    result._length = maxResultLength;
+                    result._length--;
                 }
             }
 
             public static void Pow2(uint exponent, out BigInteger result)
             {
-                result = new BigInteger(0);
-                ShiftLeft(1, exponent, ref result);
+                uint blocksToShift = DivRem32(exponent, out uint remainingBitsToShift);
+                result._length = (int)blocksToShift + 1;
+                Debug.Assert(unchecked((uint)result._length) <= MaxBlockCount);
+                if (blocksToShift > 0)
+                {
+                    Buffer.ZeroMemory((byte*)result.GetBlocksPointer(), blocksToShift * sizeof(uint));
+                }
+                result._blocks[blocksToShift] = 1U << (int)(remainingBitsToShift);
             }
 
             public static void Pow10(uint exponent, out BigInteger result)
@@ -887,10 +840,10 @@ namespace System
                 // We validate here, since this is the only current consumer of the array
                 Debug.Assert((s_Pow10BigNumTableIndices[^1] + MaxBlockCount + 2) == s_Pow10BigNumTable.Length);
 
-                BigInteger temp1 = new BigInteger(s_Pow10UInt32Table[exponent & 0x7]);
+                SetUInt32(out BigInteger temp1, s_Pow10UInt32Table[exponent & 0x7]);
                 ref BigInteger lhs = ref temp1;
 
-                BigInteger temp2 = new BigInteger(0);
+                SetZero(out BigInteger temp2);
                 ref BigInteger product = ref temp2;
 
                 exponent >>= 3;
@@ -905,7 +858,7 @@ namespace System
                         fixed (uint* pBigNumEntry = &s_Pow10BigNumTable[s_Pow10BigNumTableIndices[index]])
                         {
                             ref BigInteger rhs = ref *(BigInteger*)(pBigNumEntry);
-                            Multiply(ref lhs, ref rhs, ref product);
+                            Multiply(ref lhs, ref rhs, out product);
                         }
 
                         // Swap to the next temporary
@@ -919,59 +872,7 @@ namespace System
                     exponent >>= 1;
                 }
 
-                result = new BigInteger(0);
-                result.SetValue(ref lhs);
-            }
-
-            public static void ShiftLeft(ulong input, uint shift, ref BigInteger output)
-            {
-                if (shift == 0)
-                {
-                    return;
-                }
-
-                uint blocksToShift = Math.DivRem(shift, 32, out uint remainingBitsToShift);
-
-                if (blocksToShift > 0)
-                {
-                    // If blocks shifted, we should fill the corresponding blocks with zero.
-                    output.ExtendBlocks(0, blocksToShift);
-                }
-
-                if (remainingBitsToShift == 0)
-                {
-                    // We shift 32 * n (n >= 1) bits. No remaining bits.
-                    output.ExtendBlock((uint)(input));
-
-                    uint highBits = (uint)(input >> 32);
-
-                    if (highBits != 0)
-                    {
-                        output.ExtendBlock(highBits);
-                    }
-                }
-                else
-                {
-                    // Extract the high position bits which would be shifted out of range.
-                    uint highPositionBits = (uint)(input) >> (int)(64 - remainingBitsToShift);
-
-                    // Shift the input. The result should be stored to current block.
-                    ulong shiftedInput = input << (int)(remainingBitsToShift);
-                    output.ExtendBlock((uint)(shiftedInput));
-
-                    uint highBits = (uint)(input >> 32);
-
-                    if (highBits != 0)
-                    {
-                        output.ExtendBlock(highBits);
-                    }
-
-                    if (highPositionBits != 0)
-                    {
-                        // If the high position bits is not 0, we should store them to next block.
-                        output.ExtendBlock(highPositionBits);
-                    }
-                }
+                SetValue(out result, ref lhs);
             }
 
             private static uint AddDivisor(ref BigInteger lhs, int lhsStartIndex, ref BigInteger rhs)
@@ -1065,29 +966,33 @@ namespace System
 
             public void Add(uint value)
             {
-                Add(ref this, value, ref this);
-            }
-
-            public void ExtendBlock(uint blockValue)
-            {
-                _blocks[_length] = blockValue;
-                _length++;
-            }
-
-            public void ExtendBlocks(uint blockValue, uint blockCount)
-            {
-                Debug.Assert(blockCount > 0);
-
-                if (blockCount == 1)
+                int length = _length;
+                if (length == 0)
                 {
-                    ExtendBlock(blockValue);
-
+                    SetUInt32(out this, value);
                     return;
                 }
 
-                Buffer.ZeroMemory((byte*)(GetBlocksPointer() + _length), (blockCount - 1) * sizeof(uint));
-                _length += (int)(blockCount);
-                _blocks[_length - 1] = blockValue;
+                _blocks[0] += value;
+                if (_blocks[0] >= value)
+                {
+                    // No carry
+                    return;
+                }
+
+                for (int index = 1; index < length; index++)
+                {
+                    _blocks[index]++;
+                    if (_blocks[index] > 0)
+                    {
+                        // No carry
+                        return;
+                    }
+                }
+
+                Debug.Assert(unchecked((uint)(length)) + 1 <= MaxBlockCount);
+                _blocks[length] = 1;
+                _length = length + 1;
             }
 
             public uint GetBlock(uint index)
@@ -1114,16 +1019,13 @@ namespace System
 
             public void Multiply(uint value)
             {
-                Multiply(ref this, value, ref this);
+                Multiply(ref this, value, out this);
             }
 
             public void Multiply(ref BigInteger value)
             {
-                var result = new BigInteger(0);
-                Multiply(ref this, ref value, ref result);
-
-                Buffer.Memcpy((byte*)(GetBlocksPointer()), (byte*)(result.GetBlocksPointer()), (result._length) * sizeof(uint));
-                _length = result._length;
+                SetValue(out BigInteger temp, ref this);
+                Multiply(ref temp, ref value, out this);
             }
 
             public void Multiply10()
@@ -1157,6 +1059,11 @@ namespace System
 
             public void MultiplyPow10(uint exponent)
             {
+                if (IsZero())
+                {
+                    return;
+                }
+
                 Pow10(exponent, out BigInteger poweredValue);
 
                 if (poweredValue._length == 1)
@@ -1169,33 +1076,44 @@ namespace System
                 }
             }
 
-            public void SetUInt32(uint value)
+            public static void SetUInt32(out BigInteger result, uint value)
             {
-                _blocks[0] = value;
-                _length = 1;
+                if (value == 0)
+                {
+                    SetZero(out result);
+                }
+                else
+                {
+                    result._blocks[0] = value;
+                    result._length = 1;
+                }
             }
 
-            public void SetUInt64(ulong value)
+            public static void SetUInt64(out BigInteger result, ulong value)
             {
-                uint lower = (uint)(value);
-                uint upper = (uint)(value >> 32);
+                if (value <= uint.MaxValue)
+                {
+                    SetUInt32(out result, (uint)(value));
+                }
+                else
+                {
+                    result._blocks[0] = (uint)(value);
+                    result._blocks[1] = (uint)(value >> 32);
 
-                _blocks[0] = lower;
-                _blocks[1] = upper;
-
-                _length = (upper == 0) ? 1 : 2;
+                    result._length = 2;
+                }
             }
 
-            public void SetValue(ref BigInteger rhs)
+            public static void SetValue(out BigInteger result, ref BigInteger value)
             {
-                int rhsLength = rhs._length;
-                Buffer.Memcpy((byte*)(GetBlocksPointer()), (byte*)(rhs.GetBlocksPointer()), rhsLength * sizeof(uint));
-                _length = rhsLength;
+                int rhsLength = value._length;
+                result._length = rhsLength;
+                Buffer.Memcpy((byte*)result.GetBlocksPointer(), (byte*)value.GetBlocksPointer(), rhsLength * sizeof(uint));
             }
 
-            public void SetZero()
+            public static void SetZero(out BigInteger result)
             {
-                _length = 0;
+                result._length = 0;
             }
 
             public void ShiftLeft(uint shift)
@@ -1208,7 +1126,7 @@ namespace System
                     return;
                 }
 
-                uint blocksToShift = Math.DivRem(shift, 32, out uint remainingBitsToShift);
+                uint blocksToShift = DivRem32(shift, out uint remainingBitsToShift);
 
                 // Copy blocks from high to low
                 int readIndex = (length - 1);
@@ -1229,7 +1147,7 @@ namespace System
                     _length += (int)(blocksToShift);
 
                     // Zero the remaining low blocks
-                    Buffer.ZeroMemory((byte*)(GetBlocksPointer()), blocksToShift * sizeof(uint));
+                    Buffer.ZeroMemory((byte*)GetBlocksPointer(), blocksToShift * sizeof(uint));
                 }
                 else
                 {
@@ -1262,7 +1180,7 @@ namespace System
                     _blocks[writeIndex - 1] = block << (int)(remainingBitsToShift);
 
                     // Zero the remaining low blocks
-                    Buffer.ZeroMemory((byte*)(GetBlocksPointer()), blocksToShift * sizeof(uint));
+                    Buffer.ZeroMemory((byte*)GetBlocksPointer(), blocksToShift * sizeof(uint));
 
                     // Check if the terminating block has no set bits
                     if (_blocks[_length - 1] == 0)
@@ -1291,6 +1209,12 @@ namespace System
             {
                 // This is safe to do since we are a ref struct
                 return (uint*)(Unsafe.AsPointer(ref _blocks[0]));
+            }
+
+            private static uint DivRem32(uint value, out uint remainder)
+            {
+                remainder = value & 31;
+                return value >> 5;
             }
         }
     }

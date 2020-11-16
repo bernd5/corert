@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections;
 using System.Collections.Generic;
@@ -25,7 +24,7 @@ namespace System.Diagnostics
         /// <summary>
         /// Stack frames comprising this stack trace.
         /// </summary>
-        private StackFrame?[]? _stackFrames;
+        private StackFrame[]? _stackFrames;
 
         /// <summary>
         /// Constructs a stack trace from the current location.
@@ -156,7 +155,7 @@ namespace System.Diagnostics
         /// The nth element of this array is the same as GetFrame(n).
         /// The length of the array is the same as FrameCount.
         /// </summary>
-        public virtual StackFrame?[] GetFrames()
+        public virtual StackFrame[] GetFrames()
         {
             if (_stackFrames == null || _numOfFrames <= 0)
                 return Array.Empty<StackFrame>();

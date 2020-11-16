@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #include "common.h"
 #include "CommonTypes.h"
@@ -83,7 +82,7 @@ UInt64 DebugFuncEval::GetMostRecentFuncEvalHijackInstructionPointer()
 
 #endif //!DACCESS_COMPILE
 
-EXTERN_C void * RhpDebugFuncEvalHelper;
-GPTR_IMPL_INIT(PTR_VOID, g_RhpDebugFuncEvalHelperAddr, &RhpDebugFuncEvalHelper);
+EXTERN_C void RhpDebugFuncEvalHelper(void*, void*);
+GPTR_IMPL_INIT(PTR_VOID, g_RhpDebugFuncEvalHelperAddr, (void **)(&RhpDebugFuncEvalHelper));
 
 GPTR_IMPL_INIT(PTR_VOID, g_RhpInitiateFuncEvalAbortAddr, (void**)&RhpInitiateFuncEvalAbort);

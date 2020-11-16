@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 extern "C" UInt16 __stdcall CaptureStackBackTrace(UInt32, UInt32, void*, UInt32*);
 inline UInt16 PalCaptureStackBackTrace(UInt32 arg1, UInt32 arg2, void* arg3, UInt32* arg4)
@@ -183,11 +182,5 @@ extern "C" void __stdcall RaiseFailFastException(PEXCEPTION_RECORD, PCONTEXT, UI
 inline void PalRaiseFailFastException(PEXCEPTION_RECORD arg1, PCONTEXT arg2, UInt32 arg3)
 {
     RaiseFailFastException(arg1, arg2, arg3);
-}
-
-extern "C" UInt32_BOOL __stdcall WriteFile(HANDLE, const void *, UInt32, UInt32 *, LPOVERLAPPED);
-inline UInt32_BOOL PalWriteFile(HANDLE arg1, const void * arg2, UInt32 arg3, UInt32 * arg4, LPOVERLAPPED arg5)
-{
-    return WriteFile(arg1, arg2, arg3, arg4, arg5);
 }
 #endif 

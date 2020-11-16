@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #include "common.h"
 
@@ -96,11 +95,7 @@ uint32_t CLREventStatic::Wait(uint32_t dwMilliseconds, bool bAlertable)
     return result;
 }
 
-#ifndef __GNUC__
-__declspec(thread) Thread * pCurrentThread;
-#else // !__GNUC__
 thread_local Thread * pCurrentThread;
-#endif // !__GNUC__
 
 Thread * GetThread()
 {
@@ -177,19 +172,14 @@ bool GCToEEInterface::IsPreemptiveGCDisabled()
 
 bool GCToEEInterface::EnablePreemptiveGC()
 {
-    bool bToggleGC = false;
     Thread* pThread = ::GetThread();
-
-    if (pThread)
+    if (pThread && pThread->PreemptiveGCDisabled())
     {
-        bToggleGC = !!pThread->PreemptiveGCDisabled();
-        if (bToggleGC)
-        {
-            pThread->EnablePreemptiveGC();
-        }
+        pThread->EnablePreemptiveGC();
+        return true;
     }
 
-    return bToggleGC;
+    return false;
 }
 
 void GCToEEInterface::DisablePreemptiveGC()
@@ -255,7 +245,7 @@ void GCToEEInterface::DiagWalkSurvivors(void* gcContext, bool fCompacting)
 {
 }
 
-void GCToEEInterface::DiagWalkLOHSurvivors(void* gcContext)
+void GCToEEInterface::DiagWalkUOHSurvivors(void* gcContext, int gen)
 {
 }
 
@@ -284,17 +274,17 @@ bool GCToEEInterface::EagerFinalized(Object* obj)
     return false;
 }
 
-bool GCToEEInterface::GetBooleanConfigValue(const char* key, bool* value)
+bool GCToEEInterface::GetBooleanConfigValue(const char* privateKey, const char* publicKey, bool* value)
 {
     return false;
 }
 
-bool GCToEEInterface::GetIntConfigValue(const char* key, int64_t* value)
+bool GCToEEInterface::GetIntConfigValue(const char* privateKey, const char* publicKey, int64_t* value)
 {
     return false;
 }
 
-bool GCToEEInterface::GetStringConfigValue(const char* key, const char** value)
+bool GCToEEInterface::GetStringConfigValue(const char* privateKey, const char* publicKey, const char** value)
 {
     return false;
 }
@@ -318,7 +308,7 @@ static MethodTable freeObjectMT;
 
 MethodTable* GCToEEInterface::GetFreeObjectMethodTable()
 {
-    // 
+    //
     // Initialize free object methodtable. The GC uses a special array-like methodtable as placeholder
     // for collected free space.
     //
@@ -351,5 +341,5 @@ inline bool GCToEEInterface::AnalyzeSurvivorsRequested(int condemnedGeneration)
 
 inline void GCToEEInterface::AnalyzeSurvivorsFinished(int condemnedGeneration)
 {
-    
+
 }

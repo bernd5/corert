@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 .assembly extern mscorlib
 {
@@ -31,7 +30,7 @@
   {
     ret
   }
-  //this is copied from the test case for https://github.com/dotnet/coreclr/issues/14784
+  //this is copied from the test case for https://github.com/dotnet/runtime/issues/9210
   //its been adapted to remove the requirement for Console.WriteLine because thats not supported in WASM
   //it can be removed once we have support for Console.WriteLine and can run the CoreCLR tests
   .method public static int32 InlineAssignByte()
@@ -110,6 +109,30 @@
     failure:
     pop
     ldc.i4 0
+    ret
+  }
+
+  .method public static bool BneSbyteExtend () cil managed 
+  {
+    // Method begins at RVA 0x2050
+    // Code size 8 (0x8)
+    .maxstack 8
+
+    .locals init (
+        [0] int8
+    )
+
+    ldc.i4.m1
+    stloc.0
+    ldloc.0
+    ldc.i4.m1
+    bne.un.s failure
+
+    ldc.i4.1
+    ret
+
+    failure:
+    ldc.i4.0
     ret
   }
 }

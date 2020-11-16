@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 namespace System.Runtime.InteropServices
 {
@@ -11,7 +10,7 @@ namespace System.Runtime.InteropServices
         {
             if (obj != null)
             {
-                // Make sure this guy has an IDispatch
+                // Make sure this object has an IDispatch
                 IntPtr pdisp = Marshal.GetIDispatchForObject(obj);
 
                 // If we got here without throwing an exception, the QI for IDispatch succeeded.

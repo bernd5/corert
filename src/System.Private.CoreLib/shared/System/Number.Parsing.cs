@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -1919,7 +1918,7 @@ namespace System
             return null;
         }
 
-        // Ternary op is a workaround for https://github.com/dotnet/coreclr/issues/914
+        // Ternary op is a workaround for https://github.com/dotnet/runtime/issues/4207
         private static bool IsWhite(int ch) => ch == 0x20 || (uint)(ch - 0x09) <= (0x0D - 0x09) ? true : false;
 
         private static bool IsDigit(int ch) => ((uint)ch - '0') <= 9;

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 // System.Type is only defined to support C# typeof. We shouldn't have it here since the semantic
 // is not very compatible.
@@ -26,5 +25,18 @@ namespace System
         {
             return new Type(rh);
         }
+
+        [Intrinsic]
+        public static bool operator ==(Type left, Type right)
+        {
+            return RuntimeTypeHandle.GetValueInternal(left._typeHandle) == RuntimeTypeHandle.GetValueInternal(right._typeHandle);
+        }
+
+        [Intrinsic]
+        public static bool operator !=(Type left, Type right) => !(left == right);
+
+        public override bool Equals(object o) => o is Type && this == (Type)o;
+
+        public override int GetHashCode() => 0;
     }
 }

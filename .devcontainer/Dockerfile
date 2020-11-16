@@ -1,6 +1,5 @@
 # Licensed to the .NET Foundation under one or more agreements.
 # The .NET Foundation licenses this file to you under the MIT license.
-# See the LICENSE file in the project root for more information.
 
 # Debian and Ubuntu based images are supported. Alpine images are not yet supported.
 FROM debian:9
@@ -16,7 +15,7 @@ RUN apt-get -y install git procps lsb-release
 # ***********************************
 # * Install stuff needed for CoreRT *
 # ***********************************
-RUN apt-get -y install cmake clang-3.9 libicu-dev uuid-dev libcurl4-openssl-dev zlib1g-dev libkrb5-dev wget
+RUN apt-get -y install cmake clang libicu-dev uuid-dev libcurl4-openssl-dev zlib1g-dev libkrb5-dev wget
 
 # Clean up
 RUN apt-get autoremove -y \

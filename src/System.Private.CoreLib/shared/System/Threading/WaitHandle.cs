@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -261,15 +260,6 @@ namespace System.Threading
         {
             if (waitHandles.Length == 0)
             {
-                //
-                // Some history: in CLR 1.0 and 1.1, we threw ArgumentException in this case, which was correct.
-                // Somehow, in 2.0, this became ArgumentNullException.  This was not fixed until Silverlight 2,
-                // which went back to ArgumentException.
-                //
-                // Now we're in a bit of a bind.  Backward-compatibility requires us to keep throwing ArgumentException
-                // in CoreCLR, and ArgumentNullException in the desktop CLR.  This is ugly, but so is breaking
-                // user code.
-                //
                 throw new ArgumentException(SR.Argument_EmptyWaithandleArray, nameof(waitHandles));
             }
             if (waitHandles.Length > MaxWaitHandles)

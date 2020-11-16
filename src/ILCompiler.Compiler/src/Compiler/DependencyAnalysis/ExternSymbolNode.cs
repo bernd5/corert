@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -49,5 +48,10 @@ namespace ILCompiler.DependencyAnalysis
             return _name.CompareTo(((ExternSymbolNode)other)._name);
         }
 #endif
+
+        public override string ToString()
+        {
+            return _name.ToString();
+        }
     }
 }

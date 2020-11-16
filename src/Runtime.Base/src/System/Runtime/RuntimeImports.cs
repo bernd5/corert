@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -10,36 +9,6 @@ using Internal.Runtime;
 
 namespace System.Runtime
 {
-    public struct TypeManagerHandle
-    {
-        private IntPtr _handleValue;
-
-        public TypeManagerHandle(IntPtr handleValue)
-        {
-            _handleValue = handleValue;
-        }
-
-        public IntPtr GetIntPtrUNSAFE()
-        {
-            return _handleValue;
-        }
-
-        public static bool operator ==(TypeManagerHandle left, TypeManagerHandle right)
-        {
-            return left._handleValue == right._handleValue;
-        }
-
-        public static bool operator !=(TypeManagerHandle left, TypeManagerHandle right)
-        {
-            return left._handleValue != right._handleValue;
-        }
-
-        public bool Equals(TypeManagerHandle other)
-        {
-            return _handleValue == other._handleValue;
-        }
-    }
-
     internal static class RuntimeImports
     {
         private const string RuntimeLibrary = "[MRT]";

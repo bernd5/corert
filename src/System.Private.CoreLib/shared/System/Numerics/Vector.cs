@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -11,7 +10,7 @@ using System.Text;
 using Internal.Runtime.CompilerServices;
 
 #pragma warning disable SA1121 // explicitly using type aliases instead of built-in types
-#if BIT64
+#if TARGET_64BIT
 using nint = System.Int64;
 #else
 using nint = System.Int32;
@@ -77,7 +76,9 @@ namespace System.Numerics
             [Intrinsic]
             get => s_zero;
         }
-        private static readonly Vector<T> s_zero = new Vector<T>();
+#pragma warning disable 0649 // never assigned to
+        private static readonly Vector<T> s_zero;
+#pragma warning restore 0649
 
         /// <summary>
         /// Returns a vector containing all ones.
@@ -630,7 +631,7 @@ namespace System.Numerics
         /// <returns>The hash code.</returns>
         public override readonly int GetHashCode()
         {
-            HashCode hashCode = new HashCode();
+            HashCode hashCode = default;
 
             if (typeof(T) == typeof(byte) ||
                 typeof(T) == typeof(sbyte) ||
@@ -858,7 +859,7 @@ namespace System.Numerics
                 }
                 else
                 {
-                    Vector<T> sum = new Vector<T>();
+                    Vector<T> sum = default;
                     if (typeof(T) == typeof(byte))
                     {
                         sum.register.byte_0 = (byte)(left.register.byte_0 + right.register.byte_0);
@@ -1070,7 +1071,7 @@ namespace System.Numerics
                 }
                 else
                 {
-                    Vector<T> difference = new Vector<T>();
+                    Vector<T> difference = default;
                     if (typeof(T) == typeof(byte))
                     {
                         difference.register.byte_0 = (byte)(left.register.byte_0 - right.register.byte_0);
@@ -1283,7 +1284,7 @@ namespace System.Numerics
                 }
                 else
                 {
-                    Vector<T> product = new Vector<T>();
+                    Vector<T> product = default;
                     if (typeof(T) == typeof(byte))
                     {
                         product.register.byte_0 = (byte)(left.register.byte_0 * right.register.byte_0);
@@ -1516,7 +1517,7 @@ namespace System.Numerics
                 }
                 else
                 {
-                    Vector<T> quotient = new Vector<T>();
+                    Vector<T> quotient = default;
                     if (typeof(T) == typeof(byte))
                     {
                         quotient.register.byte_0 = (byte)(left.register.byte_0 / right.register.byte_0);
@@ -1636,7 +1637,7 @@ namespace System.Numerics
         [Intrinsic]
         public static unsafe Vector<T> operator &(Vector<T> left, Vector<T> right)
         {
-            Vector<T> result = new Vector<T>();
+            Vector<T> result = default;
             unchecked
             {
                 if (Vector.IsHardwareAccelerated)
@@ -1667,7 +1668,7 @@ namespace System.Numerics
         [Intrinsic]
         public static unsafe Vector<T> operator |(Vector<T> left, Vector<T> right)
         {
-            Vector<T> result = new Vector<T>();
+            Vector<T> result = default;
             unchecked
             {
                 if (Vector.IsHardwareAccelerated)
@@ -1698,7 +1699,7 @@ namespace System.Numerics
         [Intrinsic]
         public static unsafe Vector<T> operator ^(Vector<T> left, Vector<T> right)
         {
-            Vector<T> result = new Vector<T>();
+            Vector<T> result = default;
             unchecked
             {
                 if (Vector.IsHardwareAccelerated)
@@ -1954,7 +1955,7 @@ namespace System.Numerics
             }
             else
             {
-                Register register = new Register();
+                Register register = default;
                 if (typeof(T) == typeof(byte))
                 {
                     register.byte_0 = left.register.byte_0 == right.register.byte_0 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
@@ -2171,7 +2172,7 @@ namespace System.Numerics
             }
             else
             {
-                Register register = new Register();
+                Register register = default;
                 if (typeof(T) == typeof(byte))
                 {
                     register.byte_0 = left.register.byte_0 < right.register.byte_0 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
@@ -2388,7 +2389,7 @@ namespace System.Numerics
             }
             else
             {
-                Register register = new Register();
+                Register register = default;
                 if (typeof(T) == typeof(byte))
                 {
                     register.byte_0 = left.register.byte_0 > right.register.byte_0 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
@@ -2773,7 +2774,7 @@ namespace System.Numerics
             }
             else
             {
-                Vector<T> vec = new Vector<T>();
+                Vector<T> vec = default;
                 if (typeof(T) == typeof(byte))
                 {
                     vec.register.byte_0 = left.register.byte_0 < right.register.byte_0 ? left.register.byte_0 : right.register.byte_0;
@@ -2989,7 +2990,7 @@ namespace System.Numerics
             }
             else
             {
-                Vector<T> vec = new Vector<T>();
+                Vector<T> vec = default;
                 if (typeof(T) == typeof(byte))
                 {
                     vec.register.byte_0 = left.register.byte_0 > right.register.byte_0 ? left.register.byte_0 : right.register.byte_0;
@@ -3446,6 +3447,108 @@ namespace System.Numerics
                 {
                     value.register.double_0 = (double)Math.Sqrt(value.register.double_0);
                     value.register.double_1 = (double)Math.Sqrt(value.register.double_1);
+                    return value;
+                }
+                else
+                {
+                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
+                }
+            }
+        }
+
+        [Intrinsic]
+        internal static unsafe Vector<T> Ceiling(Vector<T> value)
+        {
+            if (Vector.IsHardwareAccelerated)
+            {
+                if (typeof(T) == typeof(float))
+                {
+                    float* dataPtr = stackalloc float[Count];
+                    for (int g = 0; g < Count; g++)
+                    {
+                        dataPtr[g] = MathF.Ceiling((float)(object)value[g]);
+                    }
+                    return new Vector<T>(dataPtr);
+                }
+                else if (typeof(T) == typeof(double))
+                {
+                    double* dataPtr = stackalloc double[Count];
+                    for (int g = 0; g < Count; g++)
+                    {
+                        dataPtr[g] = Math.Ceiling((double)(object)value[g]);
+                    }
+                    return new Vector<T>(dataPtr);
+                }
+                else
+                {
+                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
+                }
+            }
+            else
+            {
+                if (typeof(T) == typeof(float))
+                {
+                    value.register.single_0 = MathF.Ceiling(value.register.single_0);
+                    value.register.single_1 = MathF.Ceiling(value.register.single_1);
+                    value.register.single_2 = MathF.Ceiling(value.register.single_2);
+                    value.register.single_3 = MathF.Ceiling(value.register.single_3);
+                    return value;
+                }
+                else if (typeof(T) == typeof(double))
+                {
+                    value.register.double_0 = Math.Ceiling(value.register.double_0);
+                    value.register.double_1 = Math.Ceiling(value.register.double_1);
+                    return value;
+                }
+                else
+                {
+                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
+                }
+            }
+        }
+
+        [Intrinsic]
+        internal static unsafe Vector<T> Floor(Vector<T> value)
+        {
+            if (Vector.IsHardwareAccelerated)
+            {
+                if (typeof(T) == typeof(float))
+                {
+                    float* dataPtr = stackalloc float[Count];
+                    for (int g = 0; g < Count; g++)
+                    {
+                        dataPtr[g] = MathF.Floor((float)(object)value[g]);
+                    }
+                    return new Vector<T>(dataPtr);
+                }
+                else if (typeof(T) == typeof(double))
+                {
+                    double* dataPtr = stackalloc double[Count];
+                    for (int g = 0; g < Count; g++)
+                    {
+                        dataPtr[g] = Math.Floor((double)(object)value[g]);
+                    }
+                    return new Vector<T>(dataPtr);
+                }
+                else
+                {
+                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
+                }
+            }
+            else
+            {
+                if (typeof(T) == typeof(float))
+                {
+                    value.register.single_0 = MathF.Floor(value.register.single_0);
+                    value.register.single_1 = MathF.Floor(value.register.single_1);
+                    value.register.single_2 = MathF.Floor(value.register.single_2);
+                    value.register.single_3 = MathF.Floor(value.register.single_3);
+                    return value;
+                }
+                else if (typeof(T) == typeof(double))
+                {
+                    value.register.double_0 = Math.Floor(value.register.double_0);
+                    value.register.double_1 = Math.Floor(value.register.double_1);
                     return value;
                 }
                 else

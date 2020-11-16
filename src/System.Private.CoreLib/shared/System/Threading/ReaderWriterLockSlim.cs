@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics; // for TraceInformation
 using System.Diagnostics.CodeAnalysis;
@@ -53,14 +52,12 @@ namespace System.Threading
     /// </summary>
     public class ReaderWriterLockSlim : IDisposable
     {
-        private static readonly int ProcessorCount = Environment.ProcessorCount;
-
         // Specifying if the lock can be reacquired recursively.
         private readonly bool _fIsReentrant;
 
         // Lock specification for _spinLock:  This lock protects exactly the local fields associated with this
         // instance of ReaderWriterLockSlim.  It does NOT protect the memory associated with
-        // the events that hang off this lock (eg writeEvent, readEvent upgradeEvent).
+        // the events that are raised by this lock (eg writeEvent, readEvent upgradeEvent).
         private SpinLock _spinLock;
 
         // These variables allow use to avoid Setting events (which is expensive) if we don't have to.
@@ -1233,7 +1230,7 @@ namespace System.Threading
             const int LockSpinCycles = 20;
 
             // Exponential back-off
-            if ((spinCount < 5) && (ProcessorCount > 1))
+            if ((spinCount < 5) && (Environment.ProcessorCount > 1))
             {
                 Thread.SpinWait(LockSpinCycles * spinCount);
             }
@@ -1563,7 +1560,7 @@ namespace System.Threading
                     Interlocked.Add(ref _enterDeprioritizationState, deprioritizationStateChange);
                 }
 
-                int processorCount = ProcessorCount;
+                int processorCount = Environment.ProcessorCount;
                 for (int spinIndex = 0; ; spinIndex++)
                 {
                     if (spinIndex < LockSpinCount && processorCount > 1)

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Runtime;
@@ -139,7 +138,8 @@ namespace System.Threading
 
             if (s_maxSpinCount == SpinningNotInitialized)
             {
-                s_maxSpinCount = (Environment.ProcessorCount > 1) ? MaxSpinningValue : SpinningDisabled;
+                // Use RhGetProcessCpuCount directly to avoid Environment.ProcessorCount->ClassConstructorRunner->Lock->Environment.ProcessorCount cycle
+                s_maxSpinCount = (RuntimeImports.RhGetProcessCpuCount() > 1) ? MaxSpinningValue : SpinningDisabled;
             }
 
             while (true)
@@ -159,7 +159,7 @@ namespace System.Threading
                 //
                 if (spins <= s_maxSpinCount)
                 {
-                    Thread.SpinWait(spins);
+                    RuntimeImports.RhSpinWait(spins);
                     spins *= 2;
                 }
                 else if (oldState != 0)

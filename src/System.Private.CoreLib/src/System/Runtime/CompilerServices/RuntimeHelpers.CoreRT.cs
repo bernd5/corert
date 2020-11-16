@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using Internal.Reflection.Augments;
 using Internal.Reflection.Core.NonPortable;
 using Internal.Runtime.Augments;
 using System.Runtime;
 using System.Runtime.Serialization;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
@@ -164,11 +164,11 @@ namespace System.Runtime.CompilerServices
                 // after the sync block, so don't count that.
                 // This property allows C#'s fixed statement to work on Strings.
                 // On 64 bit platforms, this should be 12 (8+4) and on 32 bit 8 (4+4).
-#if BIT64
+#if TARGET_64BIT
                 12;
 #else // 32
                 8;
-#endif // BIT64
+#endif // TARGET_64BIT
 
         }
 
@@ -206,7 +206,7 @@ namespace System.Runtime.CompilerServices
             // stack size should be sufficient to allow a typical non-recursive call chain to execute, including
             // potential exception handling and garbage collection.
 
-#if BIT64
+#if TARGET_64BIT
             const int MinExecutionStackSize = 128 * 1024;
 #else
             const int MinExecutionStackSize = 64 * 1024;
@@ -264,30 +264,6 @@ namespace System.Runtime.CompilerServices
                 throw new ArgumentNullException(nameof(d));
         }
 
-        public static void ExecuteCodeWithGuaranteedCleanup(TryCode code, CleanupCode backoutCode, object userData)
-        {
-            if (code == null)
-                throw new ArgumentNullException(nameof(code));
-            if (backoutCode == null)
-                throw new ArgumentNullException(nameof(backoutCode));
-
-            bool exceptionThrown = false;
-
-            try
-            {
-                code(userData);
-            }
-            catch
-            {
-                exceptionThrown = true;
-                throw;
-            }
-            finally
-            {
-                backoutCode(userData, exceptionThrown);
-            }
-        }
-
         private static object GetUninitializedObjectInternal(Type type)
         {
             if (type.HasElementType || type.IsGenericParameter)
@@ -324,7 +300,7 @@ namespace System.Runtime.CompilerServices
 
             if (eeTypePtr.IsNullable)
             {
-                return GetUninitializedObject(RuntimeTypeUnifier.GetRuntimeTypeForEEType(eeTypePtr.NullableType));
+                return GetUninitializedObject(Type.GetTypeFromEETypePtr(eeTypePtr.NullableType));
             }
 
             // Triggering the .cctor here is slightly different than desktop/CoreCLR, which 
@@ -334,5 +310,29 @@ namespace System.Runtime.CompilerServices
 
             return RuntimeImports.RhNewObject(eeTypePtr);
         }
+    }
+
+    // CLR arrays are laid out in memory as follows (multidimensional array bounds are optional):
+    // [ sync block || pMethodTable || num components || MD array bounds || array data .. ]
+    //                 ^               ^                 ^                  ^ returned reference
+    //                 |               |                 \-- ref Unsafe.As<RawArrayData>(array).Data
+    //                 \-- array       \-- ref Unsafe.As<RawData>(array).Data
+    // The BaseSize of an array includes all the fields before the array data,
+    // including the sync block and method table. The reference to RawData.Data
+    // points at the number of components, skipping over these two pointer-sized fields.
+    [StructLayout(LayoutKind.Sequential)]
+    internal class RawArrayData
+    {
+        public uint Length; // Array._numComponents padded to IntPtr
+#if TARGET_64BIT
+        public uint Padding;
+#endif
+        public byte Data;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal class RawData
+    {
+        public byte Data;
     }
 }

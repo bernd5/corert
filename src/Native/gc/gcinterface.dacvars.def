@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 // This file contains the defintions of all DAC variables that the G
 // exports and that the DAC uses to interface with the GC.
@@ -16,7 +15,7 @@
 // The following change requires a bump to the minor version number:
 //   1. Adding additional DAC variables.
 //
-// Minor version mismatches are tolerated by the DAC, at the risk of a possibly 
+// Minor version mismatches are tolerated by the DAC, at the risk of a possibly
 // degraded debugging experience.
 // Major version mismatches are not tolerated by the DAC and will be rejected upon load.
 

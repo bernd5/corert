@@ -1,8 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
+#nullable enable
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
 namespace System.IO
@@ -18,12 +19,9 @@ namespace System.IO
 #if MS_IO_REDIST
         internal static string EnsureTrailingSeparator(string path)
             => EndsInDirectorySeparator(path) ? path : path + DirectorySeparatorCharAsString;
-
-        internal static bool EndsInDirectorySeparator(string path)
-            => !string.IsNullOrEmpty(path) && IsDirectorySeparator(path[path.Length - 1]);
 #else
         internal static string EnsureTrailingSeparator(string path)
-            => Path.EndsInDirectorySeparator(path.AsSpan()) ? path : path + DirectorySeparatorCharAsString;
+            => EndsInDirectorySeparator(path.AsSpan()) ? path : path + DirectorySeparatorCharAsString;
 #endif
 
         internal static bool IsRoot(ReadOnlySpan<char> path)
@@ -58,7 +56,7 @@ namespace System.IO
         /// <summary>
         /// Gets the count of common characters from the left optionally ignoring case
         /// </summary>
-        internal static unsafe int EqualStartingCharacterCount(string first, string second, bool ignoreCase)
+        internal static unsafe int EqualStartingCharacterCount(string? first, string? second, bool ignoreCase)
         {
             if (string.IsNullOrEmpty(first) || string.IsNullOrEmpty(second)) return 0;
 
@@ -87,7 +85,7 @@ namespace System.IO
         /// <summary>
         /// Returns true if the two paths have the same root
         /// </summary>
-        internal static bool AreRootsEqual(string first, string second, StringComparison comparisonType)
+        internal static bool AreRootsEqual(string? first, string? second, StringComparison comparisonType)
         {
             int firstRootLength = GetRootLength(first.AsSpan());
             int secondRootLength = GetRootLength(second.AsSpan());
@@ -109,8 +107,7 @@ namespace System.IO
         /// <param name="rootLength">The length of the root of the given path</param>
         internal static string RemoveRelativeSegments(string path, int rootLength)
         {
-            Span<char> initialBuffer = stackalloc char[260 /* PathInternal.MaxShortPath */];
-            ValueStringBuilder sb = new ValueStringBuilder(initialBuffer);
+            var sb = new ValueStringBuilder(stackalloc char[260 /* PathInternal.MaxShortPath */]);
 
             if (RemoveRelativeSegments(path.AsSpan(), rootLength, ref sb))
             {
@@ -220,5 +217,34 @@ namespace System.IO
 
             return true;
         }
+
+        /// <summary>
+        /// Trims one trailing directory separator beyond the root of the path.
+        /// </summary>
+        [return: NotNullIfNotNull("path")]
+        internal static string? TrimEndingDirectorySeparator(string? path) =>
+            EndsInDirectorySeparator(path) && !IsRoot(path.AsSpan()) ?
+                path!.Substring(0, path.Length - 1) :
+                path;
+
+        /// <summary>
+        /// Returns true if the path ends in a directory separator.
+        /// </summary>
+        internal static bool EndsInDirectorySeparator(string? path) =>
+              !string.IsNullOrEmpty(path) && IsDirectorySeparator(path[path.Length - 1]);
+
+        /// <summary>
+        /// Trims one trailing directory separator beyond the root of the path.
+        /// </summary>
+        internal static ReadOnlySpan<char> TrimEndingDirectorySeparator(ReadOnlySpan<char> path) =>
+            EndsInDirectorySeparator(path) && !IsRoot(path) ?
+                path.Slice(0, path.Length - 1) :
+                path;
+
+        /// <summary>
+        /// Returns true if the path ends in a directory separator.
+        /// </summary>
+        internal static bool EndsInDirectorySeparator(ReadOnlySpan<char> path) =>
+            path.Length > 0 && IsDirectorySeparator(path[path.Length - 1]);
     }
 }

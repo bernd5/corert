@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #if ES_BUILD_STANDALONE
 using System;
@@ -20,7 +19,7 @@ namespace System.Diagnostics.Tracing
     /// See https://github.com/dotnet/corefx/blob/master/src/System.Diagnostics.Tracing/documentation/EventCounterTutorial.md
     /// for a tutorial guide.
     ///
-    /// See https://github.com/dotnet/corefx/blob/master/src/System.Diagnostics.Tracing/tests/BasicEventSourceTest/TestEventCounter.cs
+    /// See https://github.com/dotnet/runtime/blob/master/src/libraries/System.Diagnostics.Tracing/tests/BasicEventSourceTest/TestEventCounter.cs
     /// which shows tests, which are also useful in seeing actual use.
     /// </summary>
     public partial class EventCounter : DiagnosticCounter
@@ -56,7 +55,13 @@ namespace System.Diagnostics.Tracing
             Enqueue(value);
         }
 
-        public override string ToString() => $"EventCounter '{Name}' Count {_count} Mean {(_sum / _count).ToString("n3")}";
+        public override string ToString()
+        {
+            int count = Volatile.Read(ref _count);
+            return count == 0 ?
+                $"EventCounter '{Name}' Count 0" :
+                $"EventCounter '{Name}' Count {count} Mean {(_sum / count).ToString("n3")}";
+        }
 
         #region Statistics Calculation
 

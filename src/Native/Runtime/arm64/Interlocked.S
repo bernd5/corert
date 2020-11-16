@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #include <unixasmmacros.inc>
 
@@ -19,7 +18,9 @@ ALTERNATE_ENTRY RhpLockCmpXchg32AVLocation
     bne     2f              // if (w0 != w2) goto exit
     stlxr   w9, w1, [x8]    // if (w0 == w2) { try *x8 = w1 and goto loop if failed or goto exit }
     cbnz    w9, 1b
+
 2: // exit
+    ArmInterlockedOperationBarrier
     ret
 LEAF_END RhpLockCmpXchg32, _TEXT
 
@@ -39,5 +40,6 @@ ALTERNATE_ENTRY RhpLockCmpXchg64AVLocation
     stlxr   w9, x1, [x8]    // if (x0 == x2) { try *x8 = x1 and goto loop if failed or goto exit }
     cbnz    w9, 1b
 2: // exit
+    ArmInterlockedOperationBarrier
     ret
 LEAF_END RhpLockCmpXchg64, _TEXT

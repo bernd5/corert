@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.IO;
@@ -219,6 +218,8 @@ namespace ILCompiler
         protected virtual void GetDependenciesDueToTemplateTypeLoader(ref DependencyList dependencies, NodeFactory factory, MethodDesc method)
         {
             // TODO-SIZE: this is overly generous in the templates we create
+            if (_blockingPolicy is FullyBlockedMetadataBlockingPolicy)
+                return;
 
             if (method.HasInstantiation)
             {
@@ -248,6 +249,9 @@ namespace ILCompiler
             DefType closestDefType = type.GetClosestDefType();
 
             // TODO-SIZE: this is overly generous in the templates we create
+            if (_blockingPolicy is FullyBlockedMetadataBlockingPolicy)
+                return;
+
             if (closestDefType.HasInstantiation)
             {
                 TypeDesc canonType = type.ConvertToCanonForm(CanonicalFormKind.Specific);

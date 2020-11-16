@@ -1,15 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
-
+using System.Text;
 using Internal.Text;
 using Internal.TypeSystem;
-using Internal.TypeSystem.Interop;
 
 namespace ILCompiler.DependencyAnalysis
 {
+    [DebuggerTypeProxy(typeof(MethodCodeNodeDebugView))]
     public class MethodCodeNode : ObjectNode, IMethodBodyNode, INodeWithCodeInfo, INodeWithDebugInfo, ISymbolDefinitionNode, ISpecialUnboxThunkNode
     {
         private MethodDesc _method;
@@ -64,7 +63,7 @@ namespace ILCompiler.DependencyAnalysis
             DependencyList dependencies = null;
 
             TypeDesc owningType = _method.OwningType;
-            if (factory.TypeSystemContext.HasEagerStaticConstructor(owningType))
+            if (factory.PreinitializationManager.HasEagerStaticConstructor(owningType))
             {
                 if (dependencies == null)
                     dependencies = new DependencyList();
@@ -165,6 +164,47 @@ namespace ILCompiler.DependencyAnalysis
         public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
         {
             return comparer.Compare(_method, ((MethodCodeNode)other)._method);
+        }
+
+        public override string ToString()
+        {
+            return _method.ToString();
+        }
+
+        internal class MethodCodeNodeDebugView
+        {
+            private readonly MethodCodeNode _node;
+
+            public MethodCodeNodeDebugView(MethodCodeNode node)
+            {
+                _node = node;
+            }
+
+            public MethodDesc Method => _node.Method;
+
+            public string Disassembly
+            {
+                get
+                {
+                    var sb = new StringBuilder();
+                    sb.Append("// ");
+                    sb.AppendLine(_node.Method.ToString());
+                    if (_node.StaticDependenciesAreComputed)
+                    {
+                        var d = Disassembler.Disassemble(
+                            _node.Method.Context.Target.Architecture,
+                            _node._methodCode.Data,
+                            _node._methodCode.Relocs);
+                        sb.Append(d);
+                    }
+                    else
+                    {
+                        sb.Append("// Not compiled yet.");
+                    }
+
+                    return sb.ToString();
+                }
+            }
         }
     }
 }

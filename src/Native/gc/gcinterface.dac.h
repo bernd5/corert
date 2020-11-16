@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #ifndef _GC_INTERFACE_DAC_H_
 #define _GC_INTERFACE_DAC_H_
@@ -17,6 +16,13 @@
 #define MAX_EXPAND_MECHANISMS_COUNT     6
 #define MAX_GC_MECHANISM_BITS_COUNT     2
 #define MAX_GLOBAL_GC_MECHANISMS_COUNT  6
+
+// The number of generations is hardcoded in to the dac APIS (DacpGcHeapDetails hard codes the size of its arrays)
+// The number of generations is hardcoded into some older dac APIS (for example DacpGcHeapDetails hard codes the size of its arrays)
+// This value cannot change and should not be used in new DAC APIs. New APIs can query GcDacVars.total_generation_count
+// variable which is dynamically initialized at runtime
+
+
 #define NUMBERGENERATIONS               4
 #define INITIAL_HANDLE_TABLE_ARRAY_SIZE 10
 #define HANDLE_MAX_INTERNAL_TYPES       12
@@ -145,7 +151,7 @@ public:
     // The generation table must always be last, because the size of this array
     // (stored inline in the gc_heap class) can vary.
     //
-    // The size of the generation class is not part of the GC-DAC interface, 
+    // The size of the generation class is not part of the GC-DAC interface,
     // despite being embedded by-value into the gc_heap class. The DAC variable
     // "generation_size" stores the size of the generation class, so the DAC can
     // use it and pointer arithmetic to calculate correct offsets into the generation
@@ -183,6 +189,7 @@ struct GcDacVars {
   uint8_t major_version_number;
   uint8_t minor_version_number;
   size_t generation_size;
+  size_t total_generation_count;
 #ifdef DACCESS_COMPILE
  #define GC_DAC_VAR(type, name)       DPTR(type) name;
  #define GC_DAC_PTR_VAR(type, name)   DPTR(type*) name;

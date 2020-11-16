@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #include "CommonTypes.h"
 #include "PalRedhawkCommon.h"
@@ -55,7 +54,7 @@ typedef void (*SignalHandler)(int code, siginfo_t *siginfo, void *context);
 // Exception handler for hardware exceptions
 static PHARDWARE_EXCEPTION_HANDLER g_hardwareExceptionHandler = NULL;
 
-#ifdef _AMD64_
+#ifdef HOST_AMD64
 
 // Get value of an instruction operand represented by the ModR/M field
 // Parameters:
@@ -311,7 +310,7 @@ bool IsDivByZeroAnIntegerOverflow(void* context)
     // must have been an overflow.
     return divisor != 0;
 }
-#endif //_AMD64_
+#endif //HOST_AMD64
 
 // Translates signal and context information to a Win32 exception code.
 uint32_t GetExceptionCodeForSignal(const siginfo_t *siginfo, const void *context)
@@ -506,7 +505,7 @@ bool HardwareExceptionHandler(int code, siginfo_t *siginfo, void *context, void*
     {
         UIntNative faultCode = GetExceptionCodeForSignal(siginfo, context);
 
-#ifdef _AMD64_
+#ifdef HOST_AMD64
         // It is possible that an overflow was mapped to a divide-by-zero exception. 
         // This happens when we try to divide the maximum negative value of a
         // signed integer with -1. 
@@ -518,7 +517,7 @@ bool HardwareExceptionHandler(int code, siginfo_t *siginfo, void *context, void*
             // The exception was an integer overflow, so augment the fault code.
             faultCode = EXCEPTION_INT_OVERFLOW;
         }
-#endif //_AMD64_
+#endif //HOST_AMD64
 
         PAL_LIMITED_CONTEXT palContext;
         NativeContextToPalContext(context, &palContext);

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Runtime.CompilerServices;
@@ -41,15 +40,6 @@ namespace System.Runtime.InteropServices
         public static void InitializeHandle(SafeHandle safeHandle, IntPtr win32Handle)
         {
             safeHandle.InitializeHandle(win32Handle);
-        }
-
-        // Used for methods in System.Private.Interop.dll that need to work from offsets on boxed structs
-        public static unsafe void PinObjectAndCall(object obj, Action<IntPtr> del)
-        {
-            fixed (IntPtr* pEEType = &obj.m_pEEType)
-            {
-                del((IntPtr)pEEType);
-            }
         }
 
         public static int GetElementSize(this Array array)
@@ -94,11 +84,6 @@ namespace System.Runtime.InteropServices
             return genericTypeDefinitionHandle.ToEETypePtr().ToPointer()->GenericArgumentCount;
         }
 
-        //TODO:Remove Delegate.GetNativeFunctionPointer
-        public static IntPtr GetNativeFunctionPointer(this Delegate del)
-        {
-            return del.GetNativeFunctionPointer();
-        }
         public static IntPtr GetFunctionPointer(this Delegate del, out RuntimeTypeHandle typeOfFirstParameterIfInstanceDelegate)
         {
             return del.GetFunctionPointer(out typeOfFirstParameterIfInstanceDelegate, out bool _, out bool _);
@@ -118,9 +103,7 @@ namespace System.Runtime.InteropServices
             RuntimeTypeHandle typeOfFirstParameterIfInstanceDelegate;
 
             IntPtr funcPtr = del.GetFunctionPointer(out typeOfFirstParameterIfInstanceDelegate, out bool _, out bool _);
-
-            // if the function pointer points to a jump stub return the target
-            return RuntimeImports.RhGetJmpStubCodeTarget(funcPtr);
+            return funcPtr;
         }
 
         public static IntPtr GetRawValue(this RuntimeTypeHandle handle)
@@ -289,21 +272,6 @@ namespace System.Runtime.InteropServices
             return new RuntimeTypeHandle(target.EETypePtr);
         }
 
-        public static bool IsInstanceOf(object obj, RuntimeTypeHandle typeHandle)
-        {
-            return (null != RuntimeImports.IsInstanceOf(typeHandle.ToEETypePtr(), obj));
-        }
-
-        public static bool IsInstanceOfClass(object obj, RuntimeTypeHandle classTypeHandle)
-        {
-            return (null != RuntimeImports.IsInstanceOfClass(classTypeHandle.ToEETypePtr(), obj));
-        }
-
-        public static bool IsInstanceOfInterface(object obj, RuntimeTypeHandle interfaceTypeHandle)
-        {
-            return (null != RuntimeImports.IsInstanceOfInterface(interfaceTypeHandle.ToEETypePtr(), obj));
-        }
-
         public static bool GuidEquals(ref Guid left, ref Guid right)
         {
             return left.Equals(ref right);
@@ -410,14 +378,6 @@ namespace System.Runtime.InteropServices
         public static TypeInitializationException CreateTypeInitializationException(string message)
         {
             return new TypeInitializationException(message);
-        }
-
-        public static unsafe IntPtr GetObjectID(object obj)
-        {
-            fixed (void* p = &obj.m_pEEType)
-            {
-                return (IntPtr)p;
-            }
         }
 
         public static bool RhpETWShouldWalkCom()

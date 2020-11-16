@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -29,8 +28,8 @@ namespace Internal.TypeSystem.Ecma
             }
         }
 
-        public EcmaAssembly(TypeSystemContext context, PEReader peReader, MetadataReader metadataReader)
-            : base(context, peReader, metadataReader, containingAssembly: null)
+        public EcmaAssembly(TypeSystemContext context, PEReader peReader, MetadataReader metadataReader, IModuleResolver customModuleResolver)
+            : base(context, peReader, metadataReader, containingAssembly: null, customModuleResolver: customModuleResolver)
         {
             if (!metadataReader.IsAssembly)
             {

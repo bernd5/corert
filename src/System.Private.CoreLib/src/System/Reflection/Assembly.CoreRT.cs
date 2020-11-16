@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Configuration.Assemblies;
 using System.Runtime.Serialization;
@@ -13,12 +12,18 @@ namespace System.Reflection
 {
     public abstract partial class Assembly : ICustomAttributeProvider, ISerializable
     {
-        public static Assembly GetEntryAssembly() => Internal.Runtime.CompilerHelpers.StartupCodeHelpers.GetEntryAssembly();
+        private static Assembly GetEntryAssemblyInternal() => Internal.Runtime.CompilerHelpers.StartupCodeHelpers.GetEntryAssembly();
 
         [System.Runtime.CompilerServices.Intrinsic]
         public static Assembly GetExecutingAssembly() { throw NotImplemented.ByDesign; } //Implemented by toolchain. 
 
-        public static Assembly GetCallingAssembly() { throw new PlatformNotSupportedException(); }
+        public static Assembly GetCallingAssembly()
+        {
+            if (AppContext.TryGetSwitch("Switch.System.Reflection.Assembly.SimulatedCallingAssembly", out bool isSimulated) && isSimulated)
+                return GetEntryAssembly();
+
+            throw new PlatformNotSupportedException();
+        }
 
         public static Assembly Load(AssemblyName assemblyRef) => ReflectionAugments.ReflectionCoreCallbacks.Load(assemblyRef, throwOnFileNotFound: true);
 

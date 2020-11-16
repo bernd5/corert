@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 // CppCodeGen.h : Facilities for the C++ code generation backend
 
@@ -12,6 +11,7 @@
 #ifdef _MSC_VER
 // Warnings disabled for generated cpp code
 #pragma warning(disable:4200) // zero-sized array
+#pragma warning(disable:4101) // unreferenced local variable
 #pragma warning(disable:4102) // unreferenced label
 #pragma warning(disable:4244) // possible loss of data
 #pragma warning(disable:4717) // recursive on all control paths

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -36,7 +35,7 @@ namespace System.Threading
         private const int BIT_SBLK_IS_HASHCODE = 1 << IS_HASHCODE_BIT_NUMBER;
         internal const int MASK_HASHCODE_INDEX = BIT_SBLK_IS_HASHCODE - 1;
 
-#if ARM || ARM64
+#if TARGET_ARM || TARGET_ARM64
         [MethodImpl(MethodImplOptions.NoInlining)]
 #else
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -45,7 +44,7 @@ namespace System.Threading
         {
             // While in x86/amd64 Volatile.Read is cheap, in arm we have to pay the
             // cost of a barrier. We do no inlining to get around that.
-#if ARM || ARM64
+#if TARGET_ARM || TARGET_ARM64
             return *pHeader;
 #else
             return Volatile.Read(ref *pHeader);
@@ -63,10 +62,11 @@ namespace System.Threading
                 return 0;
             }
 
-            fixed (IntPtr* pEEType = &o.m_pEEType)
+            fixed (byte* pRawData = &o.GetRawData())
             {
                 // The header is 4 bytes before m_pEEType field on all architectures
-                int* pHeader = (int*)pEEType - 1;
+                int* pHeader = (int*)(pRawData - sizeof(IntPtr) - sizeof(int));
+
                 int bits = ReadVolatileMemory(pHeader);
                 int hashOrIndex = bits & MASK_HASHCODE_INDEX;
                 if ((bits & BIT_SBLK_IS_HASHCODE) != 0)
@@ -158,12 +158,12 @@ namespace System.Threading
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe Lock GetLockObject(object o)
         {
-            fixed (IntPtr* pEEType = &o.m_pEEType)
+            fixed (byte* pRawData = &o.GetRawData())
             {
-                int* pHeader = (int*)pEEType - 1;
-                int hashOrIndex;
+                // The header is 4 bytes before m_pEEType field on all architectures
+                int* pHeader = (int*)(pRawData - sizeof(IntPtr) - sizeof(int));
 
-                if (GetSyncEntryIndex(ReadVolatileMemory(pHeader), out hashOrIndex))
+                if (GetSyncEntryIndex(ReadVolatileMemory(pHeader), out int hashOrIndex))
                 {
                     // Already have a sync entry for this object, return the synchronization object
                     // stored in the entry.

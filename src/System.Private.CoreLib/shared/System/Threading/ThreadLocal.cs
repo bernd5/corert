@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -805,6 +804,7 @@ namespace System.Threading
         public bool IsValueCreated => _tlocal.IsValueCreated;
 
         /// <summary>Returns the value of the ThreadLocal object.</summary>
+        [MaybeNull]
         public T Value => _tlocal.ValueForDebugDisplay;
 
         /// <summary>Return all values for all threads that have accessed this instance.</summary>

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using Microsoft.Win32.SafeHandles;
 using System.Diagnostics;
@@ -54,7 +53,7 @@ namespace System.Threading
             }
         }
 
-        [NativeCallable(CallingConvention = CallingConvention.StdCall)]
+        [UnmanagedCallersOnly(CallingConvention = CallingConvention.StdCall)]
         internal static void RegisteredWaitCallback(IntPtr instance, IntPtr context, IntPtr wait, uint waitResult)
         {
             var wrapper = ThreadPoolCallbackWrapper.Enter();
@@ -241,9 +240,9 @@ namespace System.Threading
         /// TppComputeDefaultMaxThreads(TppMaxGlobalPool).
         /// </summary>
         /// <remarks>
-        /// Note that Windows 8 and 8.1 used a different value: Math.Max(4 * ThreadPoolGlobals.processorCount, 512).
+        /// Note that Windows 8 and 8.1 used a different value: Math.Max(4 * Environment.ProcessorCount, 512).
         /// </remarks>
-        private static readonly int MaxThreadCount = Math.Max(8 * ThreadPoolGlobals.processorCount, 768);
+        private static readonly int MaxThreadCount = Math.Max(8 * Environment.ProcessorCount, 768);
 
         private static IntPtr s_work;
 
@@ -328,7 +327,7 @@ namespace System.Threading
             return true;
         }
 
-        [NativeCallable(CallingConvention = CallingConvention.StdCall)]
+        [UnmanagedCallersOnly(CallingConvention = CallingConvention.StdCall)]
         private static void DispatchCallback(IntPtr instance, IntPtr context, IntPtr work)
         {
             var wrapper = ThreadPoolCallbackWrapper.Enter();

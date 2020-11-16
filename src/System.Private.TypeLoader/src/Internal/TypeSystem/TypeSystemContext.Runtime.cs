@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 
 using System;
@@ -101,60 +100,6 @@ namespace Internal.TypeSystem
         /// </summary>
         internal static RuntimeTypeHandleToParameterTypeRuntimeTypeHandleHashtable ByRefTypesCache { get; } =
             new RuntimeTypeHandleToParameterTypeRuntimeTypeHandleHashtable();
-
-        internal TypeDesc GetTypeFromCorElementType(CorElementType corElementType)
-        {
-            switch (corElementType)
-            {
-                case CorElementType.ELEMENT_TYPE_I1:
-                    return GetWellKnownType(WellKnownType.SByte);
-
-                case CorElementType.ELEMENT_TYPE_U1:
-                    return GetWellKnownType(WellKnownType.Byte);
-
-                case CorElementType.ELEMENT_TYPE_I2:
-                    return GetWellKnownType(WellKnownType.Int16);
-
-                case CorElementType.ELEMENT_TYPE_U2:
-                    return GetWellKnownType(WellKnownType.UInt16);
-
-                case CorElementType.ELEMENT_TYPE_I4:
-                    return GetWellKnownType(WellKnownType.Int32);
-
-                case CorElementType.ELEMENT_TYPE_U4:
-                    return GetWellKnownType(WellKnownType.UInt32);
-
-                case CorElementType.ELEMENT_TYPE_I8:
-                    return GetWellKnownType(WellKnownType.Int64);
-
-                case CorElementType.ELEMENT_TYPE_U8:
-                    return GetWellKnownType(WellKnownType.UInt64);
-
-                case CorElementType.ELEMENT_TYPE_CHAR:
-                    return GetWellKnownType(WellKnownType.Char);
-
-                case CorElementType.ELEMENT_TYPE_BOOLEAN:
-                    return GetWellKnownType(WellKnownType.Boolean);
-
-                case CorElementType.ELEMENT_TYPE_VOID:
-                    return GetWellKnownType(WellKnownType.Void);
-
-                case CorElementType.ELEMENT_TYPE_STRING:
-                    return GetWellKnownType(WellKnownType.String);
-
-                case CorElementType.ELEMENT_TYPE_I:
-                    return GetWellKnownType(WellKnownType.IntPtr);
-
-                case CorElementType.ELEMENT_TYPE_U:
-                    return GetWellKnownType(WellKnownType.UIntPtr);
-
-                case CorElementType.ELEMENT_TYPE_OBJECT:
-                    return GetWellKnownType(WellKnownType.Object);
-
-                default:
-                    throw new BadImageFormatException();
-            }
-        }
 
         public Instantiation ResolveRuntimeTypeHandles(RuntimeTypeHandle[] runtimeTypeHandles)
         {
@@ -679,7 +624,7 @@ namespace Internal.TypeSystem
 
             protected override Internal.TypeSystem.Ecma.EcmaModule CreateValueFromKey(EcmaModuleInfo key)
             {
-                Internal.TypeSystem.Ecma.EcmaModule result = new Internal.TypeSystem.Ecma.EcmaModule(_context, key.PE, key.MetadataReader, null);
+                Internal.TypeSystem.Ecma.EcmaModule result = new Internal.TypeSystem.Ecma.EcmaModule(_context, key.PE, key.MetadataReader, null, null);
                 result.SetRuntimeModuleInfoUNSAFE(key);
                 return result;
             }

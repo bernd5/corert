@@ -13,7 +13,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|arm64'" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|arm64'" />
   <PropertyGroup>
-    <AssemblyVersion>4.0.0.0</AssemblyVersion>
+    <AssemblyVersion>5.0.0.0</AssemblyVersion>
     <OutputType>Library</OutputType>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DefineConstants>TYPE_LOADER_IMPLEMENTATION;$(DefineConstants)</DefineConstants>
@@ -30,25 +30,24 @@
   <PropertyGroup>
     <DefineConstants Condition="'$(METADATA_TYPE_LOADER)' != ''">SUPPORTS_NATIVE_METADATA_TYPE_LOADING;$(DefineConstants)</DefineConstants>
   </PropertyGroup>
-  <PropertyGroup>
-    <DefineConstants>EETYPE_TYPE_MANAGER;$(DefineConstants)</DefineConstants>
-  </PropertyGroup>
   <PropertyGroup Condition="'$(DynamicCodeSupport)' == 'true'">
     <DefineConstants>SUPPORT_DYNAMIC_CODE;$(DefineConstants)</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition="'$(IsProjectNLibrary)' == 'true'">
     <DefineConstants>FEATURE_INTERPRETER;$(DefineConstants)</DefineConstants>
   </PropertyGroup>
-  <!-- Setup the right references -->
-  <ItemGroup>
-    <ReferencePath Include="$(AotPackageReferencePath)\System.Runtime.dll" />
-    <ReferencePath Condition="'$(EcmaMetadataSupport)' == 'true'" Include="$(AotPackageReferencePath)\System.Private.Reflection.Metadata.Ecma335.dll" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\AotPackageReference\AotPackageReference.depproj">
+  <ItemGroup Condition="'$(EcmaMetadataSupport)' == 'true'">
+    <ProjectReference Include="..\..\Framework\Framework.depproj">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <SkipGetTargetFrameworkProperties>true</SkipGetTargetFrameworkProperties>
     </ProjectReference>
+    <ReferencePath Include="$(FrameworkReferencePath)\System.Runtime.dll" />
+    <ReferencePath Include="$(FrameworkReferencePath)\System.Collections.Immutable.dll" />
+    <ReferencePath Include="$(FrameworkReferencePath)\System.Reflection.Metadata.dll" />
+    <ReferencePath Include="$(FrameworkReferencePath)\System.IO.MemoryMappedFiles.dll" />
+    <ReferencePath Include="$(FrameworkReferencePath)\System.Runtime.InteropServices.dll" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\System.Private.CoreLib\src\System.Private.CoreLib.csproj" />
     <ProjectReference Include="..\..\System.Private.Reflection.Metadata\src\System.Private.Reflection.Metadata.csproj" />
   </ItemGroup>
@@ -62,6 +61,7 @@
     <Compile Include="..\..\Common\src\TypeSystem\CodeGen\TypeDesc.CodeGen.cs" />
     <Compile Include="..\..\Common\src\TypeSystem\CodeGen\FieldDesc.CodeGen.cs" />
     <Compile Include="..\..\Common\src\TypeSystem\CodeGen\MethodDelegator.CodeGen.cs" />
+    <Compile Include="..\..\Common\src\TypeSystem\CodeGen\TargetDetails.CodeGen.cs" />
     <Compile Include="..\..\Common\src\TypeSystem\Ecma\EcmaField.CodeGen.cs" />
     <Compile Include="..\..\Common\src\TypeSystem\Interop\MethodDelegator.Interop.cs" />
     <Compile Include="..\..\Common\src\TypeSystem\NativeFormat\NativeFormatField.CodeGen.cs" />
@@ -160,6 +160,9 @@
     </Compile>
     <Compile Include="..\..\Common\src\TypeSystem\Common\LocalVariableDefinition.cs">
       <Link>Internal\TypeSystem\Common\LocalVariableDefinition.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Common\src\TypeSystem\Interop\FieldDesc.Interop.cs">
+      <Link>Internal\TypeSystem\Interop\FieldDesc.Interop.cs</Link>
     </Compile>
     <Compile Include="..\..\Common\src\TypeSystem\Interop\MethodDesc.Interop.cs">
       <Link>Internal\TypeSystem\Interop\MethodDesc.Interop.cs</Link>
@@ -311,6 +314,9 @@
     <Compile Include="..\..\Common\src\TypeSystem\Common\IAssemblyDesc.cs">
       <Link>Internal\TypeSystem\IAssemblyDesc.cs</Link>
     </Compile>
+    <Compile Include="..\..\Common\src\TypeSystem\Common\IModuleResolver.cs">
+      <Link>Internal\TypeSystem\IModuleResolver.cs</Link>
+    </Compile>
     <Compile Include="..\..\Common\src\TypeSystem\Common\InstantiatedMethod.cs">
       <Link>Internal\TypeSystem\InstantiatedMethod.cs</Link>
     </Compile>
@@ -331,6 +337,9 @@
     </Compile>
     <Compile Include="..\..\Common\src\TypeSystem\Common\MetadataFieldLayoutAlgorithm.cs">
       <Link>Internal\TypeSystem\MetadataFieldLayoutAlgorithm.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Common\src\TypeSystem\Common\ExplicitLayoutValidator.cs">
+      <Link>Internal\TypeSystem\Common\ExplicitLayoutValidator.cs</Link>
     </Compile>
     <Compile Include="..\..\Common\src\TypeSystem\Common\MetadataRuntimeInterfacesAlgorithm.cs">
       <Link>Internal\TypeSystem\MetadataRuntimeInterfacesAlgorithm.cs</Link>
@@ -547,6 +556,15 @@
     </Compile>
     <Compile Include="..\..\Common\src\TypeSystem\Common\Utilities\DebugNameFormatter.cs">
       <Link>Utilities\DebugNameFormatter.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Common\src\TypeSystem\Common\GenericParameterDesc.Dummy.Diagnostic.cs">
+      <Link>Internal\TypeSystem\Common\GenericParameterDesc.Dummy.Diagnostic.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Common\src\TypeSystem\Common\MethodDesc.Dummy.Diagnostic.cs">
+      <Link>Internal\TypeSystem\Common\MethodDesc.Dummy.Diagnostic.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Common\src\TypeSystem\Common\DefType.Dummy.Diagnostic.cs">
+      <Link>Internal\TypeSystem\Common\DefType.Dummy.Diagnostic.cs</Link>
     </Compile>
   </ItemGroup>
   <Import Project="$([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildThisFileDirectory), dir.targets))\dir.targets" />

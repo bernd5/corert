@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using Microsoft.Win32.SafeHandles;
 using System.Diagnostics;
@@ -332,7 +331,7 @@ namespace System.Threading
         /// appropriate for the processor.
         /// TODO: See issue https://github.com/dotnet/corert/issues/4430
         /// </summary>
-        internal static readonly int OptimalMaxSpinWaitsPerSpinIteration = 64;
+        internal const int OptimalMaxSpinWaitsPerSpinIteration = 64;
 
         public static void SpinWait(int iterations) => RuntimeImports.RhSpinWait(iterations);
 
@@ -415,7 +414,7 @@ namespace System.Threading
             }
             catch (OutOfMemoryException)
             {
-#if PLATFORM_UNIX
+#if TARGET_UNIX
                 // This should go away once OnThreadExit stops using t_currentThread to signal
                 // shutdown of the thread on Unix.
                 thread._stopped.Set();

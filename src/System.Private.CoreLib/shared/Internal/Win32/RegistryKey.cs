@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Buffers;
@@ -16,7 +15,7 @@ using Internal.Win32.SafeHandles;
 // A minimal version of RegistryKey that supports just what CoreLib needs.
 //
 // Internal.Win32 namespace avoids confusion with the public standalone Microsoft.Win32.Registry implementation
-// that lives in corefx.
+// that lives in https://github.com/dotnet/runtime/tree/master/src/libraries/Microsoft.Win32.Registry
 //
 namespace Internal.Win32
 {

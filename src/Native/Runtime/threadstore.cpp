@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 #include "common.h"
 #include "gcenv.h"
 #include "gcheaputilities.h"
@@ -296,8 +295,6 @@ void ThreadStore::SuspendAllThreads(bool waitForGCEvent, bool fireDebugEvent)
 
 void ThreadStore::ResumeAllThreads(bool waitForGCEvent)
 {
-    m_pRuntimeInstance->UnsychronizedResetHijackedLoops();
-
     FOREACH_THREAD(pTargetThread)
     {
         pTargetThread->ResetCachedTransitionFrame();
@@ -416,6 +413,11 @@ EXTERN_C DECLSPEC_THREAD ThreadBuffer tls_CurrentThread =
     0,                                  // all other fields are initialized by zeroes
 };
 
+EXTERN_C ThreadBuffer* RhpGetThread()
+{
+    return &tls_CurrentThread;
+}
+
 #endif // !DACCESS_COMPILE
 
 #ifdef _WIN32
@@ -432,7 +434,7 @@ volatile UInt32 * p_tls_index;
 volatile UInt32 SECTIONREL__tls_CurrentThread;
 
 EXTERN_C UInt32 _tls_index;
-#if defined(_TARGET_ARM64_)
+#if defined(TARGET_ARM64)
 // ARM64TODO: Re-enable optimization
 #pragma optimize("", off)
 #endif
@@ -446,7 +448,7 @@ void ThreadStore::SaveCurrentThreadOffsetForDAC()
 
     SECTIONREL__tls_CurrentThread = (UInt32)((UInt8 *)&tls_CurrentThread - pOurTls);
 }
-#if defined(_TARGET_ARM64_)
+#if defined(TARGET_ARM64)
 #pragma optimize("", on)
 #endif
 #else // DACCESS_COMPILE

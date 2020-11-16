@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -13,8 +12,6 @@ using ILCompiler.Compiler.CppCodeGen;
 using ILCompiler.CppCodeGen;
 
 using ILCompiler.DependencyAnalysis;
-
-using FatFunctionPointerConstants = Internal.Runtime.FatFunctionPointerConstants;
 
 namespace Internal.IL
 {
@@ -389,6 +386,7 @@ namespace Internal.IL
                 case ILOpcode.beq:
                 case ILOpcode.ceq:
                     op = "==";
+                    unsigned = op1.Kind == StackValueKind.ByRef ^ op2.Kind == StackValueKind.ByRef;
                     break;
                 case ILOpcode.bge:
                     op = ">=";
@@ -406,6 +404,7 @@ namespace Internal.IL
                     break;
                 case ILOpcode.bne_un:
                     op = "!=";
+                    unsigned = op1.Kind == StackValueKind.ByRef ^ op2.Kind == StackValueKind.ByRef;
                     break;
                 case ILOpcode.bge_un:
                     if (kind == StackValueKind.Float)
@@ -795,7 +794,7 @@ namespace Internal.IL
             Indent();
 
 
-            if (_method.IsNativeCallable)
+            if (_method.IsUnmanagedCallersOnly)
             {
                 AppendLine();
                 Append("ReversePInvokeFrame __frame");
@@ -1374,7 +1373,7 @@ namespace Internal.IL
                                 sb.Append("((intptr_t)");
                                 sb.Append(_writer.GetCppSymbolNodeName(_nodeFactory, targetNode));
                                 sb.Append("()) + ");
-                                sb.Append(FatFunctionPointerConstants.Offset.ToString());
+                                sb.Append(_typeSystemContext.Target.FatFunctionPointerOffset.ToString());
                             }
                             else
                             {
@@ -1516,13 +1515,13 @@ namespace Internal.IL
                 Append("if (");
                 Append(gvmSlotVarName);
                 Append(" & ");
-                Append(FatFunctionPointerConstants.Offset.ToString());
+                Append(_typeSystemContext.Target.FatFunctionPointerOffset.ToString());
                 Append(") {");
                 Append(functionPtr);
                 Append(" = *(intptr_t*)(");
                 Append(gvmSlotVarName);
                 Append(" - ");
-                Append(FatFunctionPointerConstants.Offset.ToString());
+                Append(_typeSystemContext.Target.FatFunctionPointerOffset.ToString());
                 Append(");} else {");
                 Append(functionPtr);
                 Append(" = ");
@@ -1723,7 +1722,7 @@ namespace Internal.IL
                 Append("if (");
                 Append(gvmSlotVarName);
                 Append(" & ");
-                Append(FatFunctionPointerConstants.Offset.ToString());
+                Append(_typeSystemContext.Target.FatFunctionPointerOffset.ToString());
                 Append(") {");
 
                 _writer.AppendSignatureTypeDef(_builder, typeDefName, canonMethodSignature,
@@ -1760,7 +1759,7 @@ namespace Internal.IL
                 Append("**(void***)(");
                 Append(gvmSlotVarName);
                 Append(" - ");
-                Append(FatFunctionPointerConstants.Offset.ToString());
+                Append(_typeSystemContext.Target.FatFunctionPointerOffset.ToString());
                 Append(" + sizeof(void*))");
 
                 if (canonMethodSignature.Length > 0)
@@ -2114,13 +2113,13 @@ namespace Internal.IL
             Append("if (");
             Append(fatPtr);
             Append(" & ");
-            Append(FatFunctionPointerConstants.Offset.ToString());
+            Append(_typeSystemContext.Target.FatFunctionPointerOffset.ToString());
             Append(") {");
             Append(fnPtrValue);
             Append(" = *(intptr_t*)(");
             Append(fatPtr);
             Append(" - ");
-            Append(FatFunctionPointerConstants.Offset.ToString());
+            Append(_typeSystemContext.Target.FatFunctionPointerOffset.ToString());
             Append(")");
 
             AppendSemicolon();
@@ -2153,7 +2152,7 @@ namespace Internal.IL
             Append("**(void***)(");
             Append(fatPtr);
             Append(" - ");
-            Append(FatFunctionPointerConstants.Offset.ToString());
+            Append(_typeSystemContext.Target.FatFunctionPointerOffset.ToString());
             Append(" + sizeof(void*))");
 
             if (methodSignature.Length > 0)
@@ -2307,14 +2306,14 @@ namespace Internal.IL
                             Append("(");
                             Append(GetGenericContext());
                             Append(")) + ");
-                            Append(FatFunctionPointerConstants.Offset.ToString());
+                            Append(_typeSystemContext.Target.FatFunctionPointerOffset.ToString());
                         }
                         else
                         {
                             Append("((intptr_t)");
                             AppendFatFunctionPointer(runtimeDeterminedMethod);
                             Append("()) + ");
-                            Append(FatFunctionPointerConstants.Offset.ToString());
+                            Append(_typeSystemContext.Target.FatFunctionPointerOffset.ToString());
                         }
                     }
                     else
@@ -2355,7 +2354,7 @@ namespace Internal.IL
 
         private void ImportReturn()
         {
-            if (_method.IsNativeCallable)
+            if (_method.IsUnmanagedCallersOnly)
             {
                 AppendLine();
                 Append("__reverse_pinvoke_return(&__frame)");
@@ -2876,6 +2875,11 @@ namespace Internal.IL
             Append(" = ");
             if (!fieldType.IsValueType)
             {
+                if (runtimeDeterminedOwningType.IsRuntimeDeterminedSubtype)
+                {
+                    fieldType = _typeSystemContext.GetFieldForInstantiatedType(field.GetTypicalFieldDefinition(), (InstantiatedType)owningType).FieldType;
+                }
+
                 Append("(");
                 Append(_writer.GetCppSignatureTypeName(fieldType));
                 Append(")");
@@ -3138,7 +3142,7 @@ namespace Internal.IL
                 var r = _exceptionRegions[i];
 
                 if (r.ILRegion.Kind == ILExceptionRegionKind.Finally &&
-                    IsOffsetContained(offset - 1, r.ILRegion.HandlerOffset, r.ILRegion.HandlerLength))
+                    IsOffsetContained(offset, r.ILRegion.HandlerOffset, r.ILRegion.HandlerLength))
                 {
                     if (candidate == -1 ||
                         _exceptionRegions[candidate].ILRegion.HandlerOffset < _exceptionRegions[i].ILRegion.HandlerOffset)
@@ -3587,11 +3591,11 @@ namespace Internal.IL
 
             MethodDesc canonCctor = cctor.GetCanonMethodTarget(CanonicalFormKind.Specific);
 
-            if (_nodeFactory.TypeSystemContext.HasEagerStaticConstructor(type))
+            if (_nodeFactory.PreinitializationManager.HasEagerStaticConstructor(type))
             {
                 _dependencies.Add(_nodeFactory.EagerCctorIndirection(canonCctor));
             }
-            else if (_nodeFactory.TypeSystemContext.HasLazyStaticConstructor(type))
+            else if (_nodeFactory.PreinitializationManager.HasLazyStaticConstructor(type))
             {
                 IMethodNode helperNode = (IMethodNode)_nodeFactory.HelperEntrypoint(HelperEntrypoint.EnsureClassConstructorRunAndReturnNonGCStaticBase);
 
@@ -3718,4 +3722,3 @@ namespace Internal.IL
         }
     }
 }
-

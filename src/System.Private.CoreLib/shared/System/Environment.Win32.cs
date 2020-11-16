@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections;
 using System.Diagnostics;
@@ -61,9 +60,15 @@ namespace System
                 }
             }
 
-            // send a WM_SETTINGCHANGE message to all windows
-            IntPtr r = Interop.User32.SendMessageTimeout(new IntPtr(Interop.User32.HWND_BROADCAST), Interop.User32.WM_SETTINGCHANGE, IntPtr.Zero, "Environment", 0, 1000, IntPtr.Zero);
-            Debug.Assert(r != IntPtr.Zero, "SetEnvironmentVariable failed: " + Marshal.GetLastWin32Error());
+            unsafe
+            {
+                // send a WM_SETTINGCHANGE message to all windows
+                fixed (char* lParam = "Environment")
+                {
+                    IntPtr r = Interop.User32.SendMessageTimeout(new IntPtr(Interop.User32.HWND_BROADCAST), Interop.User32.WM_SETTINGCHANGE, IntPtr.Zero, (IntPtr)lParam, 0, 1000, out IntPtr _);
+                    Debug.Assert(r != IntPtr.Zero, "SetEnvironmentVariable failed: " + Marshal.GetLastWin32Error());
+                }
+            }
         }
 
         private static IDictionary GetEnvironmentVariablesFromRegistry(bool fromMachine)
@@ -131,8 +136,7 @@ namespace System
                 // https://support.microsoft.com/en-us/help/909264/naming-conventions-in-active-directory-for-computers-domains-sites-and
                 // https://msdn.microsoft.com/en-us/library/ms679635.aspx
 
-                Span<char> initialBuffer = stackalloc char[40];
-                var builder = new ValueStringBuilder(initialBuffer);
+                var builder = new ValueStringBuilder(stackalloc char[40]);
                 GetUserName(ref builder);
 
                 ReadOnlySpan<char> name = builder.AsSpan();
@@ -178,8 +182,7 @@ namespace System
 #endif
 
                 // See the comment in UserName
-                Span<char> initialBuffer = stackalloc char[40];
-                var builder = new ValueStringBuilder(initialBuffer);
+                var builder = new ValueStringBuilder(stackalloc char[40]);
                 GetUserName(ref builder);
 
                 ReadOnlySpan<char> name = builder.AsSpan();
@@ -196,8 +199,7 @@ namespace System
 
                 // Domain names aren't typically long.
                 // https://support.microsoft.com/en-us/help/909264/naming-conventions-in-active-directory-for-computers-domains-sites-and
-                Span<char> initialDomainNameBuffer = stackalloc char[64];
-                var domainBuilder = new ValueStringBuilder(initialDomainNameBuffer);
+                var domainBuilder = new ValueStringBuilder(stackalloc char[64]);
                 uint length = (uint)domainBuilder.Capacity;
 
                 // This API will fail to return the domain name without a buffer for the SID.

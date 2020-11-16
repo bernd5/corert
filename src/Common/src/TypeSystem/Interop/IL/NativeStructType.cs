@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -34,14 +33,6 @@ namespace Internal.TypeSystem.Interop
             get
             {
                 return "Internal.CompilerGenerated";
-            }
-        }
-
-        public override Instantiation Instantiation
-        {
-            get
-            {
-                return ManagedStructType.Instantiation;
             }
         }
 
@@ -147,7 +138,6 @@ namespace Internal.TypeSystem.Interop
 
         public NativeStructType(ModuleDesc owningModule, MetadataType managedStructType, InteropStateManager interopStateManager)
         {
-            Debug.Assert(managedStructType.IsTypeDefinition);
             Debug.Assert(!managedStructType.IsGenericDefinition);
 
             Module = owningModule;
@@ -160,8 +150,7 @@ namespace Internal.TypeSystem.Interop
         private void CalculateFields()
         {
             bool isSequential = ManagedStructType.IsSequentialLayout;
-            MarshalAsDescriptor[] marshalAsDescriptors = ManagedStructType.GetFieldMarshalAsDescriptors();
-            bool isAnsi = ((MetadataType)ManagedStructType).PInvokeStringFormat == PInvokeStringFormat.AnsiClass;
+            bool isAnsi = ManagedStructType.PInvokeStringFormat == PInvokeStringFormat.AnsiClass;
 
             int numFields = 0;
             foreach (FieldDesc field in ManagedStructType.GetFields())
@@ -188,7 +177,7 @@ namespace Internal.TypeSystem.Interop
                 TypeDesc nativeType;
                 try
                 {
-                    nativeType = MarshalHelpers.GetNativeStructFieldType(managedType, marshalAsDescriptors[index], _interopStateManager, isAnsi);
+                    nativeType = MarshalHelpers.GetNativeStructFieldType(managedType, field.GetMarshalAsDescriptor(), _interopStateManager, isAnsi);
                 }
                 catch (NotSupportedException)
                 {

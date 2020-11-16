@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 #ifndef __GCENV_BASE_INCLUDED__
 #define __GCENV_BASE_INCLUDED__
 //
@@ -12,6 +11,9 @@
 #endif // _MSC_VER
 
 #if !defined(_MSC_VER)
+#ifdef __sun
+#include <alloca.h>
+#endif
 #define _alloca alloca
 #endif //_MSC_VER
 
@@ -27,6 +29,12 @@
 #else // !_MSC_VER
 #define NOINLINE __declspec(noinline)
 #endif // _MSC_VER
+
+#ifdef _MSC_VER
+#define __UNREACHABLE() __assume(0)
+#else
+#define __UNREACHABLE() __builtin_unreachable()
+#endif
 
 #ifndef SIZE_T_MAX
 #define SIZE_T_MAX ((size_t)-1)
@@ -49,7 +57,7 @@ typedef uint32_t ULONG;
 // -----------------------------------------------------------------------------------------------------------
 // HRESULT subset.
 
-#ifdef PLATFORM_UNIX
+#ifdef TARGET_UNIX
 typedef int32_t HRESULT;
 #else
 // this must exactly match the typedef used by windows.h
@@ -67,6 +75,7 @@ inline HRESULT HRESULT_FROM_WIN32(unsigned long x)
 #define S_OK                    0x0
 #define E_FAIL                  0x80004005
 #define E_OUTOFMEMORY           0x8007000E
+#define E_INVALIDARG            0x80070057
 #define COR_E_EXECUTIONENGINE   0x80131506
 #define CLR_E_GC_BAD_AFFINITY_CONFIG 0x8013200A
 #define CLR_E_GC_BAD_AFFINITY_CONFIG_FORMAT 0x8013200B
@@ -100,7 +109,7 @@ inline HRESULT HRESULT_FROM_WIN32(unsigned long x)
 
 #define UNREFERENCED_PARAMETER(P)          (void)(P)
 
-#ifdef PLATFORM_UNIX
+#ifdef TARGET_UNIX
 #define _vsnprintf_s(string, sizeInBytes, count, format, args) vsnprintf(string, sizeInBytes, format, args)
 #define sprintf_s snprintf
 #define swprintf_s swprintf
@@ -128,15 +137,15 @@ typedef DWORD (WINAPI *PTHREAD_START_ROUTINE)(void* lpThreadParameter);
 #define WAIT_TIMEOUT            258
 #define WAIT_FAILED             0xFFFFFFFF
 
-#if defined(_MSC_VER) 
- #if defined(_ARM_)
+#if defined(_MSC_VER)
+ #if defined(HOST_ARM)
 
   __forceinline void YieldProcessor() { }
   extern "C" void __emit(const unsigned __int32 opcode);
   #pragma intrinsic(__emit)
   #define MemoryBarrier() { __emit(0xF3BF); __emit(0x8F5F); }
 
- #elif defined(_ARM64_)
+ #elif defined(HOST_ARM64)
 
   extern "C" void __yield(void);
   #pragma intrinsic(__yield)
@@ -146,13 +155,13 @@ typedef DWORD (WINAPI *PTHREAD_START_ROUTINE)(void* lpThreadParameter);
   #pragma intrinsic(__dmb)
   #define MemoryBarrier() { __dmb(_ARM64_BARRIER_SY); }
 
- #elif defined(_AMD64_)
-  
+ #elif defined(HOST_AMD64)
+
   extern "C" void
   _mm_pause (
       void
       );
-  
+
   extern "C" void
   _mm_mfence (
       void
@@ -160,12 +169,12 @@ typedef DWORD (WINAPI *PTHREAD_START_ROUTINE)(void* lpThreadParameter);
 
   #pragma intrinsic(_mm_pause)
   #pragma intrinsic(_mm_mfence)
-  
+
   #define YieldProcessor _mm_pause
   #define MemoryBarrier _mm_mfence
 
- #elif defined(_X86_)
-  
+ #elif defined(HOST_X86)
+
   #define YieldProcessor() __asm { rep nop }
   #define MemoryBarrier() MemoryBarrierImpl()
   __forceinline void MemoryBarrierImpl()
@@ -176,7 +185,7 @@ typedef DWORD (WINAPI *PTHREAD_START_ROUTINE)(void* lpThreadParameter);
       }
   }
 
- #else // !_ARM_ && !_AMD64_ && !_X86_
+ #else // !HOST_ARM && !HOST_AMD64 && !HOST_X86
   #error Unsupported architecture
  #endif
 #else // _MSC_VER
@@ -272,7 +281,7 @@ inline uint8_t BitScanForward64(uint32_t *bitIndex, uint64_t mask)
     uint32_t hi = (mask >> 32) & 0xFFFFFFFF;
     uint32_t lo = mask & 0xFFFFFFFF;
     uint32_t fakeBitIndex = 0;
-    
+
     uint8_t result = BitScanForward(bitIndex, lo);
     if (result == 0)
     {
@@ -508,8 +517,6 @@ inline bool dbgOnly_IsSpecialEEThread()
 {
     return false;
 }
-
-#define ClrFlsSetThreadType(type)
 
 //
 // Performance logging

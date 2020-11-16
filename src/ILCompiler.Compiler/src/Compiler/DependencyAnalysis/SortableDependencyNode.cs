@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -12,7 +11,7 @@ using Internal.TypeSystem;
 
 namespace ILCompiler.DependencyAnalysis
 {
-    public abstract class SortableDependencyNode : DependencyNodeCore<NodeFactory>, ISortableNode
+    public abstract partial class SortableDependencyNode : DependencyNodeCore<NodeFactory>, ISortableNode
     {
 #if !SUPPORT_JIT
         /// <summary>
@@ -30,7 +29,7 @@ namespace ILCompiler.DependencyAnalysis
         /// If two manage to conflict (which is pretty unlikely), just make a new one...
         /// </remarks>
         public abstract int ClassCode { get; }
-        
+
         // Note to implementers: the type of `other` is actually the same as the type of `this`.
         public virtual int CompareToImpl(ISortableNode other, CompilerComparer comparer)
         {
@@ -52,6 +51,21 @@ namespace ILCompiler.DependencyAnalysis
             //
             // The ordering of this sequence of nodes is deliberate and currently required for 
             // compiler correctness.
+            //
+
+            //
+            // ReadyToRun Nodes
+            //
+            CorHeaderNode,
+            ReadyToRunHeaderNode,
+            ReadyToRunAssemblyHeaderNode,
+            ImportSectionsTableNode,
+            ImportSectionNode,
+            MethodEntrypointTableNode,
+
+
+            //
+            // CoreRT Nodes
             //
             MetadataNode,
             ResourceDataNode,
@@ -139,6 +153,8 @@ namespace ILCompiler.DependencyAnalysis
             }
         }
 
+        static partial void ApplyCustomSort(SortableDependencyNode x, SortableDependencyNode y, ref int result);
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int CompareImpl(SortableDependencyNode x, SortableDependencyNode y, CompilerComparer comparer)
         {
@@ -147,6 +163,11 @@ namespace ILCompiler.DependencyAnalysis
 
             if (phaseX == phaseY)
             {
+                int customSort = 0;
+                ApplyCustomSort(x, y, ref customSort);
+                if (customSort != 0)
+                    return customSort;
+
                 int codeX = x.ClassCode;
                 int codeY = y.ClassCode;
                 if (codeX == codeY)

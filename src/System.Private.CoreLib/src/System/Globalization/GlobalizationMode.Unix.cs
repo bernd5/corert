@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 namespace System.Globalization
 {
@@ -13,8 +12,8 @@ namespace System.Globalization
             bool invariantEnabled = false;
             if (!invariantEnabled)
             {
-                // WASM TODO: There's no WASM build of LibICU. We may be able to cross-compile it ourselves.
-#if WASM
+                // TARGET_WASM TODO: There's no TARGET_WASM build of LibICU. We may be able to cross-compile it ourselves.
+#if TARGET_WASM
                 return true;
 #else
                 if (Interop.Globalization.LoadICU() == 0)
@@ -23,9 +22,11 @@ namespace System.Globalization
                                     "Set the configuration flag System.Globalization.Invariant to true if you want to run with no globalization support.";
                     Environment.FailFast(message);
                 }
-#endif // !WASM
+#endif // !TARGET_WASM
             }
             return invariantEnabled;
         }
+
+        internal static bool UseNls => false;
     }
 }

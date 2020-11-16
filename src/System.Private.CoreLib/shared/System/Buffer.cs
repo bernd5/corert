@@ -1,20 +1,18 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
-#if AMD64 || ARM64 || (BIT32 && !ARM)
+#if TARGET_AMD64 || TARGET_ARM64 || (TARGET_32BIT && !TARGET_ARM)
 #define HAS_CUSTOM_BLOCKS
 #endif
 
 using System.Diagnostics;
-using System.Runtime;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 using Internal.Runtime.CompilerServices;
 
 #pragma warning disable SA1121 // explicitly using type aliases instead of built-in types
-#if BIT64
+#if TARGET_64BIT
 using nint = System.Int64;
 using nuint = System.UInt64;
 #else
@@ -26,6 +24,54 @@ namespace System
 {
     public static partial class Buffer
     {
+        // Copies from one primitive array to another primitive array without
+        // respecting types.  This calls memmove internally.  The count and
+        // offset parameters here are in bytes.  If you want to use traditional
+        // array element indices and counts, use Array.Copy.
+        public static unsafe void BlockCopy(Array src, int srcOffset, Array dst, int dstOffset, int count)
+        {
+            if (src == null)
+                throw new ArgumentNullException(nameof(src));
+            if (dst == null)
+                throw new ArgumentNullException(nameof(dst));
+
+            nuint uSrcLen = (nuint)src.LongLength;
+            if (src.GetType() != typeof(byte[]))
+            {
+                if (!src.GetCorElementTypeOfElementType().IsPrimitiveType())
+                    throw new ArgumentException(SR.Arg_MustBePrimArray, nameof(src));
+                uSrcLen *= (nuint)src.GetElementSize();
+            }
+
+            nuint uDstLen = uSrcLen;
+            if (src != dst)
+            {
+                uDstLen = (nuint)dst.LongLength;
+                if (dst.GetType() != typeof(byte[]))
+                {
+                    if (!dst.GetCorElementTypeOfElementType().IsPrimitiveType())
+                        throw new ArgumentException(SR.Arg_MustBePrimArray, nameof(dst));
+                    uDstLen *= (nuint)dst.GetElementSize();
+                }
+            }
+
+            if (srcOffset < 0)
+                throw new ArgumentOutOfRangeException(nameof(srcOffset), SR.ArgumentOutOfRange_MustBeNonNegInt32);
+            if (dstOffset < 0)
+                throw new ArgumentOutOfRangeException(nameof(dstOffset), SR.ArgumentOutOfRange_MustBeNonNegInt32);
+            if (count < 0)
+                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_MustBeNonNegInt32);
+
+            nuint uCount = (nuint)count;
+            nuint uSrcOffset = (nuint)srcOffset;
+            nuint uDstOffset = (nuint)dstOffset;
+
+            if ((uSrcLen < uSrcOffset + uCount) || (uDstLen < uDstOffset + uCount))
+                throw new ArgumentException(SR.Argument_InvalidOffLen);
+
+            Memmove(ref Unsafe.AddByteOffset(ref dst.GetRawArrayData(), uDstOffset), ref Unsafe.AddByteOffset(ref src.GetRawArrayData(), uSrcOffset), uCount);
+        }
+
         public static int ByteLength(Array array)
         {
             // Is the array present?
@@ -33,24 +79,26 @@ namespace System
                 throw new ArgumentNullException(nameof(array));
 
             // Is it of primitive types?
-            if (!IsPrimitiveTypeArray(array))
+            if (!array.GetCorElementTypeOfElementType().IsPrimitiveType())
                 throw new ArgumentException(SR.Arg_MustBePrimArray, nameof(array));
 
-            return _ByteLength(array);
+            nuint byteLength = (nuint)array.LongLength * (nuint)array.GetElementSize();
+
+            // This API is explosed both as Buffer.ByteLength and also used indirectly in argument
+            // checks for Buffer.GetByte/SetByte.
+            //
+            // If somebody called Get/SetByte on 2GB+ arrays, there is a decent chance that
+            // the computation of the index has overflowed. Thus we intentionally always
+            // throw on 2GB+ arrays in Get/SetByte argument checks (even for indicies <2GB)
+            // to prevent people from running into a trap silently.
+
+            return checked((int)byteLength);
         }
 
         public static byte GetByte(Array array, int index)
         {
-            // Is the array present?
-            if (array == null)
-                throw new ArgumentNullException(nameof(array));
-
-            // Is it of primitive types?
-            if (!IsPrimitiveTypeArray(array))
-                throw new ArgumentException(SR.Arg_MustBePrimArray, nameof(array));
-
-            // Is the index in valid range of the array?
-            if ((uint)index >= (uint)_ByteLength(array))
+            // array argument validation done via ByteLength
+            if ((uint)index >= (uint)ByteLength(array))
                 throw new ArgumentOutOfRangeException(nameof(index));
 
             return Unsafe.Add<byte>(ref array.GetRawArrayData(), index);
@@ -58,26 +106,11 @@ namespace System
 
         public static void SetByte(Array array, int index, byte value)
         {
-            // Is the array present?
-            if (array == null)
-                throw new ArgumentNullException(nameof(array));
-
-            // Is it of primitive types?
-            if (!IsPrimitiveTypeArray(array))
-                throw new ArgumentException(SR.Arg_MustBePrimArray, nameof(array));
-
-            // Is the index in valid range of the array?
-            if ((uint)index >= (uint)_ByteLength(array))
+            // array argument validation done via ByteLength
+            if ((uint)index >= (uint)ByteLength(array))
                 throw new ArgumentOutOfRangeException(nameof(index));
 
             Unsafe.Add<byte>(ref array.GetRawArrayData(), index) = value;
-        }
-
-        // This is currently used by System.IO.UnmanagedMemoryStream
-        internal static unsafe void ZeroMemory(byte* dest, long len)
-        {
-            Debug.Assert((ulong)(len) == (nuint)(len));
-            ZeroMemory(dest, (nuint)(len));
         }
 
         // This method has different signature for x64 and other platforms and is done for performance reasons.
@@ -132,7 +165,7 @@ namespace System
             Debug.Assert(len > 16 && len <= 64);
 #if HAS_CUSTOM_BLOCKS
             *(Block16*)dest = *(Block16*)src;                   // [0,16]
-#elif BIT64
+#elif TARGET_64BIT
             *(long*)dest = *(long*)src;
             *(long*)(dest + 8) = *(long*)(src + 8);             // [0,16]
 #else
@@ -144,7 +177,7 @@ namespace System
             if (len <= 32) goto MCPY01;
 #if HAS_CUSTOM_BLOCKS
             *(Block16*)(dest + 16) = *(Block16*)(src + 16);     // [0,32]
-#elif BIT64
+#elif TARGET_64BIT
             *(long*)(dest + 16) = *(long*)(src + 16);
             *(long*)(dest + 24) = *(long*)(src + 24);           // [0,32]
 #else
@@ -156,7 +189,7 @@ namespace System
             if (len <= 48) goto MCPY01;
 #if HAS_CUSTOM_BLOCKS
             *(Block16*)(dest + 32) = *(Block16*)(src + 32);     // [0,48]
-#elif BIT64
+#elif TARGET_64BIT
             *(long*)(dest + 32) = *(long*)(src + 32);
             *(long*)(dest + 40) = *(long*)(src + 40);           // [0,48]
 #else
@@ -171,7 +204,7 @@ namespace System
             Debug.Assert(len > 16 && len <= 64);
 #if HAS_CUSTOM_BLOCKS
             *(Block16*)(destEnd - 16) = *(Block16*)(srcEnd - 16);
-#elif BIT64
+#elif TARGET_64BIT
             *(long*)(destEnd - 16) = *(long*)(srcEnd - 16);
             *(long*)(destEnd - 8) = *(long*)(srcEnd - 8);
 #else
@@ -186,7 +219,7 @@ namespace System
             // Copy the first 8 bytes and then unconditionally copy the last 8 bytes and return.
             if ((len & 24) == 0) goto MCPY03;
             Debug.Assert(len >= 8 && len <= 16);
-#if BIT64
+#if TARGET_64BIT
             *(long*)dest = *(long*)src;
             *(long*)(destEnd - 8) = *(long*)(srcEnd - 8);
 #else
@@ -229,7 +262,7 @@ namespace System
         MCPY06:
 #if HAS_CUSTOM_BLOCKS
             *(Block64*)dest = *(Block64*)src;
-#elif BIT64
+#elif TARGET_64BIT
             *(long*)dest = *(long*)src;
             *(long*)(dest + 8) = *(long*)(src + 8);
             *(long*)(dest + 16) = *(long*)(src + 16);
@@ -265,7 +298,7 @@ namespace System
             if (len > 16) goto MCPY00;
 #if HAS_CUSTOM_BLOCKS
             *(Block16*)(destEnd - 16) = *(Block16*)(srcEnd - 16);
-#elif BIT64
+#elif TARGET_64BIT
             *(long*)(destEnd - 16) = *(long*)(srcEnd - 16);
             *(long*)(destEnd - 8) = *(long*)(srcEnd - 8);
 #else
@@ -296,16 +329,10 @@ namespace System
             else
             {
                 // Non-blittable memmove
-
-                // Try to avoid calling RhBulkMoveWithWriteBarrier if we can get away
-                // with a no-op.
-                if (!Unsafe.AreSame(ref destination, ref source) && elementCount != 0)
-                {
-                    RuntimeImports.RhBulkMoveWithWriteBarrier(
-                        ref Unsafe.As<T, byte>(ref destination),
-                        ref Unsafe.As<T, byte>(ref source),
-                        elementCount * (nuint)Unsafe.SizeOf<T>());
-                }
+                BulkMoveWithWriteBarrier(
+                    ref Unsafe.As<T, byte>(ref destination),
+                    ref Unsafe.As<T, byte>(ref source),
+                    elementCount * (nuint)Unsafe.SizeOf<T>());
             }
         }
 
@@ -333,7 +360,7 @@ namespace System
             Debug.Assert(len > 16 && len <= 64);
 #if HAS_CUSTOM_BLOCKS
             Unsafe.As<byte, Block16>(ref dest) = Unsafe.As<byte, Block16>(ref src); // [0,16]
-#elif BIT64
+#elif TARGET_64BIT
             Unsafe.As<byte, long>(ref dest) = Unsafe.As<byte, long>(ref src);
             Unsafe.As<byte, long>(ref Unsafe.Add(ref dest, 8)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref src, 8)); // [0,16]
 #else
@@ -346,7 +373,7 @@ namespace System
                 goto MCPY01;
 #if HAS_CUSTOM_BLOCKS
             Unsafe.As<byte, Block16>(ref Unsafe.Add(ref dest, 16)) = Unsafe.As<byte, Block16>(ref Unsafe.Add(ref src, 16)); // [0,32]
-#elif BIT64
+#elif TARGET_64BIT
             Unsafe.As<byte, long>(ref Unsafe.Add(ref dest, 16)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref src, 16));
             Unsafe.As<byte, long>(ref Unsafe.Add(ref dest, 24)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref src, 24)); // [0,32]
 #else
@@ -359,7 +386,7 @@ namespace System
                 goto MCPY01;
 #if HAS_CUSTOM_BLOCKS
             Unsafe.As<byte, Block16>(ref Unsafe.Add(ref dest, 32)) = Unsafe.As<byte, Block16>(ref Unsafe.Add(ref src, 32)); // [0,48]
-#elif BIT64
+#elif TARGET_64BIT
             Unsafe.As<byte, long>(ref Unsafe.Add(ref dest, 32)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref src, 32));
             Unsafe.As<byte, long>(ref Unsafe.Add(ref dest, 40)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref src, 40)); // [0,48]
 #else
@@ -374,7 +401,7 @@ namespace System
             Debug.Assert(len > 16 && len <= 64);
 #if HAS_CUSTOM_BLOCKS
             Unsafe.As<byte, Block16>(ref Unsafe.Add(ref destEnd, -16)) = Unsafe.As<byte, Block16>(ref Unsafe.Add(ref srcEnd, -16));
-#elif BIT64
+#elif TARGET_64BIT
             Unsafe.As<byte, long>(ref Unsafe.Add(ref destEnd, -16)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref srcEnd, -16));
             Unsafe.As<byte, long>(ref Unsafe.Add(ref destEnd, -8)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref srcEnd, -8));
 #else
@@ -390,7 +417,7 @@ namespace System
             if ((len & 24) == 0)
                 goto MCPY03;
             Debug.Assert(len >= 8 && len <= 16);
-#if BIT64
+#if TARGET_64BIT
             Unsafe.As<byte, long>(ref dest) = Unsafe.As<byte, long>(ref src);
             Unsafe.As<byte, long>(ref Unsafe.Add(ref destEnd, -8)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref srcEnd, -8));
 #else
@@ -436,7 +463,7 @@ namespace System
         MCPY06:
 #if HAS_CUSTOM_BLOCKS
             Unsafe.As<byte, Block64>(ref dest) = Unsafe.As<byte, Block64>(ref src);
-#elif BIT64
+#elif TARGET_64BIT
             Unsafe.As<byte, long>(ref dest) = Unsafe.As<byte, long>(ref src);
             Unsafe.As<byte, long>(ref Unsafe.Add(ref dest, 8)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref src, 8));
             Unsafe.As<byte, long>(ref Unsafe.Add(ref dest, 16)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref src, 16));
@@ -474,7 +501,7 @@ namespace System
                 goto MCPY00;
 #if HAS_CUSTOM_BLOCKS
             Unsafe.As<byte, Block16>(ref Unsafe.Add(ref destEnd, -16)) = Unsafe.As<byte, Block16>(ref Unsafe.Add(ref srcEnd, -16));
-#elif BIT64
+#elif TARGET_64BIT
             Unsafe.As<byte, long>(ref Unsafe.Add(ref destEnd, -16)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref srcEnd, -16));
             Unsafe.As<byte, long>(ref Unsafe.Add(ref destEnd, -8)) = Unsafe.As<byte, long>(ref Unsafe.Add(ref srcEnd, -8));
 #else

@@ -16,7 +16,7 @@ using System.Text;
 using Internal.Runtime.CompilerServices;
 
 #pragma warning disable SA1121 // explicitly using type aliases instead of built-in types
-#if BIT64
+#if TARGET_64BIT
 using nint = System.Int64;
 #else
 using nint = System.Int32;
@@ -82,7 +82,9 @@ namespace System.Numerics
             [Intrinsic]
             get => s_zero;
         }
-        private static readonly Vector<T> s_zero = new Vector<T>();
+#pragma warning disable 0649 // never assigned to
+        private static readonly Vector<T> s_zero;
+#pragma warning restore 0649
 
         /// <summary>
         /// Returns a vector containing all ones.
@@ -400,7 +402,7 @@ namespace System.Numerics
         /// <returns>The hash code.</returns>
         public override readonly int GetHashCode()
         {
-            HashCode hashCode = new HashCode();
+            HashCode hashCode = default;
 
             if (typeof(T) == typeof(byte) ||
                 typeof(T) == typeof(sbyte) ||
@@ -554,7 +556,7 @@ namespace System.Numerics
                 }
                 else
                 {
-                    Vector<T> sum = new Vector<T>();
+                    Vector<T> sum = default;
 <#
     foreach (Type type in supportedTypes)
     {
@@ -614,7 +616,7 @@ namespace System.Numerics
                 }
                 else
                 {
-                    Vector<T> difference = new Vector<T>();
+                    Vector<T> difference = default;
 <#
     foreach (Type type in supportedTypes)
     {
@@ -675,7 +677,7 @@ namespace System.Numerics
                 }
                 else
                 {
-                    Vector<T> product = new Vector<T>();
+                    Vector<T> product = default;
 <#
     foreach (Type type in supportedTypes)
     {
@@ -756,7 +758,7 @@ namespace System.Numerics
                 }
                 else
                 {
-                    Vector<T> quotient = new Vector<T>();
+                    Vector<T> quotient = default;
 <#
     foreach (Type type in supportedTypes)
     {
@@ -798,7 +800,7 @@ namespace System.Numerics
         [Intrinsic]
         public static unsafe Vector<T> operator &(Vector<T> left, Vector<T> right)
         {
-            Vector<T> result = new Vector<T>();
+            Vector<T> result = default;
             unchecked
             {
                 if (Vector.IsHardwareAccelerated)
@@ -829,7 +831,7 @@ namespace System.Numerics
         [Intrinsic]
         public static unsafe Vector<T> operator |(Vector<T> left, Vector<T> right)
         {
-            Vector<T> result = new Vector<T>();
+            Vector<T> result = default;
             unchecked
             {
                 if (Vector.IsHardwareAccelerated)
@@ -860,7 +862,7 @@ namespace System.Numerics
         [Intrinsic]
         public static unsafe Vector<T> operator ^(Vector<T> left, Vector<T> right)
         {
-            Vector<T> result = new Vector<T>();
+            Vector<T> result = default;
             unchecked
             {
                 if (Vector.IsHardwareAccelerated)
@@ -972,7 +974,7 @@ namespace System.Numerics
             }
             else
             {
-                Register register = new Register();
+                Register register = default;
 <#
     foreach (Type type in supportedTypes)
     {
@@ -1028,7 +1030,7 @@ namespace System.Numerics
             }
             else
             {
-                Register register = new Register();
+                Register register = default;
 <#
     foreach (Type type in supportedTypes)
     {
@@ -1084,7 +1086,7 @@ namespace System.Numerics
             }
             else
             {
-                Register register = new Register();
+                Register register = default;
 <#
     foreach (Type type in supportedTypes)
     {
@@ -1227,7 +1229,7 @@ namespace System.Numerics
             }
             else
             {
-                Vector<T> vec = new Vector<T>();
+                Vector<T> vec = default;
 <#
     foreach (Type type in supportedTypes)
     {
@@ -1282,7 +1284,7 @@ namespace System.Numerics
             }
             else
             {
-                Vector<T> vec = new Vector<T>();
+                Vector<T> vec = default;
 <#
     foreach (Type type in supportedTypes)
     {
@@ -1397,6 +1399,128 @@ namespace System.Numerics
 <#
     }
 #>
+                else
+                {
+                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
+                }
+            }
+        }
+
+        [Intrinsic]
+        internal static unsafe Vector<T> Ceiling(Vector<T> value)
+        {
+            if (Vector.IsHardwareAccelerated)
+            {
+                if (typeof(T) == typeof(float))
+                {
+                    float* dataPtr = stackalloc float[Count];
+                    for (int g = 0; g < Count; g++)
+                    {
+                        dataPtr[g] = MathF.Ceiling((float)(object)value[g]);
+                    }
+                    return new Vector<T>(dataPtr);
+                }
+                else if (typeof(T) == typeof(double))
+                {
+                    double* dataPtr = stackalloc double[Count];
+                    for (int g = 0; g < Count; g++)
+                    {
+                        dataPtr[g] = Math.Ceiling((double)(object)value[g]);
+                    }
+                    return new Vector<T>(dataPtr);
+                }
+                else
+                {
+                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
+                }
+            }
+            else
+            {
+                if (typeof(T) == typeof(float))
+                {
+<#
+    for (int g = 0; g < GetNumFields(typeof(float), totalSize); g++)
+    {
+#>
+                    value.<#=GetRegisterFieldName(typeof(float), g)#> = MathF.Ceiling(value.<#=GetRegisterFieldName(typeof(float), g)#>);
+<#
+    }
+#>
+                    return value;
+                }
+                else if (typeof(T) == typeof(double))
+                {
+<#
+    for (int g = 0; g < GetNumFields(typeof(double), totalSize); g++)
+    {
+#>
+                    value.<#=GetRegisterFieldName(typeof(double), g)#> = Math.Ceiling(value.<#=GetRegisterFieldName(typeof(double), g)#>);
+<#
+    }
+#>
+                    return value;
+                }
+                else
+                {
+                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
+                }
+            }
+        }
+
+        [Intrinsic]
+        internal static unsafe Vector<T> Floor(Vector<T> value)
+        {
+            if (Vector.IsHardwareAccelerated)
+            {
+                if (typeof(T) == typeof(float))
+                {
+                    float* dataPtr = stackalloc float[Count];
+                    for (int g = 0; g < Count; g++)
+                    {
+                        dataPtr[g] = MathF.Floor((float)(object)value[g]);
+                    }
+                    return new Vector<T>(dataPtr);
+                }
+                else if (typeof(T) == typeof(double))
+                {
+                    double* dataPtr = stackalloc double[Count];
+                    for (int g = 0; g < Count; g++)
+                    {
+                        dataPtr[g] = Math.Floor((double)(object)value[g]);
+                    }
+                    return new Vector<T>(dataPtr);
+                }
+                else
+                {
+                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
+                }
+            }
+            else
+            {
+                if (typeof(T) == typeof(float))
+                {
+<#
+    for (int g = 0; g < GetNumFields(typeof(float), totalSize); g++)
+    {
+#>
+                    value.<#=GetRegisterFieldName(typeof(float), g)#> = MathF.Floor(value.<#=GetRegisterFieldName(typeof(float), g)#>);
+<#
+    }
+#>
+                    return value;
+                }
+                else if (typeof(T) == typeof(double))
+                {
+<#
+    for (int g = 0; g < GetNumFields(typeof(double), totalSize); g++)
+    {
+#>
+                    value.<#=GetRegisterFieldName(typeof(double), g)#> = Math.Floor(value.<#=GetRegisterFieldName(typeof(double), g)#>);
+<#
+    }
+#>
+                    return value;
+                }
                 else
                 {
                     throw new NotSupportedException(SR.Arg_TypeNotSupported);

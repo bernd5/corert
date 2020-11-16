@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using Microsoft.Win32.SafeHandles;
 using System.IO;
@@ -12,7 +11,7 @@ namespace Internal.IO
     {
         internal static bool InternalExists(string fullPath)
         {
-            Interop.Kernel32.WIN32_FILE_ATTRIBUTE_DATA data = new Interop.Kernel32.WIN32_FILE_ATTRIBUTE_DATA();
+            Interop.Kernel32.WIN32_FILE_ATTRIBUTE_DATA data = default;
             int errorCode = FillAttributeInfo(fullPath, ref data, returnErrorOnNotFound: true);
 
             return (errorCode == 0) && (data.dwFileAttributes != -1)
@@ -23,7 +22,6 @@ namespace Internal.IO
         /// Returns 0 on success, otherwise a Win32 error code.  Note that
         /// classes should use -1 as the uninitialized state for dataInitialized.
         /// </summary>
-        /// <param name="returnErrorOnNotFound">Return the error code for not found errors?</param>
         internal static int FillAttributeInfo(string path, ref Interop.Kernel32.WIN32_FILE_ATTRIBUTE_DATA data, bool returnErrorOnNotFound)
         {
             int errorCode = Interop.Errors.ERROR_SUCCESS;
@@ -40,7 +38,7 @@ namespace Internal.IO
                         // FindFirstFile, however, will. Historically we always gave back attributes
                         // for marked-for-deletion files.
 
-                        var findData = new Interop.Kernel32.WIN32_FIND_DATA();
+                        Interop.Kernel32.WIN32_FIND_DATA findData = default;
                         using (SafeFindHandle handle = Interop.Kernel32.FindFirstFile(path, ref findData))
                         {
                             if (handle.IsInvalid)

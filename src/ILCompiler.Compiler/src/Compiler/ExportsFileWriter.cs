@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
 using System.IO;
@@ -36,12 +35,21 @@ namespace ILCompiler
                 {
                     streamWriter.WriteLine("EXPORTS");
                     foreach (var method in _methods)
-                        streamWriter.WriteLine($"   {method.GetNativeCallableExportName()}");
+                        streamWriter.WriteLine($"   {method.GetUnmanagedCallersOnlyExportName()}");
+                }
+                else if(_context.Target.IsOSX)
+                {
+                    foreach (var method in _methods)
+                        streamWriter.WriteLine($"_{method.GetUnmanagedCallersOnlyExportName()}");
                 }
                 else
                 {
+                    streamWriter.WriteLine("V1.0 {");
+                    streamWriter.WriteLine("    global: _init; _fini;");
                     foreach (var method in _methods)
-                        streamWriter.WriteLine($"_{method.GetNativeCallableExportName()}");
+                        streamWriter.WriteLine($"        {method.GetUnmanagedCallersOnlyExportName()};");
+                    streamWriter.WriteLine("    local: *;");
+                    streamWriter.WriteLine("};");
                 }
             }
         }

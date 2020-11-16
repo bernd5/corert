@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #include <stdarg.h>
 #include <stdlib.h>
@@ -24,14 +23,14 @@ public:
         corJitFlags = other.corJitFlags;
     }
 private:
-    unsigned __int64 corJitFlags;
+    uint64_t corJitFlags;
 };
 
-static const GUID JITEEVersionIdentifier = { /* d609bed1-7831-49fc-bd49-b6f054dd4d46 */
-    0xe2ae5b32,
-    0xa9ab,
-    0x426e,
-    {0xbc, 0x2a, 0xae, 0x1a, 0x88, 0x3e, 0x03, 0x67}
+static const GUID JITEEVersionIdentifier = { /* 7af97117-55be-4c76-afb2-e26261cb140e */
+    0x7af97117,
+    0x55be,
+    0x4c76,
+    { 0xaf, 0xb2, 0xe2, 0x62, 0x61, 0xcb, 0x14, 0x0e }
 };
 
 class Jit
@@ -44,14 +43,12 @@ public:
         void* entryAddress,
         void* nativeSizeOfCode) = 0;
 
-    virtual void clearCache() = 0;
-    virtual unsigned isCacheCleanupRequired() = 0;
     virtual void ProcessShutdownWork(void* info) = 0;
 
     // The EE asks the JIT for a "version identifier". This represents the version of the JIT/EE interface.
     // If the JIT doesn't implement the same JIT/EE interface expected by the EE (because the JIT doesn't
     // return the version identifier that the EE expects), then the EE fails to load the JIT.
-    // 
+    //
     virtual void getVersionIdentifier(GUID* versionIdentifier) = 0;
 
     // When the EE loads the System.Numerics.Vectors assembly, it asks the JIT what length (in bytes) of
@@ -62,8 +59,8 @@ public:
 
 DLL_EXPORT int JitCompileMethod(
     CorInfoException **ppException,
-    Jit * pJit, 
-    void * thisHandle, 
+    Jit * pJit,
+    void * thisHandle,
     void ** callbacks,
     void* methodInfo,
     unsigned flags,

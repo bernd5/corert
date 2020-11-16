@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using Microsoft.Win32.SafeHandles;
 using System.Diagnostics;
@@ -40,7 +39,7 @@ namespace System.Threading
             return true;
         }
 
-        [NativeCallable]
+        [UnmanagedCallersOnly]
         private static void OnThreadExit()
         {
             Thread currentThread = t_currentThread;
@@ -116,7 +115,7 @@ namespace System.Threading
         /// <summary>
         /// This is an entry point for managed threads created by application
         /// </summary>
-        [NativeCallable]
+        [UnmanagedCallersOnly]
         private static IntPtr ThreadEntryPoint(IntPtr parameter)
         {
             StartThread(parameter);

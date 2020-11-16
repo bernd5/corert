@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #include "common.h"
 #include "gcenv.h"
@@ -25,6 +24,11 @@ uint8_t* g_ephemeral_high = (uint8_t*)~0;
 
 #ifdef FEATURE_MANUALLY_MANAGED_CARD_BUNDLES
 uint32_t* g_card_bundle_table = nullptr;
+#endif
+
+#ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+uint8_t* g_write_watch_table = nullptr;
+bool g_sw_ww_enabled_for_gc_heap = false;
 #endif
 
 IGCHandleManager* g_pGCHandleManager = nullptr;

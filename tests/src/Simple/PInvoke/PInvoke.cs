@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #if MULTIMODULE_BUILD && !DEBUG
 // Some tests won't work if we're using optimizing codegen, but scanner doesn't run.
@@ -146,6 +145,11 @@ namespace PInvokeTests
         static extern bool ReversePInvoke_String(Delegate_String del);
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        delegate bool Delegate_OutString([MarshalAs(0x30)] out string s);
+        [DllImport("*", CallingConvention = CallingConvention.StdCall)]
+        static extern bool ReversePInvoke_OutString(Delegate_OutString del);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Ansi)]
         delegate bool Delegate_Array([MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 1)] int[] array, IntPtr sz);
         [DllImport("*", CallingConvention = CallingConvention.StdCall)]
         static extern bool ReversePInvoke_Array(Delegate_Array del);
@@ -204,6 +208,9 @@ namespace PInvokeTests
 
         [DllImport("*", CallingConvention = CallingConvention.StdCall)]
         static extern bool IsNULL(SequentialStruct[] foo);
+
+        [DllImport("*", CallingConvention = CallingConvention.StdCall)]
+        static extern bool IsNULL(IComInterface foo);
 
         [StructLayout(LayoutKind.Sequential, CharSet= CharSet.Ansi, Pack = 4)]
         public unsafe struct InlineArrayStruct
@@ -289,7 +296,10 @@ namespace PInvokeTests
             TestLayoutClass();
             TestAsAny();
             TestMarshalStructAPIs();
-#endif            
+#if TARGET_WINDOWS
+            TestComInteropNullPointers();
+#endif
+#endif
             return 100;
         }
 
@@ -593,6 +603,13 @@ namespace PInvokeTests
             Delegate_String ds = new Delegate_String((new ClosedDelegateCLass()).GetString);
             ThrowIfNotEquals(true, ReversePInvoke_String(ds), "Delegate marshalling failed.");
 
+            Delegate_OutString dos = new Delegate_OutString((out string x) =>
+            {
+                x = "Hello there!";
+                return true;
+            });
+            ThrowIfNotEquals(true, ReversePInvoke_OutString(dos), "Delegate string out marshalling failed.");
+
             Delegate_Array da = new Delegate_Array((new ClosedDelegateCLass()).CheckArray);
             ThrowIfNotEquals(true, ReversePInvoke_Array(da), "Delegate array marshalling failed.");
 
@@ -732,6 +749,12 @@ namespace PInvokeTests
             public bool f1;
             public bool f2;
             public int f3;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public class ClassForTestingFlowAnalysis
+        {
+            public int Field;
         }
 
         private static void TestStruct()
@@ -971,6 +994,17 @@ namespace PInvokeTests
             {
                 Marshal.FreeHGlobal(nbc_memory);
             }
+
+            int cftf_size = Marshal.SizeOf(typeof(ClassForTestingFlowAnalysis));
+            ThrowIfNotEquals(4, cftf_size, "ClassForTestingFlowAnalysis marshalling Marshal API failed");
+        }
+
+        public static void TestComInteropNullPointers()
+        {
+            Console.WriteLine("Testing Marshal APIs for COM interfaces");
+            IComInterface comPointer = null;
+            var result = IsNULL(comPointer);
+            ThrowIfNotEquals(true, IsNULL(comPointer), "COM interface marshalling null check failed");
         }
     }
 
@@ -999,6 +1033,14 @@ namespace PInvokeTests
             return ReleaseMemory(handle);
         }
     } //end of SafeMemoryHandle class
+
+    [ComImport]
+    [ComVisible(true)]
+    [Guid("D6DD68D1-86FD-4332-8666-9ABEDEA2D24C")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IComInterface
+    {
+    }
 
     public static class LowLevelExtensions
     {

@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #if MS_IO_REDIST
 using System;
@@ -27,7 +26,7 @@ namespace System.IO
 
         public static DisableMediaInsertionPrompt Create()
         {
-            DisableMediaInsertionPrompt prompt = new DisableMediaInsertionPrompt();
+            DisableMediaInsertionPrompt prompt = default;
             prompt._disableSuccess = Interop.Kernel32.SetThreadErrorMode(Interop.Kernel32.SEM_FAILCRITICALERRORS, out prompt._oldMode);
             return prompt;
         }

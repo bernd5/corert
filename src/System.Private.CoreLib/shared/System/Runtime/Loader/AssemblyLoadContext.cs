@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -14,6 +13,7 @@ namespace System.Runtime.Loader
 {
     public partial class AssemblyLoadContext
     {
+        // Keep in sync with MonoManagedAssemblyLoadContextInternalState in object-internals.h
         private enum InternalState
         {
             /// <summary>
@@ -34,6 +34,7 @@ namespace System.Runtime.Loader
 #region private data members
         // If you modify any of these fields, you must also update the
         // AssemblyLoadContextBaseObject structure in object.h
+        // and MonoManagedAssemblyLoadContext in object-internals.h
 
         // synchronization primitive to protect against usage of this instance while unloading
         private readonly object _unloadLock;
@@ -284,7 +285,7 @@ namespace System.Runtime.Loader
 
             // Attempt to load the assembly, using the same ordering as static load, in the current load context.
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
-            return Assembly.Load(assemblyName, ref stackMark, this);
+            return RuntimeAssembly.InternalLoad(assemblyName, ref stackMark, this);
         }
 #endif
 
@@ -299,7 +300,7 @@ namespace System.Runtime.Loader
 
             if (PathInternal.IsPartiallyQualified(assemblyPath))
             {
-                throw new ArgumentException(SR.Argument_AbsolutePathRequired, nameof(assemblyPath));
+                throw new ArgumentException(SR.Format(SR.Argument_AbsolutePathRequired, assemblyPath), nameof(assemblyPath));
             }
 
             lock (_unloadLock)
@@ -319,12 +320,12 @@ namespace System.Runtime.Loader
 
             if (PathInternal.IsPartiallyQualified(nativeImagePath))
             {
-                throw new ArgumentException(SR.Argument_AbsolutePathRequired, nameof(nativeImagePath));
+                throw new ArgumentException(SR.Format(SR.Argument_AbsolutePathRequired, nativeImagePath), nameof(nativeImagePath));
             }
 
             if (assemblyPath != null && PathInternal.IsPartiallyQualified(assemblyPath))
             {
-                throw new ArgumentException(SR.Argument_AbsolutePathRequired, nameof(assemblyPath));
+                throw new ArgumentException(SR.Format(SR.Argument_AbsolutePathRequired, assemblyPath), nameof(assemblyPath));
             }
 
             lock (_unloadLock)
@@ -364,7 +365,7 @@ namespace System.Runtime.Loader
             byte[]? arrSymbols = null;
             if (assemblySymbols != null)
             {
-                var iSymbolLength = (int)assemblySymbols.Length;
+                int iSymbolLength = (int)assemblySymbols.Length;
                 arrSymbols = new byte[iSymbolLength];
 
                 assemblySymbols.Read(arrSymbols, 0, iSymbolLength);
@@ -394,7 +395,7 @@ namespace System.Runtime.Loader
 
             if (PathInternal.IsPartiallyQualified(unmanagedDllPath))
             {
-                throw new ArgumentException(SR.Argument_AbsolutePathRequired, nameof(unmanagedDllPath));
+                throw new ArgumentException(SR.Format(SR.Argument_AbsolutePathRequired, unmanagedDllPath), nameof(unmanagedDllPath));
             }
 
             return NativeLibrary.Load(unmanagedDllPath);
@@ -466,7 +467,7 @@ namespace System.Runtime.Loader
         ///
         /// The property is stored in an AsyncLocal&lt;AssemblyLoadContext&gt;. This means the setting can be unique for every async or thread in the process.
         ///
-        /// For more details see https://github.com/dotnet/coreclr/blob/master/Documentation/design-docs/AssemblyLoadContext.ContextualReflection.md
+        /// For more details see https://github.com/dotnet/runtime/blob/master/docs/design/features/AssemblyLoadContext.ContextualReflection.md
         /// </remarks>
         public static AssemblyLoadContext? CurrentContextualReflectionContext => s_asyncLocalCurrent?.Value;
 
@@ -562,16 +563,6 @@ namespace System.Runtime.Loader
             return context.ResolveUsingLoad(assemblyName);
         }
 
-        // This method is invoked by the VM to resolve an assembly reference using the Resolving event
-        // after trying assembly resolution via Load override and TPA load context without success.
-        private static Assembly? ResolveUsingResolvingEvent(IntPtr gchManagedAssemblyLoadContext, AssemblyName assemblyName)
-        {
-            AssemblyLoadContext context = (AssemblyLoadContext)(GCHandle.FromIntPtr(gchManagedAssemblyLoadContext).Target)!;
-
-            // Invoke the AssemblyResolve event callbacks if wired up
-            return context.ResolveUsingEvent(assemblyName);
-        }
-
         // This method is invoked by the VM to resolve a satellite assembly reference
         // after trying assembly resolution via Load override without success.
         private static Assembly? ResolveSatelliteAssembly(IntPtr gchManagedAssemblyLoadContext, AssemblyName assemblyName)
@@ -582,18 +573,29 @@ namespace System.Runtime.Loader
             return context.ResolveSatelliteAssembly(assemblyName);
         }
 
-        private Assembly? GetFirstResolvedAssembly(AssemblyName assemblyName)
+        private Assembly? GetFirstResolvedAssemblyFromResolvingEvent(AssemblyName assemblyName)
         {
             Assembly? resolvedAssembly = null;
 
-            Func<AssemblyLoadContext, AssemblyName, Assembly>? assemblyResolveHandler = _resolving;
+            Func<AssemblyLoadContext, AssemblyName, Assembly>? resolvingHandler = _resolving;
 
-            if (assemblyResolveHandler != null)
+            if (resolvingHandler != null)
             {
                 // Loop through the event subscribers and return the first non-null Assembly instance
-                foreach (Func<AssemblyLoadContext, AssemblyName, Assembly> handler in assemblyResolveHandler.GetInvocationList())
+                foreach (Func<AssemblyLoadContext, AssemblyName, Assembly> handler in resolvingHandler.GetInvocationList())
                 {
                     resolvedAssembly = handler(this, assemblyName);
+#if CORECLR
+                    if (AssemblyLoadContext.IsTracingEnabled())
+                    {
+                        AssemblyLoadContext.TraceResolvingHandlerInvoked(
+                            assemblyName.FullName,
+                            handler.Method.Name,
+                            this != AssemblyLoadContext.Default ? ToString() : Name,
+                            resolvedAssembly?.FullName,
+                            resolvedAssembly != null && !resolvedAssembly.IsDynamic ? resolvedAssembly.Location : null);
+                    }
+#endif // CORECLR
                     if (resolvedAssembly != null)
                     {
                         return resolvedAssembly;
@@ -606,6 +608,11 @@ namespace System.Runtime.Loader
 
         private static Assembly ValidateAssemblyNameWithSimpleName(Assembly assembly, string? requestedSimpleName)
         {
+            if (string.IsNullOrEmpty(requestedSimpleName))
+            {
+                throw new ArgumentException(SR.ArgumentNull_AssemblyNameName);
+            }
+
             // Get the name of the loaded assembly
             string? loadedSimpleName = null;
 
@@ -619,10 +626,6 @@ namespace System.Runtime.Loader
             }
 
             // The simple names should match at the very least
-            if (string.IsNullOrEmpty(requestedSimpleName))
-            {
-                throw new ArgumentException(SR.ArgumentNull_AssemblyNameName);
-            }
             if (string.IsNullOrEmpty(loadedSimpleName) || !requestedSimpleName.Equals(loadedSimpleName, StringComparison.InvariantCultureIgnoreCase))
             {
                 throw new InvalidOperationException(SR.Argument_CustomAssemblyLoadContextRequestedNameMismatch);
@@ -648,8 +651,8 @@ namespace System.Runtime.Loader
         {
             string? simpleName = assemblyName.Name;
 
-            // Invoke the AssemblyResolve event callbacks if wired up
-            Assembly? assembly = GetFirstResolvedAssembly(assemblyName);
+            // Invoke the Resolving event callbacks if wired up
+            Assembly? assembly = GetFirstResolvedAssemblyFromResolvingEvent(assemblyName);
             if (assembly != null)
             {
                 assembly = ValidateAssemblyNameWithSimpleName(assembly, simpleName);
@@ -692,6 +695,16 @@ namespace System.Runtime.Loader
             foreach (ResolveEventHandler handler in eventHandler.GetInvocationList())
             {
                 Assembly? asm = handler(AppDomain.CurrentDomain, args);
+#if CORECLR
+                if (eventHandler == AssemblyResolve && AssemblyLoadContext.IsTracingEnabled())
+                {
+                    AssemblyLoadContext.TraceAssemblyResolveHandlerInvoked(
+                        name,
+                        handler.Method.Name,
+                        asm?.FullName,
+                        asm != null && !asm.IsDynamic ? asm.Location : null);
+                }
+#endif // CORECLR
                 RuntimeAssembly? ret = GetRuntimeAssembly(asm);
                 if (ret != null)
                     return ret;
@@ -721,21 +734,50 @@ namespace System.Runtime.Loader
 
             string assemblyPath = Path.Combine(parentDirectory, assemblyName.CultureName!, $"{assemblyName.Name}.dll");
 
-            if (Internal.IO.File.InternalExists(assemblyPath))
+            bool exists = Internal.IO.File.InternalExists(assemblyPath);
+            if (!exists && Path.IsCaseSensitive)
             {
-                return parentALC.LoadFromAssemblyPath(assemblyPath);
-            }
-            else if (Path.IsCaseSensitive)
-            {
-                assemblyPath = Path.Combine(parentDirectory, assemblyName.CultureName!.ToLowerInvariant(), $"{assemblyName.Name}.dll");
-
-                if (Internal.IO.File.InternalExists(assemblyPath))
+#if CORECLR
+                if (AssemblyLoadContext.IsTracingEnabled())
                 {
-                    return parentALC.LoadFromAssemblyPath(assemblyPath);
+                    AssemblyLoadContext.TraceSatelliteSubdirectoryPathProbed(assemblyPath, HResults.COR_E_FILENOTFOUND);
+                }
+#endif // CORECLR
+                assemblyPath = Path.Combine(parentDirectory, assemblyName.CultureName!.ToLowerInvariant(), $"{assemblyName.Name}.dll");
+                exists = Internal.IO.File.InternalExists(assemblyPath);
+            }
+
+            Assembly? asm = exists ? parentALC.LoadFromAssemblyPath(assemblyPath) : null;
+#if CORECLR
+            if (AssemblyLoadContext.IsTracingEnabled())
+            {
+                AssemblyLoadContext.TraceSatelliteSubdirectoryPathProbed(assemblyPath, exists ? HResults.S_OK : HResults.COR_E_FILENOTFOUND);
+            }
+#endif // CORECLR
+
+            return asm;
+        }
+
+        internal IntPtr GetResolvedUnmanagedDll(Assembly assembly, string unmanagedDllName)
+        {
+            IntPtr resolvedDll = IntPtr.Zero;
+
+            Func<Assembly, string, IntPtr>? dllResolveHandler = _resolvingUnmanagedDll;
+
+            if (dllResolveHandler != null)
+            {
+                // Loop through the event subscribers and return the first non-null native library handle
+                foreach (Func<Assembly, string, IntPtr> handler in dllResolveHandler.GetInvocationList())
+                {
+                    resolvedDll = handler(assembly, unmanagedDllName);
+                    if (resolvedDll != IntPtr.Zero)
+                    {
+                        return resolvedDll;
+                    }
                 }
             }
 
-            return null;
+            return IntPtr.Zero;
         }
     }
 

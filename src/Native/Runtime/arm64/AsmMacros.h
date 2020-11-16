@@ -1,6 +1,5 @@
 ;; Licensed to the .NET Foundation under one or more agreements.
 ;; The .NET Foundation licenses this file to you under the MIT license.
-;; See the LICENSE file in the project root for more information.
 
 ;; OS provided macros
 #include <ksarm64.h>
@@ -246,6 +245,15 @@ __SECTIONREL_tls_CurrentThread SETS "$__SECTIONREL_tls_CurrentThread":CC:"_"
         str         xzr, [$threadReg, #OFFSETOF__Thread__m_ppvHijackedReturnAddressLocation]
         str         xzr, [$threadReg, #OFFSETOF__Thread__m_pvHijackedReturnAddress]
 0
+    MEND
+
+;; ---------------------------------------------------------------------------- -
+;;
+;; Macro to add a memory barrier. Equal to __sync_synchronize().
+;;
+
+    MACRO ArmInterlockedOperationBarrier
+        dmb ish
     MEND
 
 ;; -----------------------------------------------------------------------------

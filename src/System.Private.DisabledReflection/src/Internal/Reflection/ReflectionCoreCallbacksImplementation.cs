@@ -1,11 +1,9 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Globalization;
 using System.Reflection;
-
 using Internal.Reflection.Augments;
 using Internal.Runtime.Augments;
 
@@ -40,6 +38,7 @@ namespace Internal.Reflection
         public override Type GetTypeFromCLSID(Guid clsid, string server, bool throwOnError) => throw new NotSupportedException(SR.Reflection_Disabled);
         public override Assembly Load(AssemblyName refName, bool throwOnFileNotFound) => throw new NotSupportedException(SR.Reflection_Disabled);
         public override Assembly Load(byte[] rawAssembly, byte[] pdbSymbolStore) => throw new NotSupportedException(SR.Reflection_Disabled);
+        public override Assembly Load(string assemblyPath) => throw new NotSupportedException(SR.Reflection_Disabled);
         public override void MakeTypedReference(object target, FieldInfo[] flds, out Type type, out int offset) => throw new NotSupportedException(SR.Reflection_Disabled);
         public override void RunModuleConstructor(Module module) => throw new NotSupportedException(SR.Reflection_Disabled);
     }

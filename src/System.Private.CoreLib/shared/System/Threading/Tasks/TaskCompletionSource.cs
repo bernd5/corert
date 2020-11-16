@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 // =+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
 //
@@ -118,7 +117,7 @@ namespace System.Threading.Tasks
         private void SpinUntilCompleted()
         {
             // Spin wait until the completion is finalized by another thread.
-            var sw = new SpinWait();
+            SpinWait sw = default;
             while (!_task.IsCompleted)
                 sw.SpinOnce();
         }
@@ -334,7 +333,29 @@ namespace System.Threading.Tasks
         /// <exception cref="System.ObjectDisposedException">The <see cref="Task"/> was disposed.</exception>
         public void SetCanceled()
         {
-            if (!TrySetCanceled())
+            SetCanceled(default);
+        }
+
+        /// <summary>
+        /// Transitions the underlying
+        /// <see cref="System.Threading.Tasks.Task{TResult}"/> into the
+        /// <see cref="System.Threading.Tasks.TaskStatus.Canceled">Canceled</see>
+        /// state, and enables a token to be stored into the canceled
+        /// <see cref="System.Threading.Tasks.Task{TResult}"/>.
+        /// </summary>
+        /// <param name="cancellationToken">The cancellation token to bind to this <see
+        /// cref="System.Threading.Tasks.Task{TResult}"/>.</param>
+        /// <exception cref="System.InvalidOperationException">
+        /// The underlying <see cref="System.Threading.Tasks.Task{TResult}"/> is already in one
+        /// of the three final states:
+        /// <see cref="System.Threading.Tasks.TaskStatus.RanToCompletion">RanToCompletion</see>,
+        /// <see cref="System.Threading.Tasks.TaskStatus.Faulted">Faulted</see>, or
+        /// <see cref="System.Threading.Tasks.TaskStatus.Canceled">Canceled</see>.
+        /// </exception>
+        /// <exception cref="System.ObjectDisposedException">The <see cref="Task"/> was disposed.</exception>
+        public void SetCanceled(CancellationToken cancellationToken)
+        {
+            if (!TrySetCanceled(cancellationToken))
                 ThrowHelper.ThrowInvalidOperationException(ExceptionResource.TaskT_TransitionToFinal_AlreadyCompleted);
         }
     }

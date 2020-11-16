@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 #include "common.h"
 
 #include "CommonTypes.h"
@@ -16,7 +15,6 @@
 #include "gcrhinterface.h"
 #include "shash.h"
 #include "RWLock.h"
-#include "module.h"
 #include "varint.h"
 #include "holder.h"
 #include "rhbinder.h"
@@ -30,13 +28,14 @@
 #include "threadstore.inl"
 
 #include "eetype.h"
+#include "TypeManager.h"
+#include "eetype.inl"
 #include "ObjectLayout.h"
 
 #include "GCMemoryHelpers.h"
 #include "GCMemoryHelpers.inl"
 
 #if defined(USE_PORTABLE_HELPERS)
-
 EXTERN_C REDHAWK_API void* REDHAWK_CALLCONV RhpGcAlloc(EEType *pEEType, UInt32 uFlags, UIntNative cbSize, void * pTransitionFrame);
 EXTERN_C REDHAWK_API void* REDHAWK_CALLCONV RhpPublishObject(void* pObject, UIntNative cbSize);
 
@@ -65,12 +64,12 @@ COOP_PINVOKE_HELPER(Object *, RhpNewFast, (EEType* pEEType))
 
     size_t size = pEEType->get_BaseSize();
 
-    UInt8* result = acontext->alloc_ptr;
-    UInt8* advance = result + size;
-    if (advance <= acontext->alloc_limit)
+    UInt8* alloc_ptr = acontext->alloc_ptr;
+    ASSERT(alloc_ptr <= acontext->alloc_limit);
+    if ((size_t)(acontext->alloc_limit - alloc_ptr) >= size)
     {
-        acontext->alloc_ptr = advance;
-        pObject = (Object *)result;
+        acontext->alloc_ptr = alloc_ptr + size;
+        pObject = (Object *)alloc_ptr;
         pObject->set_EEType(pEEType);
         return pObject;
     }
@@ -88,7 +87,9 @@ COOP_PINVOKE_HELPER(Object *, RhpNewFast, (EEType* pEEType))
     return pObject;
 }
 
-#define GC_ALLOC_FINALIZE 0x1 // TODO: Defined in gc.h
+#define GC_ALLOC_FINALIZE    0x1 // TODO: Defined in gc.h
+#define GC_ALLOC_ALIGN8_BIAS 0x4 // TODO: Defined in gc.h
+#define GC_ALLOC_ALIGN8      0x8 // TODO: Defined in gc.h
 
 COOP_PINVOKE_HELPER(Object *, RhpNewFinalizable, (EEType* pEEType))
 {
@@ -124,7 +125,7 @@ COOP_PINVOKE_HELPER(Array *, RhpNewArray, (EEType * pArrayEEType, int numElement
     }
 
     size_t size;
-#ifndef BIT64
+#ifndef HOST_64BIT
     // if the element count is <= 0x10000, no overflow is possible because the component size is
     // <= 0xffff, and thus the product is <= 0xffff0000, and the base size is only ~12 bytes
     if (numElements > 0x10000)
@@ -140,18 +141,18 @@ COOP_PINVOKE_HELPER(Array *, RhpNewArray, (EEType * pArrayEEType, int numElement
         }
     }
     else
-#endif // !BIT64
+#endif // !HOST_64BIT
     {
         size = (size_t)pArrayEEType->get_BaseSize() + ((size_t)numElements * (size_t)pArrayEEType->get_ComponentSize());
         size = ALIGN_UP(size, sizeof(UIntNative));
     }
 
-    UInt8* result = acontext->alloc_ptr;
-    UInt8* advance = result + size;
-    if (advance <= acontext->alloc_limit)
+    UInt8* alloc_ptr = acontext->alloc_ptr;
+    ASSERT(alloc_ptr <= acontext->alloc_limit);
+    if ((size_t)(acontext->alloc_limit - alloc_ptr) >= size)
     {
-        acontext->alloc_ptr = advance;
-        pObject = (Array *)result;
+        acontext->alloc_ptr = alloc_ptr + size;
+        pObject = (Array *)alloc_ptr;
         pObject->set_EEType(pArrayEEType);
         pObject->InitArrayLength((UInt32)numElements);
         return pObject;
@@ -180,36 +181,198 @@ COOP_PINVOKE_HELPER(String *, RhNewString, (EEType * pArrayEEType, int numElemen
 
 #endif
 #if defined(USE_PORTABLE_HELPERS)
+#if defined(FEATURE_64BIT_ALIGNMENT)
 
-#ifdef _ARM_
+GPTR_DECL(EEType, g_pFreeObjectEEType);
+
 COOP_PINVOKE_HELPER(Object *, RhpNewFinalizableAlign8, (EEType* pEEType))
 {
     Object * pObject = nullptr;
-    /* TODO */ ASSERT_UNCONDITIONALLY("NYI");
+    /* Not reachable as finalizable types are never align8 */ ASSERT_UNCONDITIONALLY("UNREACHABLE");
     return pObject;
 }
 
-COOP_PINVOKE_HELPER(Object *, RhpNewFastMisalign, (EEType* pEEType))
-{
-    Object * pObject = nullptr;
-    /* TODO */ ASSERT_UNCONDITIONALLY("NYI");
-    return pObject;
-}
-
+#ifndef HOST_64BIT
 COOP_PINVOKE_HELPER(Object *, RhpNewFastAlign8, (EEType* pEEType))
 {
-    Object * pObject = nullptr;
-    /* TODO */ ASSERT_UNCONDITIONALLY("NYI");
+    ASSERT(pEEType->RequiresAlign8());
+    ASSERT(!pEEType->HasFinalizer());
+
+    Thread* pCurThread = ThreadStore::GetCurrentThread();
+    gc_alloc_context* acontext = pCurThread->GetAllocContext();
+    Object* pObject;
+
+    size_t size = pEEType->get_BaseSize();
+    size = (size + (sizeof(UIntNative) - 1)) & ~(sizeof(UIntNative) - 1);
+
+    UInt8* result = acontext->alloc_ptr;
+
+    int requiresPadding = ((uint32_t)result) & 7;
+    size_t paddedSize = size;
+    if (requiresPadding) 
+    {
+        if(paddedSize > SIZE_MAX - 12)
+        {
+            ASSERT_UNCONDITIONALLY("NYI");  // TODO: Throw overflow
+        }
+        paddedSize += 12;
+    }
+
+    UInt8* alloc_ptr = acontext->alloc_ptr;
+    ASSERT(alloc_ptr <= acontext->alloc_limit);
+    if ((size_t)(acontext->alloc_limit - alloc_ptr) >= paddedSize)
+    {
+        acontext->alloc_ptr = alloc_ptr + paddedSize;
+        if (requiresPadding)
+        {
+            Object* dummy = (Object*)alloc_ptr;
+            dummy->set_EEType(g_pFreeObjectEEType);
+            alloc_ptr += 12; // if result + paddedSize was ok, then cant overflow
+        }
+        pObject = (Object *)alloc_ptr;
+        pObject->set_EEType(pEEType);
+        return pObject;
+    }
+
+    pObject = (Object*)RhpGcAlloc(pEEType, GC_ALLOC_ALIGN8, size, NULL);
+    if (pObject == nullptr)
+    {
+        ASSERT_UNCONDITIONALLY("NYI");  // TODO: Throw OOM
+    }
+    pObject->set_EEType(pEEType);
+
+    if (size >= RH_LARGE_OBJECT_SIZE)
+        RhpPublishObject(pObject, size);
+
+    return pObject;
+}
+
+COOP_PINVOKE_HELPER(Object*, RhpNewFastMisalign, (EEType* pEEType))
+{
+    Thread* pCurThread = ThreadStore::GetCurrentThread();
+    gc_alloc_context* acontext = pCurThread->GetAllocContext();
+    Object* pObject;
+
+    size_t size = pEEType->get_BaseSize();
+    UInt8* result = acontext->alloc_ptr;
+
+    int requiresPadding = (((uint32_t)result) & 7) != 4;
+    size_t paddedSize = size;
+    if (requiresPadding) 
+    {
+        if(paddedSize > SIZE_MAX - 12)
+        {
+            ASSERT_UNCONDITIONALLY("NYI");  // TODO: Throw overflow
+        }
+        paddedSize += 12;
+    }
+    UInt8* alloc_ptr = acontext->alloc_ptr;
+    ASSERT(alloc_ptr <= acontext->alloc_limit);
+    if ((size_t)(acontext->alloc_limit - alloc_ptr) >= paddedSize)
+    {
+        acontext->alloc_ptr = alloc_ptr + paddedSize;
+        if (requiresPadding)
+        {
+            Object* dummy = (Object*)alloc_ptr;
+            dummy->set_EEType(g_pFreeObjectEEType);
+            alloc_ptr += 12; // if result + paddedSize was ok, then cant overflow
+        }
+        pObject = (Object *)alloc_ptr;
+        pObject->set_EEType(pEEType);
+        return pObject;
+    }
+
+    pObject = (Object*)RhpGcAlloc(pEEType, GC_ALLOC_ALIGN8 | GC_ALLOC_ALIGN8_BIAS, size, NULL);
+    if (pObject == nullptr)
+    {
+        ASSERT_UNCONDITIONALLY("NYI");  // TODO: Throw OOM
+    }
+    pObject->set_EEType(pEEType);
+
+    if (size >= RH_LARGE_OBJECT_SIZE)
+        RhpPublishObject(pObject, size);
+
     return pObject;
 }
 
 COOP_PINVOKE_HELPER(Array *, RhpNewArrayAlign8, (EEType * pArrayEEType, int numElements))
 {
-    Array * pObject = nullptr;
-    /* TODO */ ASSERT_UNCONDITIONALLY("NYI");
+    ASSERT_MSG(pArrayEEType->RequiresAlign8(), "RhpNewArrayAlign8 called for a type that is not aligned 8");
+
+    Thread* pCurThread = ThreadStore::GetCurrentThread();
+    gc_alloc_context* acontext = pCurThread->GetAllocContext();
+    Array* pObject;
+
+    if (numElements < 0)
+    {
+        ASSERT_UNCONDITIONALLY("NYI");  // TODO: Throw overflow
+    }
+
+    size_t size;
+
+    UInt32 baseSize = pArrayEEType->get_BaseSize();
+    // if the element count is <= 0x10000, no overflow is possible because the component size is
+    // <= 0xffff, and thus the product is <= 0xffff0000, and the base size is only ~12 bytes
+    if (numElements > 0x10000)
+    {
+        // Perform the size computation using 64-bit integeres to detect overflow
+        uint64_t size64 = (uint64_t)baseSize + ((uint64_t)numElements * (uint64_t)pArrayEEType->get_ComponentSize());
+        size64 = (size64 + (sizeof(UIntNative) - 1)) & ~(sizeof(UIntNative) - 1);
+
+        size = (size_t)size64;
+        if (size != size64)
+        {
+            ASSERT_UNCONDITIONALLY("NYI");  // TODO: Throw overflow
+        }
+    }
+    else
+    {
+        size = (size_t)baseSize + ((size_t)numElements * (size_t)pArrayEEType->get_ComponentSize());
+        size = ALIGN_UP(size, sizeof(UIntNative));
+    }
+    UInt8* result = acontext->alloc_ptr;
+    int requiresAlignObject = ((uint32_t)result) & 7;
+    size_t paddedSize = size;
+    if (requiresAlignObject) 
+    {
+        if(paddedSize > SIZE_MAX - 12)
+        {
+            ASSERT_UNCONDITIONALLY("NYI");  // TODO: Throw overflow
+        }
+        paddedSize += 12;
+    }
+    UInt8* alloc_ptr = acontext->alloc_ptr;
+    ASSERT(alloc_ptr <= acontext->alloc_limit);
+    if ((size_t)(acontext->alloc_limit - alloc_ptr) >= paddedSize)
+    {
+        acontext->alloc_ptr = alloc_ptr + paddedSize;
+        if (requiresAlignObject)
+        {
+            Object* dummy = (Object*)alloc_ptr;
+            dummy->set_EEType(g_pFreeObjectEEType);
+            alloc_ptr += 12; // if result + paddedSize was ok, then cant overflow
+        }
+        pObject = (Array*)alloc_ptr;
+        pObject->set_EEType(pArrayEEType);
+        pObject->InitArrayLength((UInt32)numElements);
+        return pObject;
+    }
+
+    pObject = (Array*)RhpGcAlloc(pArrayEEType, GC_ALLOC_ALIGN8, size, NULL);
+    if (pObject == nullptr)
+    {
+        ASSERT_UNCONDITIONALLY("NYI");  // TODO: Throw OOM
+    }
+    pObject->set_EEType(pArrayEEType);
+    pObject->InitArrayLength((UInt32)numElements);
+
+    if (size >= RH_LARGE_OBJECT_SIZE)
+        RhpPublishObject(pObject, size);
+
     return pObject;
 }
-#endif
+#endif // !HOST_64BIT
+#endif // defined(HOST_ARM) || defined(HOST_WASM)
 
 COOP_PINVOKE_HELPER(void, RhpInitialDynamicInterfaceDispatch, ())
 {
@@ -256,26 +419,6 @@ COOP_PINVOKE_HELPER(void, RhpVTableOffsetDispatch, ())
     ASSERT_UNCONDITIONALLY("NYI");
 }
 
-COOP_PINVOKE_HELPER(void, RhpTailCallTLSDispatchCell, ())
-{
-    ASSERT_UNCONDITIONALLY("NYI");
-}
-
-COOP_PINVOKE_HELPER(void, RhpCastableObjectDispatchHelper, ())
-{
-    ASSERT_UNCONDITIONALLY("NYI");
-}
-
-COOP_PINVOKE_HELPER(void, RhpCastableObjectDispatchHelper_TailCalled, ())
-{
-    ASSERT_UNCONDITIONALLY("NYI");
-}
-
-COOP_PINVOKE_HELPER(void, RhpCastableObjectDispatch_CommonStub, ())
-{
-    ASSERT_UNCONDITIONALLY("NYI");
-}
-
 // @TODO Implement UniversalTransition
 EXTERN_C void * ReturnFromUniversalTransition;
 void * ReturnFromUniversalTransition;
@@ -292,8 +435,8 @@ EXTERN_C void * ReturnFromCallDescrThunk;
 void * ReturnFromCallDescrThunk;
 #endif
 
-#if defined(USE_PORTABLE_HELPERS) || defined(PLATFORM_UNIX)
-#if !defined (_ARM64_)
+#if defined(USE_PORTABLE_HELPERS) || defined(TARGET_UNIX)
+#if !defined (HOST_ARM64)
 // 
 // Return address hijacking
 //
@@ -322,11 +465,11 @@ COOP_PINVOKE_HELPER(void, RhpGcStressHijackByref, ())
     ASSERT_UNCONDITIONALLY("NYI");
 }
 #endif
-#endif // defined(USE_PORTABLE_HELPERS) || defined(PLATFORM_UNIX)
+#endif // defined(USE_PORTABLE_HELPERS) || defined(TARGET_UNIX)
 
 #if defined(USE_PORTABLE_HELPERS)
 
-#if !defined (_ARM64_)
+#if !defined (HOST_ARM64)
 COOP_PINVOKE_HELPER(void, RhpAssignRef, (Object ** dst, Object * ref))
 {
     // @TODO: USE_PORTABLE_HELPERS - Null check
@@ -372,12 +515,10 @@ COOP_PINVOKE_HELPER(Int64, RhpLockCmpXchg64, (Int64 * location, Int64 value, Int
 
 #endif // USE_PORTABLE_HELPERS
 
-#if !defined(_ARM64_)
 COOP_PINVOKE_HELPER(void, RhpMemoryBarrier, ())
 {
     PalMemoryBarrier();
 }
-#endif
 
 #if defined(USE_PORTABLE_HELPERS)
 EXTERN_C REDHAWK_API void* __cdecl RhAllocateThunksMapping()
@@ -452,4 +593,11 @@ COOP_PINVOKE_HELPER(void *, RhGetCurrentThunkContext, ())
     return NULL;
 }
 
+#endif
+
+#if !(defined(TARGET_ARM64) && defined(TARGET_UNIX))
+COOP_PINVOKE_HELPER(void, RhpGcPoll, ())
+{
+    // TODO: implement
+}
 #endif

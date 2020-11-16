@@ -1,10 +1,8 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Collections.Generic;
-using System.Runtime;
 using System.Reflection.Runtime.General;
 using System.Reflection.Runtime.TypeInfos;
 using System.Reflection.Runtime.TypeInfos.NativeFormat;
@@ -13,6 +11,7 @@ using System.Reflection.Runtime.ParameterInfos.NativeFormat;
 using System.Reflection.Runtime.CustomAttributes;
 
 using Internal.Reflection.Core.Execution;
+using Internal.Runtime;
 using Internal.Runtime.CompilerServices;
 using Internal.Runtime.TypeLoader;
 using Internal.Metadata.NativeFormat;

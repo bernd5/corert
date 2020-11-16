@@ -1,6 +1,5 @@
 ;; Licensed to the .NET Foundation under one or more agreements.
 ;; The .NET Foundation licenses this file to you under the MIT license.
-;; See the LICENSE file in the project root for more information.
 
 #include "AsmMacros.h"
 
@@ -148,7 +147,7 @@ AllDone
 
 CheckBadTransition
         ;; Allow 'bad transitions' in when the TSF_DoNotTriggerGc mode is set.  This allows us to have 
-        ;; [NativeCallable] methods that are called via the "restricted GC callouts" as well as from native,
+        ;; [UnmanagedCallersOnly] methods that are called via the "restricted GC callouts" as well as from native,
         ;; which is necessary because the methods are CCW vtable methods on interfaces passed to native.
         ldr         r7, [r5, #OFFSETOF__Thread__m_ThreadStateFlags]
         tst         r7, #TSF_DoNotTriggerGc

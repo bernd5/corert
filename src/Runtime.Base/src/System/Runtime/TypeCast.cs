@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -44,14 +43,13 @@ namespace System.Runtime
         }
 
         [RuntimeExport("RhTypeCast_IsInstanceOfClass")]
-        public static unsafe object IsInstanceOfClass(void* pvTargetType, object obj)
+        public static unsafe object IsInstanceOfClass(EEType* pTargetType, object obj)
         {
             if (obj == null)
             {
                 return null;
             }
 
-            EEType* pTargetType = (EEType*)pvTargetType;
             EEType* pObjType = obj.EEType;
 
             Debug.Assert(!pTargetType->IsParameterizedType, "IsInstanceOfClass called with parameterized EEType");
@@ -154,51 +152,33 @@ namespace System.Runtime
         }
 
         [RuntimeExport("RhTypeCast_CheckCastClass")]
-        public static unsafe object CheckCastClass(void* pvTargetEEType, object obj)
+        public static unsafe object CheckCastClass(EEType* pTargetEEType, object obj)
         {
             // a null value can be cast to anything
             if (obj == null)
                 return null;
 
-            object result = IsInstanceOfClass(pvTargetEEType, obj);
+            object result = IsInstanceOfClass(pTargetEEType, obj);
 
             if (result == null)
             {
                 // Throw the invalid cast exception defined by the classlib, using the input EEType* 
                 // to find the correct classlib.
 
-                throw ((EEType*)pvTargetEEType)->GetClasslibException(ExceptionIDs.InvalidCast);
+                throw pTargetEEType->GetClasslibException(ExceptionIDs.InvalidCast);
             }
 
             return result;
         }
 
-        [RuntimeExport("RhTypeCast_CheckUnbox")]
-        public static unsafe void CheckUnbox(object obj, byte expectedCorElementType)
-        {
-            if (obj == null)
-            {
-                return;
-            }
-
-            if (obj.EEType->CorElementType == (CorElementType)expectedCorElementType)
-                return;
-
-            // Throw the invalid cast exception defined by the classlib, using the input object's EEType* 
-            // to find the correct classlib.
-
-            throw obj.EEType->GetClasslibException(ExceptionIDs.InvalidCast);
-        }
-
         [RuntimeExport("RhTypeCast_IsInstanceOfArray")]
-        public static unsafe object IsInstanceOfArray(void* pvTargetType, object obj)
+        public static unsafe object IsInstanceOfArray(EEType* pTargetType, object obj)
         {
             if (obj == null)
             {
                 return null;
             }
 
-            EEType* pTargetType = (EEType*)pvTargetType;
             EEType* pObjType = obj.EEType;
 
             Debug.Assert(pTargetType->IsArray, "IsInstanceOfArray called with non-array EEType");
@@ -239,98 +219,39 @@ namespace System.Runtime
         }
 
         [RuntimeExport("RhTypeCast_CheckCastArray")]
-        public static unsafe object CheckCastArray(void* pvTargetEEType, object obj)
+        public static unsafe object CheckCastArray(EEType* pTargetEEType, object obj)
         {
             // a null value can be cast to anything
             if (obj == null)
                 return null;
 
-            object result = IsInstanceOfArray(pvTargetEEType, obj);
+            object result = IsInstanceOfArray(pTargetEEType, obj);
 
             if (result == null)
             {
                 // Throw the invalid cast exception defined by the classlib, using the input EEType* 
                 // to find the correct classlib.
 
-                throw ((EEType*)pvTargetEEType)->GetClasslibException(ExceptionIDs.InvalidCast);
+                throw pTargetEEType->GetClasslibException(ExceptionIDs.InvalidCast);
             }
 
             return result;
         }
 
         [RuntimeExport("RhTypeCast_IsInstanceOfInterface")]
-        public static unsafe object IsInstanceOfInterface(void* pvTargetType, object obj)
+        public static unsafe object IsInstanceOfInterface(EEType* pTargetType, object obj)
         {
             if (obj == null)
             {
                 return null;
             }
 
-            EEType* pTargetType = (EEType*)pvTargetType;
             EEType* pObjType = obj.EEType;
 
             if (CastCache.AreTypesAssignableInternal_SourceNotTarget_BoxedSource(pObjType, pTargetType, null))
                 return obj;
 
-            // If object type implements ICastable then there's one more way to check whether it implements
-            // the interface.
-            if (pObjType->IsICastable && IsInstanceOfInterfaceViaCastableObject(obj, pTargetType))
-                return obj;
-
             return null;
-        }
-
-        private static unsafe bool IsInstanceOfInterfaceViaCastableObject(object obj, EEType* pTargetType)
-        {
-            // To avoid stack overflow, it is not possible to implement the ICastableObject interface
-            // itself via ICastableObject
-            if (pTargetType->IsICastable)
-                return false;
-
-            // TODO!! BEGIN REMOVE THIS CODE WHEN WE REMOVE ICASTABLE
-            // Call the ICastable.IsInstanceOfInterface method directly rather than via an interface
-            // dispatch since we know the method address statically. We ignore any cast error exception
-            // object passed back on failure (result == false) since IsInstanceOfInterface never throws.
-            IntPtr pfnIsInstanceOfInterface = obj.EEType->ICastableIsInstanceOfInterfaceMethod;
-            Exception castError = null;
-            if (CalliIntrinsics.Call<bool>(pfnIsInstanceOfInterface, obj, pTargetType, out castError))
-                return true;
-
-            if (obj is CastableObjectSupport.ICastableObject)
-            {
-                // TODO!! END REMOVE THIS CODE WHEN WE REMOVE ICASTABLE
-
-                // We ignore any cast error exception
-                // object passed back on failure (result == false) since IsInstanceOfInterface never throws.
-                CastableObjectSupport.ICastableObject castableObject = (CastableObjectSupport.ICastableObject)obj;
-                Exception castableObjectCastError = null;
-                if (CastableObjectSupport.GetCastableTargetIfPossible(castableObject, pTargetType, false, ref castableObjectCastError) != null)
-                    return true;
-
-                // TODO!! BEGIN REMOVE THIS CODE WHEN WE REMOVE ICASTABLE
-            }
-            // TODO!! END REMOVE THIS CODE WHEN WE REMOVE ICASTABLE
-            return false;
-        }
-
-        private static unsafe bool IsInstanceOfInterfaceViaCastableObjectWithException(object obj, EEType* pTargetType, ref Exception castError)
-        {
-            // TODO!! BEGIN REMOVE THIS CODE WHEN WE REMOVE ICASTABLE
-            // Call the ICastable.IsInstanceOfInterface method directly rather than via an interface
-            // dispatch since we know the method address statically.
-            IntPtr pfnIsInstanceOfInterface = obj.EEType->ICastableIsInstanceOfInterfaceMethod;
-            if (CalliIntrinsics.Call<bool>(pfnIsInstanceOfInterface, obj, pTargetType, out castError))
-                return true;
-            if (obj is CastableObjectSupport.ICastableObject)
-            {
-                // TODO!! END REMOVE THIS CODE WHEN WE REMOVE ICASTABLE
-
-                CastableObjectSupport.ICastableObject castableObject = (CastableObjectSupport.ICastableObject)obj;
-                return CastableObjectSupport.GetCastableTargetIfPossible(castableObject, pTargetType, true, ref castError) != null;
-                // TODO!! BEGIN REMOVE THIS CODE WHEN WE REMOVE ICASTABLE
-            }
-            return false;
-            // TODO!! END REMOVE THIS CODE WHEN WE REMOVE ICASTABLE
         }
 
         internal static unsafe bool ImplementsInterface(EEType* pObjType, EEType* pTargetType, EETypePairList* pVisited)
@@ -420,18 +341,6 @@ namespace System.Runtime
                 }
             }
 
-            // Interface type equivalence check.
-            // Currently only implemented to allow ICastable to be defined in multiple type spaces
-            if (pTargetType->IsICastable)
-            {
-                for (int i = 0; i < numInterfaces; i++)
-                {
-                    EEType* pInterfaceType = interfaceMap[i].InterfaceType;
-                    if (pInterfaceType->IsICastable)
-                        return true;
-                }
-            }
-
             return false;
         }
 
@@ -507,7 +416,7 @@ namespace System.Runtime
                     case GenericVariance.NonVariant:
                         // Non-variant type params need to be identical.
 
-                        if (!AreTypesEquivalentInternal(pSourceArgType, pTargetArgType))
+                        if (!AreTypesEquivalent(pSourceArgType, pTargetArgType))
                             return false;
 
                         break;
@@ -568,16 +477,12 @@ namespace System.Runtime
 
         //
         // Determines if a value of the source type can be assigned to a location of the target type.
-        // It does not handle ICastable, and cannot since we do not have an actual object instance here.
         // This routine assumes that the source type is boxed, i.e. a value type source is presumed to be
         // compatible with Object and ValueType and an enum source is additionally compatible with Enum.
         //
         [RuntimeExport("RhTypeCast_AreTypesAssignable")]
-        public static unsafe bool AreTypesAssignable(void* pvSourceType, void* pvTargetType)
+        public static unsafe bool AreTypesAssignable(EEType* pSourceType, EEType* pTargetType)
         {
-            EEType* pSourceType = (EEType*)pvSourceType;
-            EEType* pTargetType = (EEType*)pvTargetType;
-
             // Special case: Generic Type definitions are not assignable in a mrt sense
             // in any way. Assignability of those types is handled by reflection logic.
             // Call this case out first and here so that these only somewhat filled in
@@ -594,7 +499,7 @@ namespace System.Runtime
             {
                 EEType* pNullableType = pTargetType->NullableType;
 
-                return AreTypesEquivalentInternal(pSourceType, pNullableType);
+                return AreTypesEquivalent(pSourceType, pNullableType);
             }
 
             return CastCache.AreTypesAssignableInternal(pSourceType, pTargetType, AssignmentVariation.BoxedSource, null);
@@ -613,7 +518,7 @@ namespace System.Runtime
             //
             // Are the types identical?
             //
-            if (AreTypesEquivalentInternal(pSourceType, pTargetType))
+            if (AreTypesEquivalent(pSourceType, pTargetType))
                 return true;
 
             //
@@ -737,7 +642,7 @@ namespace System.Runtime
         }
 
         [RuntimeExport("RhTypeCast_CheckCastInterface")]
-        public static unsafe object CheckCastInterface(void* pvTargetEEType, object obj)
+        public static unsafe object CheckCastInterface(EEType* pTargetType, object obj)
         {
             // a null value can be cast to anything
             if (obj == null)
@@ -745,7 +650,6 @@ namespace System.Runtime
                 return null;
             }
 
-            EEType* pTargetType = (EEType*)pvTargetEEType;
             EEType* pObjType = obj.EEType;
 
             if (CastCache.AreTypesAssignableInternal_SourceNotTarget_BoxedSource(pObjType, pTargetType, null))
@@ -753,20 +657,11 @@ namespace System.Runtime
 
             Exception castError = null;
 
-            // If object type implements ICastable then there's one more way to check whether it implements
-            // the interface.
-            if (pObjType->IsICastable)
-            {
-                if (IsInstanceOfInterfaceViaCastableObjectWithException(obj, pTargetType, ref castError))
-                    return obj;
-            }
-
             // Throw the invalid cast exception defined by the classlib, using the input EEType* to find the
-            // correct classlib unless ICastable.IsInstanceOfInterface returned a more specific exception for
-            // us to use.
+            // correct classlib.
 
             if (castError == null)
-                castError = ((EEType*)pvTargetEEType)->GetClasslibException(ExceptionIDs.InvalidCast);
+                castError = pTargetType->GetClasslibException(ExceptionIDs.InvalidCast);
 
             throw castError;
         }
@@ -785,11 +680,6 @@ namespace System.Runtime
             if (CastCache.AreTypesAssignableInternal(obj.EEType, arrayElemType, AssignmentVariation.BoxedSource, null))
                 return;
 
-            // If object type implements ICastable then there's one more way to check whether it implements
-            // the interface.
-            if (obj.EEType->IsICastable && IsInstanceOfInterfaceViaCastableObject(obj, arrayElemType))
-                return;
-
             // Throw the array type mismatch exception defined by the classlib, using the input array's EEType* 
             // to find the correct classlib.
 
@@ -797,7 +687,7 @@ namespace System.Runtime
         }
 
         [RuntimeExport("RhTypeCast_CheckVectorElemAddr")]
-        public static unsafe void CheckVectorElemAddr(void* pvElemType, object array)
+        public static unsafe void CheckVectorElemAddr(EEType* elemType, object array)
         {
             if (array == null)
             {
@@ -806,10 +696,9 @@ namespace System.Runtime
 
             Debug.Assert(array.EEType->IsArray, "second argument must be an array");
 
-            EEType* elemType = (EEType*)pvElemType;
             EEType* arrayElemType = array.EEType->RelatedParameterType;
 
-            if (!AreTypesEquivalentInternal(elemType, arrayElemType)
+            if (!AreTypesEquivalent(elemType, arrayElemType)
             // In addition to the exactness check, add another check to allow non-exact matches through
             // if the element type is a ValueType. The issue here is Universal Generics. The Universal
             // Generic codegen will generate a call to this helper for all ldelema opcodes if the exact
@@ -847,27 +736,22 @@ namespace System.Runtime
 
                 if (!CastCache.AreTypesAssignableInternal(obj.EEType, arrayElemType, AssignmentVariation.BoxedSource, null))
                 {
-                    // If object type implements ICastable then there's one more way to check whether it implements
-                    // the interface.
-                    if (!obj.EEType->IsICastable || !IsInstanceOfInterfaceViaCastableObject(obj, arrayElemType))
-                    {
-                        // Throw the array type mismatch exception defined by the classlib, using the input array's 
-                        // EEType* to find the correct classlib.
+                    // Throw the array type mismatch exception defined by the classlib, using the input array's 
+                    // EEType* to find the correct classlib.
 
-                        throw array.EEType->GetClasslibException(ExceptionIDs.ArrayTypeMismatch);
-                    }
+                    throw array.EEType->GetClasslibException(ExceptionIDs.ArrayTypeMismatch);
                 }
 
                 // Both bounds and type check are ok.
 
                 // Call write barrier directly. Assigning object reference would call slower checked write barrier.
-                ref object rawData = ref Unsafe.As<byte, object>(ref array.GetRawSzArrayData());
+                ref object rawData = ref Unsafe.As<byte, object>(ref Unsafe.As<RawArrayData>(array).Data);
                 InternalCalls.RhpAssignRef(ref Unsafe.Add(ref rawData, index), obj);
             }
             else
             {
                 // Storing null does not require write barrier
-                ref IntPtr rawData = ref Unsafe.As<byte, IntPtr>(ref array.GetRawSzArrayData());
+                ref IntPtr rawData = ref Unsafe.As<byte, IntPtr>(ref Unsafe.As<RawArrayData>(array).Data);
                 Unsafe.Add(ref rawData, index) = default(IntPtr);
             }
         }
@@ -880,7 +764,7 @@ namespace System.Runtime
             EEType* elemType = (EEType*)elementType;
             EEType* arrayElemType = array.EEType->RelatedParameterType;
 
-            if (!AreTypesEquivalentInternal(elemType, arrayElemType))
+            if (!AreTypesEquivalent(elemType, arrayElemType))
             {
                 // Throw the array type mismatch exception defined by the classlib, using the input array's EEType* 
                 // to find the correct classlib.
@@ -888,7 +772,7 @@ namespace System.Runtime
                 throw array.EEType->GetClasslibException(ExceptionIDs.ArrayTypeMismatch);
             }
 
-            ref object rawData = ref Unsafe.As<byte, object>(ref array.GetRawSzArrayData());
+            ref object rawData = ref Unsafe.As<byte, object>(ref Unsafe.As<RawArrayData>(array).Data);
             return ref Unsafe.Add(ref rawData, index);
         }
 
@@ -923,13 +807,6 @@ namespace System.Runtime
             return false;
         }
 
-
-        [RuntimeExport("RhTypeCast_AreTypesEquivalent")]
-        static unsafe public bool AreTypesEquivalent(EETypePtr pType1, EETypePtr pType2)
-        {
-            return (AreTypesEquivalentInternal(pType1.ToPointer(), pType2.ToPointer()));
-        }
-
         // Method to compare two types pointers for type equality
         // We cannot just compare the pointers as there can be duplicate type instances
         // for cloned and constructed types.
@@ -937,7 +814,8 @@ namespace System.Runtime
         //   1. The pointers are Equal => true
         //   2. Either one or both the types are CLONED, follow to the canonical EEType and check
         //   3. For Arrays/Pointers, we have to further check for rank and element type equality
-        internal static unsafe bool AreTypesEquivalentInternal(EEType* pType1, EEType* pType2)
+        [RuntimeExport("RhTypeCast_AreTypesEquivalent")]
+        public static unsafe bool AreTypesEquivalent(EEType* pType1, EEType* pType2)
         {
             if (pType1 == pType2)
                 return true;
@@ -952,7 +830,7 @@ namespace System.Runtime
                 return true;
 
             if (pType1->IsParameterizedType && pType2->IsParameterizedType)
-                return AreTypesEquivalentInternal(pType1->RelatedParameterType, pType2->RelatedParameterType) && pType1->ParameterizedTypeShape == pType2->ParameterizedTypeShape;
+                return AreTypesEquivalent(pType1->RelatedParameterType, pType2->RelatedParameterType) && pType1->ParameterizedTypeShape == pType2->ParameterizedTypeShape;
 
             return false;
         }
@@ -960,36 +838,34 @@ namespace System.Runtime
         // this is necessary for shared generic code - Foo<T> may be executing
         // for T being an interface, an array or a class
         [RuntimeExport("RhTypeCast_IsInstanceOf")]
-        public static unsafe object IsInstanceOf(void* pvTargetType, object obj)
+        public static unsafe object IsInstanceOf(EEType* pTargetType, object obj)
         {
-            // @TODO: consider using the cache directly, but beware of ICastable in the interface case
-            EEType* pTargetType = (EEType*)pvTargetType;
+            // @TODO: consider using the cache directly
             if (pTargetType->IsArray)
-                return IsInstanceOfArray(pvTargetType, obj);
+                return IsInstanceOfArray(pTargetType, obj);
             else if (pTargetType->IsInterface)
-                return IsInstanceOfInterface(pvTargetType, obj);
+                return IsInstanceOfInterface(pTargetType, obj);
             else if (pTargetType->IsParameterizedType)
                 return null; // We handled arrays above so this is for pointers and byrefs only.
             else
-                return IsInstanceOfClass(pvTargetType, obj);
+                return IsInstanceOfClass(pTargetType, obj);
         }
 
         [RuntimeExport("RhTypeCast_CheckCast")]
-        public static unsafe object CheckCast(void* pvTargetType, object obj)
+        public static unsafe object CheckCast(EEType* pTargetType, object obj)
         {
-            // @TODO: consider using the cache directly, but beware of ICastable in the interface case
-            EEType* pTargetType = (EEType*)pvTargetType;
+            // @TODO: consider using the cache directly
             if (pTargetType->IsArray)
-                return CheckCastArray(pvTargetType, obj);
+                return CheckCastArray(pTargetType, obj);
             else if (pTargetType->IsInterface)
-                return CheckCastInterface(pvTargetType, obj);
+                return CheckCastInterface(pTargetType, obj);
             else if (pTargetType->IsParameterizedType)
-                return CheckCastNonArrayParameterizedType(pvTargetType, obj);
+                return CheckCastNonArrayParameterizedType(pTargetType, obj);
             else
-                return CheckCastClass(pvTargetType, obj);
+                return CheckCastClass(pTargetType, obj);
         }
 
-        private static unsafe object CheckCastNonArrayParameterizedType(void* pvTargetType, object obj)
+        private static unsafe object CheckCastNonArrayParameterizedType(EEType* pTargetType, object obj)
         {
             // a null value can be cast to anything
             if (obj == null)
@@ -998,43 +874,43 @@ namespace System.Runtime
             }
 
             // Parameterized types are not boxable, so nothing can be an instance of these.
-            throw ((EEType*)pvTargetType)->GetClasslibException(ExceptionIDs.InvalidCast);
+            throw pTargetType->GetClasslibException(ExceptionIDs.InvalidCast);
         }
 
         // Returns true of the two types are equivalent primitive types. Used by array casts.
         private static unsafe bool ArePrimitveTypesEquivalentSize(EEType* pType1, EEType* pType2)
         {
-            CorElementType sourceCorType = pType1->CorElementType;
+            EETypeElementType sourceCorType = pType1->ElementType;
             int sourcePrimitiveTypeEquivalenceSize = GetIntegralTypeMatchSize(sourceCorType);
 
             // Quick check to see if the first type is even primitive.
             if (sourcePrimitiveTypeEquivalenceSize == 0)
                 return false;
 
-            CorElementType targetCorType = pType2->CorElementType;
+            EETypeElementType targetCorType = pType2->ElementType;
             int targetPrimitiveTypeEquivalenceSize = GetIntegralTypeMatchSize(targetCorType);
 
             return sourcePrimitiveTypeEquivalenceSize == targetPrimitiveTypeEquivalenceSize;
         }
 
-        private static unsafe int GetIntegralTypeMatchSize(CorElementType corType)
+        private static unsafe int GetIntegralTypeMatchSize(EETypeElementType elementType)
         {
-            switch (corType)
+            switch (elementType)
             {
-                case CorElementType.ELEMENT_TYPE_I1:
-                case CorElementType.ELEMENT_TYPE_U1:
+                case EETypeElementType.Byte:
+                case EETypeElementType.SByte:
                     return 1;
-                case CorElementType.ELEMENT_TYPE_I2:
-                case CorElementType.ELEMENT_TYPE_U2:
+                case EETypeElementType.Int16:
+                case EETypeElementType.UInt16:
                     return 2;
-                case CorElementType.ELEMENT_TYPE_I4:
-                case CorElementType.ELEMENT_TYPE_U4:
+                case EETypeElementType.Int32:
+                case EETypeElementType.UInt32:
                     return 4;
-                case CorElementType.ELEMENT_TYPE_I8:
-                case CorElementType.ELEMENT_TYPE_U8:
+                case EETypeElementType.Int64:
+                case EETypeElementType.UInt64:
                     return 8;
-                case CorElementType.ELEMENT_TYPE_I:
-                case CorElementType.ELEMENT_TYPE_U:
+                case EETypeElementType.IntPtr:
+                case EETypeElementType.UIntPtr:
                     return sizeof(IntPtr);
                 default:
                     return 0;

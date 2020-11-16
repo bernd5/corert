@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Runtime.InteropServices;
@@ -78,8 +77,9 @@ namespace Internal.TypeSystem
     }
 
     [Flags]
-    public enum PInvokeAttributes : short
+    public enum PInvokeAttributes
     {
+        // These should match System.Reflection.MethodImportAttributes
         None = 0,
         ExactSpelling = 1,
         CharSetAnsi = 2,
@@ -98,7 +98,12 @@ namespace Internal.TypeSystem
         CallingConventionMask = 1792,
         ThrowOnUnmappableCharEnable = 4096,
         ThrowOnUnmappableCharDisable = 8192,
-        ThrowOnUnmappableCharMask = 12288
+        ThrowOnUnmappableCharMask = 12288,
+
+        // Not actually part of MethodImportAttributes.
+        // MethodImportAttributes is limited to `short`. This enum is based on int
+        // and we have 16 spare bytes.
+        PreserveSig = 0x10000,
     }
 
     public struct PInvokeFlags : IEquatable<PInvokeFlags>, IComparable<PInvokeFlags>
@@ -276,6 +281,25 @@ namespace Internal.TypeSystem
                 else
                 {
                     _attributes |= PInvokeAttributes.ThrowOnUnmappableCharDisable;
+                }
+            }
+        }
+
+        public bool PreserveSig
+        {
+            get
+            {
+                return (_attributes & PInvokeAttributes.PreserveSig) != 0;
+            }
+            set
+            {
+                if (value)
+                {
+                    _attributes |= PInvokeAttributes.PreserveSig;
+                }
+                else
+                {
+                    _attributes &= ~PInvokeAttributes.PreserveSig;
                 }
             }
         }

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -15,9 +14,13 @@ namespace ILCompiler.DependencyAnalysis
         : Internal.Runtime.ITargetBinaryWriter
 #endif
     {
-        public ObjectDataBuilder(NodeFactory factory, bool relocsOnly)
+        public ObjectDataBuilder(NodeFactory factory, bool relocsOnly) : this(factory.Target, relocsOnly)
         {
-            _target = factory.Target;
+        }
+
+        public ObjectDataBuilder(TargetDetails target, bool relocsOnly)
+        {
+            _target = target;
             _data = new ArrayBuilder<byte>();
             _relocs = new ArrayBuilder<Relocation>();
             Alignment = 1;
@@ -286,7 +289,9 @@ namespace ILCompiler.DependencyAnalysis
                 case RelocType.IMAGE_REL_BASED_ABSOLUTE:
                 case RelocType.IMAGE_REL_BASED_HIGHLOW:
                 case RelocType.IMAGE_REL_SECREL:
+                case RelocType.IMAGE_REL_FILE_ABSOLUTE:
                 case RelocType.IMAGE_REL_BASED_ADDR32NB:
+                case RelocType.IMAGE_REL_SYMBOL_SIZE:
                     EmitInt(delta);
                     break;
                 case RelocType.IMAGE_REL_BASED_DIR64:
@@ -297,6 +302,8 @@ namespace ILCompiler.DependencyAnalysis
                 case RelocType.IMAGE_REL_BASED_THUMB_MOV32:
                 case RelocType.IMAGE_REL_BASED_ARM64_PAGEBASE_REL21:
                 case RelocType.IMAGE_REL_BASED_ARM64_PAGEOFFSET_12L:
+                case RelocType.IMAGE_REL_BASED_ARM64_PAGEOFFSET_12A:
+                    Debug.Assert(delta == 0);
                     // Do not vacate space for this kind of relocation, because
                     // the space is embedded in the instruction.
                     break;                    

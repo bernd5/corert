@@ -1,9 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Text;
+#if CODEGEN_WASM
+using System.Runtime.InteropServices;
+using Console=BringUpTest.Console;
+#endif
 
 public class BringUpTest
 {
@@ -54,7 +57,11 @@ public class BringUpTest
             }
 
             string stackTrace = e.StackTrace;
+#if CODEGEN_WASM && !DEBUG  //Wasm doesn't get useful names in release mode, e.g. it gets at wasm-function[10259]:0x4b5182
+            if (!stackTrace.Contains("wasm-function"))
+#else
             if (!stackTrace.Contains("BringUpTest.Main"))
+#endif
             {
                 Console.WriteLine("Unexpected stack trace: " + stackTrace);
                 return Fail;
@@ -199,5 +206,45 @@ public class BringUpTest
         CreateSomeGarbage();
         return true;
     }
+
+#if CODEGEN_WASM
+    internal class Console
+    {
+        private static unsafe void PrintString(string s)
+        {
+            int length = s.Length;
+            fixed (char* curChar = s)
+            {
+                for (int i = 0; i < length; i++)
+                {
+                    TwoByteStr curCharStr = new TwoByteStr();
+                    curCharStr.first = (byte)(*(curChar + i));
+                    printf((byte*)&curCharStr, null);
+                }
+            }
+        }
+
+        internal static void WriteLine(string s)
+        {
+            PrintString(s);
+            PrintString("\n");
+        }
+
+        internal static void WriteLine(string format, string p)
+        {
+            PrintString(string.Format(format, p));
+            PrintString("\n");
+        }
+    }
+
+    struct TwoByteStr
+    {
+        public byte first;
+        public byte second;
+    }
+
+    [DllImport("*")]
+    private static unsafe extern int printf(byte* str, byte* unused);
+#endif
 }
 

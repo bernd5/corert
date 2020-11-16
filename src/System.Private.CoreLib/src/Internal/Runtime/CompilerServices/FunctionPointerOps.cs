@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -12,6 +11,12 @@ namespace Internal.Runtime.CompilerServices
     [System.Runtime.CompilerServices.ReflectionBlocked]
     public static class FunctionPointerOps
     {
+#if TARGET_WASM
+        private const int FatFunctionPointerOffset = 1 << 31;
+#else
+        private const int FatFunctionPointerOffset = 2;
+#endif
+
         private struct GenericMethodDescriptorInfo : IEquatable<GenericMethodDescriptorInfo>
         {
             public override bool Equals(object obj)
@@ -118,17 +123,17 @@ namespace Internal.Runtime.CompilerServices
                 System.Diagnostics.Debug.Assert(canonFunctionPointer == genericFunctionPointer->MethodFunctionPointer);
                 System.Diagnostics.Debug.Assert(instantiationArgument == genericFunctionPointer->InstantiationArgument);
 
-                return (IntPtr)((byte*)genericFunctionPointer + FatFunctionPointerConstants.Offset);
+                return (IntPtr)((byte*)genericFunctionPointer + FatFunctionPointerOffset);
             }
         }
 
         public static unsafe bool IsGenericMethodPointer(IntPtr functionPointer)
         {
             // Check the low bit to find out what kind of function pointer we have here.
-#if BIT64
-            if ((functionPointer.ToInt64() & FatFunctionPointerConstants.Offset) == FatFunctionPointerConstants.Offset)
+#if TARGET_64BIT
+            if ((functionPointer.ToInt64() & FatFunctionPointerOffset) == FatFunctionPointerOffset)
 #else
-            if ((functionPointer.ToInt32() & FatFunctionPointerConstants.Offset) == FatFunctionPointerConstants.Offset)
+            if ((functionPointer.ToInt32() & FatFunctionPointerOffset) == FatFunctionPointerOffset)
 #endif
             {
                 return true;
@@ -139,7 +144,7 @@ namespace Internal.Runtime.CompilerServices
         [CLSCompliant(false)]
         public static unsafe GenericMethodDescriptor* ConvertToGenericDescriptor(IntPtr functionPointer)
         {
-            return (GenericMethodDescriptor*)((byte*)functionPointer - FatFunctionPointerConstants.Offset);
+            return (GenericMethodDescriptor*)((byte*)functionPointer - FatFunctionPointerOffset);
         }
 
         public static unsafe bool Compare(IntPtr functionPointerA, IntPtr functionPointerB)

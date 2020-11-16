@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #pragma warning disable SA1141 // explicitly not using tuple syntax in tuple implementation
 
@@ -141,7 +140,7 @@ namespace System
         /// <summary>Creates a new struct 0-tuple.</summary>
         /// <returns>A 0-tuple.</returns>
         public static ValueTuple Create() =>
-            new ValueTuple();
+            default;
 
         /// <summary>Creates a new struct 1-tuple, or singleton.</summary>
         /// <typeparam name="T1">The type of the first component of the tuple.</typeparam>

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Runtime.Serialization;
 using System.Runtime.CompilerServices;
@@ -144,7 +143,7 @@ namespace System.Text
             }
             capacity = Math.Max(capacity, length);
 
-            m_ChunkChars = new char[capacity];
+            m_ChunkChars = GC.AllocateUninitializedArray<char>(capacity);
             m_ChunkLength = length;
 
             unsafe
@@ -182,7 +181,7 @@ namespace System.Text
             }
 
             m_MaxCapacity = maxCapacity;
-            m_ChunkChars = new char[capacity];
+            m_ChunkChars = GC.AllocateUninitializedArray<char>(capacity);
         }
 
         private StringBuilder(SerializationInfo info, StreamingContext context)
@@ -242,7 +241,7 @@ namespace System.Text
 
             // Assign
             m_MaxCapacity = persistedMaxCapacity;
-            m_ChunkChars = new char[persistedCapacity];
+            m_ChunkChars = GC.AllocateUninitializedArray<char>(persistedCapacity);
             persistedString.CopyTo(0, m_ChunkChars, 0, persistedString.Length);
             m_ChunkLength = persistedString.Length;
             m_ChunkPrevious = null;
@@ -314,8 +313,8 @@ namespace System.Text
                 if (Capacity != value)
                 {
                     int newLen = value - m_ChunkOffset;
-                    char[] newArray = new char[newLen];
-                    Array.Copy(m_ChunkChars, 0, newArray, 0, m_ChunkLength);
+                    char[] newArray = GC.AllocateUninitializedArray<char>(newLen);
+                    Array.Copy(m_ChunkChars, newArray, m_ChunkLength);
                     m_ChunkChars = newArray;
                 }
             }
@@ -479,8 +478,8 @@ namespace System.Text
                         {
                             // We crossed a chunk boundary when reducing the Length. We must replace this middle-chunk with a new larger chunk,
                             // to ensure the capacity we want is preserved.
-                            char[] newArray = new char[newLen];
-                            Array.Copy(chunk.m_ChunkChars, 0, newArray, 0, chunk.m_ChunkLength);
+                            char[] newArray = GC.AllocateUninitializedArray<char>(newLen);
+                            Array.Copy(chunk.m_ChunkChars, newArray, chunk.m_ChunkLength);
                             m_ChunkChars = newArray;
                         }
                         else
@@ -1091,9 +1090,7 @@ namespace System.Text
             }
             Debug.Assert(insertingChars + this.Length < int.MaxValue);
 
-            StringBuilder chunk;
-            int indexInChunk;
-            MakeRoom(index, (int)insertingChars, out chunk, out indexInChunk, false);
+            MakeRoom(index, (int)insertingChars, out StringBuilder chunk, out int indexInChunk, false);
             unsafe
             {
                 fixed (char* valuePtr = value)
@@ -1140,9 +1137,7 @@ namespace System.Text
 
             if (length > 0)
             {
-                StringBuilder chunk;
-                int indexInChunk;
-                Remove(startIndex, length, out chunk, out indexInChunk);
+                Remove(startIndex, length, out _, out _);
             }
 
             return this;
@@ -1152,9 +1147,13 @@ namespace System.Text
 
         public StringBuilder Append(char value)
         {
-            if (m_ChunkLength < m_ChunkChars.Length)
+            int nextCharIndex = m_ChunkLength;
+            char[] chars = m_ChunkChars;
+
+            if ((uint)chars.Length > (uint)nextCharIndex)
             {
-                m_ChunkChars[m_ChunkLength++] = value;
+                chars[nextCharIndex] = value;
+                m_ChunkLength++;
             }
             else
             {
@@ -1575,8 +1574,8 @@ namespace System.Text
                             FormatError();
                         }
                     }
-                    // Is it a opening brace?
-                    if (ch == '{')
+                    // Is it an opening brace?
+                    else if (ch == '{')
                     {
                         // Check next character (if there is one) to see if it is escaped. eg {{
                         if (pos < len && format[pos] == '{')
@@ -1590,7 +1589,7 @@ namespace System.Text
                             break;
                         }
                     }
-                    // If it neither then treat the character as just text.
+                    // If it's neither then treat the character as just text.
                     Append(ch);
                 }
 
@@ -1974,7 +1973,7 @@ namespace System.Text
                     }
                     else if (replacementsCount >= replacements.Length)
                     {
-                        Array.Resize(ref replacements, replacements.Length * 3 / 2 + 4); // Grow by ~1.5x, but more in the begining
+                        Array.Resize(ref replacements, replacements.Length * 3 / 2 + 4); // Grow by ~1.5x, but more in the beginning
                     }
                     replacements[replacementsCount++] = indexInChunk;
                     indexInChunk += oldValue.Length;
@@ -2136,9 +2135,7 @@ namespace System.Text
 
             if (valueCount > 0)
             {
-                StringBuilder chunk;
-                int indexInChunk;
-                MakeRoom(index, valueCount, out chunk, out indexInChunk, false);
+                MakeRoom(index, valueCount, out StringBuilder chunk, out int indexInChunk, false);
                 ReplaceInPlaceAtChunk(ref chunk!, ref indexInChunk, value, valueCount);
             }
         }
@@ -2367,25 +2364,6 @@ namespace System.Text
             return result;
         }
 
-        /// <summary>
-        /// Gets the chunk corresponding to the logical byte index in this builder.
-        /// </summary>
-        /// <param name="byteIndex">The logical byte index in this builder.</param>
-        private StringBuilder FindChunkForByte(int byteIndex)
-        {
-            Debug.Assert(0 <= byteIndex && byteIndex <= Length * sizeof(char));
-
-            StringBuilder result = this;
-            while (result.m_ChunkOffset * sizeof(char) > byteIndex)
-            {
-                Debug.Assert(result.m_ChunkPrevious != null);
-                result = result.m_ChunkPrevious;
-            }
-
-            Debug.Assert(result != null);
-            return result;
-        }
-
         /// <summary>Gets a span representing the remaining space available in the current chunk.</summary>
         private Span<char> RemainingCurrentChunk
         {
@@ -2438,7 +2416,7 @@ namespace System.Text
             }
 
             // Allocate the array before updating any state to avoid leaving inconsistent state behind in case of out of memory exception
-            char[] chunkChars = new char[newBlockLength];
+            char[] chunkChars = GC.AllocateUninitializedArray<char>(newBlockLength);
 
             // Move all of the data from this chunk to a new one, via a few O(1) pointer adjustments.
             // Then, have this chunk point to the new one as its predecessor.
@@ -2584,7 +2562,7 @@ namespace System.Text
             Debug.Assert(size > 0);
             Debug.Assert(maxCapacity > 0);
 
-            m_ChunkChars = new char[size];
+            m_ChunkChars = GC.AllocateUninitializedArray<char>(size);
             m_MaxCapacity = maxCapacity;
             m_ChunkPrevious = previousBlock;
             if (previousBlock != null)

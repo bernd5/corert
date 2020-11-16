@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Globalization;
 using System.Diagnostics;
@@ -18,17 +17,13 @@ namespace System
 
     [Serializable]
     [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public sealed class Version : ICloneable, IComparable, IComparable<Version?>,
-#nullable disable // see comment on String
-        IEquatable<Version>,
-#nullable restore
-        ISpanFormattable
+    public sealed class Version : ICloneable, IComparable, IComparable<Version?>, IEquatable<Version?>, ISpanFormattable
     {
         // AssemblyName depends on the order staying the same
         private readonly int _Major; // Do not rename (binary serialization)
         private readonly int _Minor; // Do not rename (binary serialization)
-        private readonly int _Build = -1; // Do not rename (binary serialization)
-        private readonly int _Revision = -1; // Do not rename (binary serialization)
+        private readonly int _Build; // Do not rename (binary serialization)
+        private readonly int _Revision; // Do not rename (binary serialization)
 
         public Version(int major, int minor, int build, int revision)
         {
@@ -64,6 +59,7 @@ namespace System
             _Major = major;
             _Minor = minor;
             _Build = build;
+            _Revision = -1;
         }
 
         public Version(int major, int minor)
@@ -76,6 +72,8 @@ namespace System
 
             _Major = major;
             _Minor = minor;
+            _Build = -1;
+            _Revision = -1;
         }
 
         public Version(string version)
@@ -89,8 +87,10 @@ namespace System
 
         public Version()
         {
-            _Major = 0;
-            _Minor = 0;
+            //_Major = 0;
+            //_Minor = 0;
+            _Build = -1;
+            _Revision = -1;
         }
 
         private Version(Version version)
@@ -292,7 +292,7 @@ namespace System
         public static Version Parse(ReadOnlySpan<char> input) =>
             ParseVersion(input, throwOnFailure: true)!;
 
-        public static bool TryParse(string? input, [NotNullWhen(true)] out Version? result)
+        public static bool TryParse([NotNullWhen(true)] string? input, [NotNullWhen(true)] out Version? result)
         {
             if (input == null)
             {
@@ -399,7 +399,7 @@ namespace System
             // so it can become a simple test
             if (v2 is null)
             {
-                // return true/false not the test result https://github.com/dotnet/coreclr/issues/914
+                // return true/false not the test result https://github.com/dotnet/runtime/issues/4207
                 return (v1 is null) ? true : false;
             }
 

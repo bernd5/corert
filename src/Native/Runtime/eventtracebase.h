@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 // File: eventtracebase.h
 // Abstract: This module implements base Event Tracing support (excluding some of the
 // CLR VM-specific ETW helpers).
@@ -851,13 +850,13 @@ typedef struct _MCGEN_TRACE_BUFFER {
 #endif // FEATURE_EVENT_TRACE && !FEATURE_PAL
 
 #ifdef FEATURE_EVENT_TRACE
-#ifdef _TARGET_X86_
+#ifdef TARGET_X86
 struct CallStackFrame
 {
     struct CallStackFrame* m_Next;
     SIZE_T m_ReturnAddress;
 };
-#endif // _TARGET_X86_
+#endif // TARGET_X86
 #endif // FEATURE_EVENT_TRACE
 
 #if defined(FEATURE_EVENT_TRACE) && !defined(FEATURE_PAL)

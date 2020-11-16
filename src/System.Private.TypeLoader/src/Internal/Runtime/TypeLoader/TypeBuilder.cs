@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 
 using System;
@@ -613,9 +612,9 @@ namespace Internal.Runtime.TypeLoader
                     case BagElementKind.GenericVarianceInfo:
                         TypeLoaderLogger.WriteLine("Found BagElementKind.GenericVarianceInfo");
                         NativeParser varianceInfoParser = typeInfoParser.GetParserFromRelativeOffset();
-                        state.GenericVarianceFlags = new int[varianceInfoParser.GetSequenceCount()];
+                        state.GenericVarianceFlags = new GenericVariance[varianceInfoParser.GetSequenceCount()];
                         for (int i = 0; i < state.GenericVarianceFlags.Length; i++)
-                            state.GenericVarianceFlags[i] = checked((int)varianceInfoParser.GetUnsigned());
+                            state.GenericVarianceFlags[i] = checked((GenericVariance)varianceInfoParser.GetUnsigned());
                         break;
 
                     case BagElementKind.FieldLayout:
@@ -1178,7 +1177,7 @@ namespace Internal.Runtime.TypeLoader
 
             if (state.TemplateType == null)
             {
-                if (!type.HasInstantiation)
+                if (!type.HasInstantiation && !type.RuntimeTypeHandle.IsDynamicType())
                 {
                     // Non-Generic ReadyToRun types in their current state already have their static field region setup
                     // with the class constructor initialized.
@@ -1319,8 +1318,16 @@ namespace Internal.Runtime.TypeLoader
 
                     state.HalfBakedRuntimeTypeHandle.SetGenericDefinition(GetRuntimeTypeHandle(typeAsDefType.GetTypeDefinition()));
                     Instantiation instantiation = typeAsDefType.Instantiation;
+                    state.HalfBakedRuntimeTypeHandle.SetGenericArity((uint)instantiation.Length);
                     for (int argIndex = 0; argIndex < instantiation.Length; argIndex++)
+                    {
                         state.HalfBakedRuntimeTypeHandle.SetGenericArgument(argIndex, GetRuntimeTypeHandle(instantiation[argIndex]));
+                        if (state.GenericVarianceFlags != null)
+                        {
+                            Debug.Assert(state.GenericVarianceFlags.Length == instantiation.Length);
+                            state.HalfBakedRuntimeTypeHandle.SetGenericVariance(argIndex, state.GenericVarianceFlags[argIndex]);
+                        }
+                    }
                 }
 
                 FinishBaseTypeAndDictionaries(type, state);
@@ -1329,18 +1336,10 @@ namespace Internal.Runtime.TypeLoader
 
                 FinishTypeDictionary(type, state);
 
-                FinishClassConstructor(type, state);
-
                 // For types that were allocated from universal canonical templates, patch their vtables with
                 // pointers to calling convention conversion thunks
                 if (state.TemplateType != null && state.TemplateType.IsCanonicalSubtype(CanonicalFormKind.Universal))
                     FinishVTableCallingConverterThunks(type, state);
-
-                if (RuntimeAugments.IsNullable(state.HalfBakedRuntimeTypeHandle))
-                {
-                    Debug.Assert(typeAsDefType.Instantiation.Length == 1);
-                    state.HalfBakedRuntimeTypeHandle.SetNullableType(GetRuntimeTypeHandle(typeAsDefType.Instantiation[0]));
-                }
             }
             else if (type is ParameterizedType)
             {
@@ -1375,8 +1374,14 @@ namespace Internal.Runtime.TypeLoader
                     state.HalfBakedRuntimeTypeHandle.SetRelatedParameterType(GetRuntimeTypeHandle(((ByRefType)type).ParameterType));
 
                     // We used a pointer type for the template because they're similar enough. Adjust this to be a ByRef.
-                    unsafe { Debug.Assert(state.HalfBakedRuntimeTypeHandle.ToEETypePtr()->ParameterizedTypeShape == ParameterizedTypeShapeConstants.Pointer); }
-                    state.HalfBakedRuntimeTypeHandle.SetParameterizedTypeShape(ParameterizedTypeShapeConstants.ByRef);
+                    unsafe
+                    {
+                        Debug.Assert(state.HalfBakedRuntimeTypeHandle.ToEETypePtr()->ParameterizedTypeShape == ParameterizedTypeShapeConstants.Pointer);
+                        state.HalfBakedRuntimeTypeHandle.SetParameterizedTypeShape(ParameterizedTypeShapeConstants.ByRef);
+                        Debug.Assert(state.HalfBakedRuntimeTypeHandle.ToEETypePtr()->ElementType == EETypeElementType.Pointer);
+                        state.HalfBakedRuntimeTypeHandle.ToEETypePtr()->Flags = EETypeBuilderHelpers.ComputeFlags(type);
+                        Debug.Assert(state.HalfBakedRuntimeTypeHandle.ToEETypePtr()->ElementType == EETypeElementType.ByRef);
+                    }
                 }
             }
             else
@@ -1557,7 +1562,14 @@ namespace Internal.Runtime.TypeLoader
 
             for (int i = 0; i < _typesThatNeedTypeHandles.Count; i++)
             {
-                _typesThatNeedTypeHandles[i].SetRuntimeTypeHandleUnsafe(_typesThatNeedTypeHandles[i].GetTypeBuilderState().HalfBakedRuntimeTypeHandle);
+                var typeThatNeedsTypeHandle = _typesThatNeedTypeHandles[i];
+                var stateOfTypeThatNeedsTypeHandle = typeThatNeedsTypeHandle.GetTypeBuilderState();
+
+                typeThatNeedsTypeHandle.SetRuntimeTypeHandleUnsafe(stateOfTypeThatNeedsTypeHandle.HalfBakedRuntimeTypeHandle);
+
+                // Finish class constructor only after assigning the RuntimeTypeHandle, that way,
+                // the MethodEntrypointLookup entry is constructed with the full type information
+                FinishClassConstructor(typeThatNeedsTypeHandle, stateOfTypeThatNeedsTypeHandle);
 
                 TypeLoaderLogger.WriteLine("Successfully Registered type " + _typesThatNeedTypeHandles[i].ToString() + ".");
             }

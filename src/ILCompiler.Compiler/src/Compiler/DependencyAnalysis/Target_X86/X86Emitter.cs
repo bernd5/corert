@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Diagnostics;
@@ -17,6 +16,14 @@ namespace ILCompiler.DependencyAnalysis.X86
 
         public ObjectDataBuilder Builder;
         public TargetRegisterMap TargetRegister;
+
+        public void EmitCMP(ref AddrMode addrMode, sbyte immediate)
+        {
+            if (addrMode.Size == AddrModeSize.Int16)
+                Builder.EmitByte(0x66);
+            EmitIndirInstruction((byte)((addrMode.Size != AddrModeSize.Int8) ? 0x83 : 0x80), 0x7, ref addrMode);
+            Builder.EmitByte((byte)immediate);
+        }
 
         public void EmitADD(ref AddrMode addrMode, sbyte immediate)
         {
@@ -76,7 +83,13 @@ namespace ILCompiler.DependencyAnalysis.X86
             }
         }
 
-        public void EmitMOV(Register register, ISymbolNode node)
+        public void EmitMOV(Register regDst, Register regSrc)
+        {
+            Builder.EmitByte(0x8B);
+            Builder.EmitByte((byte)(0xC0 | (((int)regDst & 0x07) << 3) | (((int)regSrc & 0x07))));
+        }
+
+        public void EmitMOV(Register register, ISymbolNode node, int delta = 0)
         {
             if (node.RepresentsIndirectionCell)
             {
@@ -89,12 +102,27 @@ namespace ILCompiler.DependencyAnalysis.X86
                 // mov register, immediate
                 Builder.EmitByte((byte)(0xB8 + (byte)register));
             }
-            Builder.EmitReloc(node, RelocType.IMAGE_REL_BASED_HIGHLOW);
+            Builder.EmitReloc(node, RelocType.IMAGE_REL_BASED_HIGHLOW, delta);
         }
 
         public void EmitINT3()
         {
             Builder.EmitByte(0xCC);
+        }
+
+        public void EmitRET()
+        {
+            Builder.EmitByte(0xC3);
+        }
+
+        public void EmitRETIfEqual()
+        {
+            // jne @+1
+            Builder.EmitByte(0x75);
+            Builder.EmitByte(0x01);
+
+            // ret
+            Builder.EmitByte(0xC3);
         }
 
         private bool InSignedByteRange(int i)

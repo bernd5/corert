@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -113,7 +112,7 @@ namespace System.Collections.Generic
                         T[] newItems = new T[value];
                         if (_size > 0)
                         {
-                            Array.Copy(_items, 0, newItems, 0, _size);
+                            Array.Copy(_items, newItems, _size);
                         }
                         _items = newItems;
                     }
@@ -169,7 +168,7 @@ namespace System.Collections.Generic
         {
             // Non-null values are fine.  Only accept nulls if T is a class or Nullable<U>.
             // Note that default(T) is not equal to null for value types except when T is Nullable<U>.
-            return (value is T) || (value == null && default(T)! == null); // default(T) == null warning (https://github.com/dotnet/roslyn/issues/34757)
+            return (value is T) || (value == null && default(T) == null);
         }
 
         object? IList.this[int index]
@@ -1020,7 +1019,7 @@ namespace System.Collections.Generic
 
             if (_size > 1)
             {
-                ArraySortHelper<T>.Sort(_items, 0, _size, comparison);
+                ArraySortHelper<T>.Sort(new Span<T>(_items, 0, _size), comparison);
             }
             _version++;
         }
@@ -1035,7 +1034,7 @@ namespace System.Collections.Generic
             }
 
             T[] array = new T[_size];
-            Array.Copy(_items, 0, array, 0, _size);
+            Array.Copy(_items, array, _size);
             return array;
         }
 

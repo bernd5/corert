@@ -1,11 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+#if CODEGEN_WASM
+using System.Runtime.InteropServices;
+using Console=Program.Console;
+#endif
 
 class Program
 {
@@ -33,7 +36,7 @@ class Program
         TestFieldAccess.Run();
         TestDevirtualization.Run();
         TestGenericInlining.Run();
-#if !CODEGEN_CPP
+#if !CODEGEN_CPP 
         TestNullableCasting.Run();
         TestVariantCasting.Run();
         TestMDArrayAddressMethod.Run();
@@ -2452,4 +2455,38 @@ class Program
                 throw new Exception();
         }
     }
+
+#if CODEGEN_WASM
+    internal class Console
+    {
+        private static unsafe void PrintString(string s)
+        {
+            int length = s.Length;
+            fixed (char* curChar = s)
+            {
+                for (int i = 0; i < length; i++)
+                {
+                    TwoByteStr curCharStr = new TwoByteStr();
+                    curCharStr.first = (byte)(*(curChar + i));
+                    printf((byte*)&curCharStr, null);
+                }
+            }
+        }
+
+        internal static void WriteLine(string s)
+        {
+            PrintString(s);
+            PrintString("\n");
+        }
+    }
+
+    struct TwoByteStr
+    {
+        public byte first;
+        public byte second;
+    }
+
+    [DllImport("*")]
+    private static unsafe extern int printf(byte* str, byte* unused);
+#endif
 }

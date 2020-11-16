@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using Internal.TypeSystem;
 
@@ -19,6 +18,19 @@ namespace ILCompiler
         public void EnsureLoadableType(TypeDesc type)
         {
             _validTypes.GetOrCreateValue(type);
+        }
+
+        public void EnsureLoadableMethod(MethodDesc method)
+        {
+            EnsureLoadableType(method.OwningType);
+
+            // If this is an instantiated generic method, check the instantiation.
+            MethodDesc methodDef = method.GetMethodDefinition();
+            if (methodDef != method)
+            {
+                foreach (var instType in method.Instantiation)
+                    EnsureLoadableType(instType);
+            }
         }
 
         class ValidTypeHashTable : LockFreeReaderHashtable<TypeDesc, TypeDesc>
@@ -112,6 +124,11 @@ namespace ILCompiler
                 foreach (var intf in type.RuntimeInterfaces)
                 {
                     ((CompilerTypeSystemContext)type.Context).EnsureLoadableType(intf.NormalizeInstantiation());
+                }
+
+                if (type.BaseType != null)
+                {
+                    ((CompilerTypeSystemContext)type.Context).EnsureLoadableType(type.BaseType);
                 }
 
                 var defType = (DefType)type;

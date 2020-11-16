@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #pragma warning disable IDE0060 // unused parameters
 using System.Runtime.CompilerServices;
@@ -42,6 +41,16 @@ namespace System.Runtime.Intrinsics.Arm
             ///   A64: CLZ Xd, Xn
             /// </summary>
             public static int LeadingZeroCount(ulong value) { throw new PlatformNotSupportedException(); }
+
+            /// <summary>
+            ///   A64: RBIT Xd, Xn
+            /// </summary>
+            public static long ReverseElementBits(long value) { throw new PlatformNotSupportedException(); }
+
+            /// <summary>
+            ///   A64: RBIT Xd, Xn
+            /// </summary>
+            public static ulong ReverseElementBits(ulong value) { throw new PlatformNotSupportedException(); }
         }
 
         /// <summary>
@@ -55,5 +64,17 @@ namespace System.Runtime.Intrinsics.Arm
         ///   A64: CLZ Wd, Wn
         /// </summary>
         public static int LeadingZeroCount(uint value) { throw new PlatformNotSupportedException(); }
+
+        /// <summary>
+        ///   A32: RBIT Rd, Rm
+        ///   A64: RBIT Wd, Wn
+        /// </summary>
+        public static int ReverseElementBits(int value) { throw new PlatformNotSupportedException(); }
+
+        /// <summary>
+        ///   A32: RBIT Rd, Rm
+        ///   A64: RBIT Wd, Wn
+        /// </summary>
+        public static uint ReverseElementBits(uint value) { throw new PlatformNotSupportedException(); }
     }
 }

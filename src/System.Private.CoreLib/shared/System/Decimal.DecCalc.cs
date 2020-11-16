@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Numerics;
@@ -223,7 +222,7 @@ namespace System
             /// <returns>Returns remainder. Quotient overwrites dividend.</returns>
             private static uint Div96By32(ref Buf12 bufNum, uint den)
             {
-                // TODO: https://github.com/dotnet/coreclr/issues/3439
+                // TODO: https://github.com/dotnet/runtime/issues/5213
                 ulong tmp, div;
                 if (bufNum.U2 != 0)
                 {
@@ -249,7 +248,7 @@ namespace System
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             private static bool Div96ByConst(ref ulong high64, ref uint low, uint pow)
             {
-#if BIT64
+#if TARGET_64BIT
                 ulong div64 = high64 / pow;
                 uint div = (uint)((((high64 - div64 * pow) << 32) + low) / pow);
                 if (low == div * pow)
@@ -323,7 +322,7 @@ namespace System
                 // Since 10 = 2 * 5, there must be a factor of 2 for every power of 10 we can extract.
                 // We use this as a quick test on whether to try a given power.
 
-#if BIT64
+#if TARGET_64BIT
                 while ((byte)low == 0 && scale >= 8 && Div96ByConst(ref high64, ref low, 100000000))
                     scale -= 8;
 
@@ -361,7 +360,7 @@ namespace System
                         // Result is zero.  Entire dividend is remainder.
                         return 0;
 
-                    // TODO: https://github.com/dotnet/coreclr/issues/3439
+                    // TODO: https://github.com/dotnet/runtime/issues/5213
                     quo = (uint)(num / den);
                     num -= quo * den; // remainder
                     bufNum.Low64 = num;
@@ -399,7 +398,7 @@ namespace System
                     //
                     return 0;
 
-                // TODO: https://github.com/dotnet/coreclr/issues/3439
+                // TODO: https://github.com/dotnet/runtime/issues/5213
                 quo = (uint)(num64 / denHigh32);
                 num = bufNum.U0 | ((num64 - quo * denHigh32) << 32); // remainder
 
@@ -445,7 +444,7 @@ namespace System
                     //
                     return 0;
 
-                // TODO: https://github.com/dotnet/coreclr/issues/3439
+                // TODO: https://github.com/dotnet/runtime/issues/5213
                 uint quo = (uint)(dividend / den);
                 uint remainder = (uint)dividend - quo * den;
 
@@ -613,7 +612,7 @@ PosRem:
                             case 4:
                                 power = DivByConst(result, hiRes, out quotient, out remainder, 10000);
                                 break;
-#if BIT64
+#if TARGET_64BIT
                             case 5:
                                 power = DivByConst(result, hiRes, out quotient, out remainder, 100000);
                                 break;
@@ -640,7 +639,7 @@ PosRem:
                         if (quotient == 0 && hiRes != 0)
                             hiRes--;
 
-#if BIT64
+#if TARGET_64BIT
                         newScale -= MaxInt32Scale;
 #else
                         newScale -= 4;
@@ -706,7 +705,7 @@ ThrowOverflow:
                 remainder = high - (quotient = high / power) * power;
                 for (uint i = hiRes - 1; (int)i >= 0; i--)
                 {
-#if BIT64
+#if TARGET_64BIT
                     ulong num = result[i] + ((ulong)remainder << 32);
                     remainder = (uint)num - (result[i] = (uint)(num / power)) * power;
 #else
@@ -874,6 +873,8 @@ ThrowOverflow:
             /// Adds or subtracts two decimal values.
             /// On return, d1 contains the result of the operation and d2 is trashed.
             /// </summary>
+            /// <param name="d1">First decimal to add or subtract.</param>
+            /// <param name="d2">Second decimal to add or subtract.</param>
             /// <param name="sign">True means subtract and false means add.</param>
             internal static unsafe void DecAddSub(ref DecCalc d1, ref DecCalc d2, bool sign)
             {
@@ -990,8 +991,7 @@ ThrowOverflow:
 
                     // Have to scale by a bunch. Move the number to a buffer where it has room to grow as it's scaled.
                     //
-                    Buf24 bufNum;
-                    _ = &bufNum; // workaround for CS0165
+                    Unsafe.SkipInit(out Buf24 bufNum);
                     DebugPoison(ref bufNum);
 
                     bufNum.Low64 = low64;
@@ -1340,8 +1340,7 @@ ThrowOverflow:
 
                 ulong tmp;
                 uint hiProd;
-                Buf24 bufProd;
-                _ = &bufProd; // workaround for CS0165
+                Unsafe.SkipInit(out Buf24 bufProd);
                 DebugPoison(ref bufProd);
 
                 if ((d1.High | d1.Mid) == 0)
@@ -1363,7 +1362,7 @@ ThrowOverflow:
                             scale -= DEC_SCALE_MAX + 1;
                             ulong power = s_ulongPowers10[scale];
 
-                            // TODO: https://github.com/dotnet/coreclr/issues/3439
+                            // TODO: https://github.com/dotnet/runtime/issues/5213
                             tmp = low64 / power;
                             ulong remainder = low64 - tmp * power;
                             low64 = tmp;
@@ -1922,8 +1921,7 @@ ReturnZero:
             /// </summary>
             internal static unsafe void VarDecDiv(ref DecCalc d1, ref DecCalc d2)
             {
-                Buf12 bufQuo;
-                _ = &bufQuo; // workaround for CS0165
+                Unsafe.SkipInit(out Buf12 bufQuo);
                 DebugPoison(ref bufQuo);
 
                 uint power;
@@ -1996,7 +1994,7 @@ ReturnZero:
                             goto ThrowOverflow;
 
                         ulong num = UInt32x32To64(remainder, power);
-                        // TODO: https://github.com/dotnet/coreclr/issues/3439
+                        // TODO: https://github.com/dotnet/runtime/issues/5213
                         uint div = (uint)(num / den);
                         remainder = (uint)num - div * den;
 
@@ -2024,8 +2022,7 @@ ReturnZero:
 
                     // Shift both dividend and divisor left by curScale.
                     //
-                    Buf16 bufRem;
-                    _ = &bufRem; // workaround for CS0165
+                    Unsafe.SkipInit(out Buf16 bufRem);
                     DebugPoison(ref bufRem);
 
                     bufRem.Low64 = d1.Low64 << curScale;
@@ -2094,8 +2091,7 @@ ReturnZero:
                         //
                         // Start by finishing the shift left by curScale.
                         //
-                        Buf12 bufDivisor;
-                        _ = &bufDivisor; // workaround for CS0165
+                        Unsafe.SkipInit(out Buf12 bufDivisor);
                         DebugPoison(ref bufDivisor);
 
                         bufDivisor.Low64 = divisor;
@@ -2248,8 +2244,7 @@ ThrowOverflow:
                     {
                         d1.uflags = d2.uflags;
                         // Try to scale up dividend to match divisor.
-                        Buf12 bufQuo;
-                        unsafe { _ = &bufQuo; } // workaround for CS0165
+                        Unsafe.SkipInit(out Buf12 bufQuo);
                         DebugPoison(ref bufQuo);
 
                         bufQuo.Low64 = d1.Low64;
@@ -2309,8 +2304,7 @@ ThrowOverflow:
                     tmp = d2.Mid;
                 int shift = BitOperations.LeadingZeroCount(tmp);
 
-                Buf28 b;
-                _ = &b; // workaround for CS0165
+                Unsafe.SkipInit(out Buf28 b);
                 DebugPoison(ref b);
 
                 b.Buf24.Low64 = d1.Low64 << shift;
@@ -2365,8 +2359,7 @@ ThrowOverflow:
                 }
                 else
                 {
-                    Buf12 bufDivisor;
-                    _ = &bufDivisor; // workaround for CS0165
+                    Unsafe.SkipInit(out Buf12 bufDivisor);
                     DebugPoison(ref bufDivisor);
 
                     bufDivisor.Low64 = d2.Low64 << shift;
@@ -2438,7 +2431,7 @@ ThrowOverflow:
 
                 {
                     power = s_powers10[scale];
-                    // TODO: https://github.com/dotnet/coreclr/issues/3439
+                    // TODO: https://github.com/dotnet/runtime/issues/5213
                     uint n = d.uhi;
                     if (n == 0)
                     {

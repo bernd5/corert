@@ -6,20 +6,19 @@
     <RootNamespace>ILCompiler</RootNamespace>
     <AssemblyName>ILCompiler.WebAssembly</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <TargetFramework>netstandard1.6</TargetFramework>
+    <TargetFramework>netstandard2.0</TargetFramework>
     <NoWarn>8002</NoWarn>
   </PropertyGroup>
-  
+
   <ItemGroup>
     <PackageReference Include="LLVMSharp">
-      <Version>5.0.0</Version>
-    </PackageReference>  
+      <Version>9.0.0-beta</Version>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\ILCompiler.DependencyAnalysisFramework\src\ILCompiler.DependencyAnalysisFramework.csproj" />
     <ProjectReference Include="..\..\ILCompiler.MetadataTransform\src\ILCompiler.MetadataTransform.csproj" />
-    <ProjectReference Include="..\..\ILCompiler.MetadataWriter\src\ILCompiler.MetadataWriter.csproj" />
     <ProjectReference Include="..\..\ILCompiler.TypeSystem\src\ILCompiler.TypeSystem.csproj" />
     <ProjectReference Include="..\..\ILCompiler.Compiler\src\ILCompiler.Compiler.csproj" />
   </ItemGroup>
@@ -41,12 +40,16 @@
     </Compile>
     <Compile Include="CodeGen\DebugMetadata.cs" />
     <Compile Include="CodeGen\ILToWebAssemblyImporter_Statics.cs" />
-    <Compile Include="CodeGen\LLVMMisc.cs" />
-    <Compile Include="CodeGen\LLVMPInvokes.cs" />
+    <Compile Include="CodeGen\LLVMSharpInterop.cs" />
     <Compile Include="CodeGen\WebAssemblyObjectWriter.cs" />
+    <Compile Include="Compiler\DependencyAnalysis\EHInfoNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\RawMainMethodRootProvider.cs" />
     <Compile Include="Compiler\DependencyAnalysis\WebAssemblyCodegenNodeFactory.cs" />
     <Compile Include="Compiler\DependencyAnalysis\WebAssemblyMethodCodeNode.cs" />
+    <Compile Include="Compiler\DependencyAnalysis\WebAssemblyBlockRefNode.cs" />
+    <Compile Include="Compiler\DependencyAnalysis\WebAssemblyReadyToRunGenericLookupFromDictionaryNode.cs" />
+    <Compile Include="Compiler\DependencyAnalysis\WebAssemblyUnboxingThunkNode.cs" />
+    <Compile Include="Compiler\DependencyAnalysis\WebAssemblyReadyToRunGenericLookupFromTypeNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\WebAssemblyVTableSlotNode.cs" />
     <Compile Include="Compiler\WebAssemblyNodeMangler.cs" />
     <Compile Include="Compiler\WebAssemblyCodegenCompilation.cs" />
@@ -57,18 +60,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\..\packages\llvmsharp\5.0.0\lib\netstandard1.1\LLVMSharp.dll">
+    <Content Include="..\..\..\packages\llvmsharp\9.0.0-beta\lib\netstandard2.0\LLVMSharp.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="..\..\..\packages\libllvm\6.0.0-beta1\runtimes\osx\native\libLLVM.dylib" Condition="'$(NuPkgRid)' == 'osx-x64'">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\..\..\packages\libllvm\6.0.0-beta1\runtimes\linux-x64\native\libLLVM.so" Condition="'$(NuPkgRid)' == 'linux-x64'">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\..\..\packages\libllvm\6.0.0-beta1\runtimes\win-x64\native\libLLVM.dll" Condition="'$(NuPkgRid)' == 'win-x64' or '$(NuPkgRid)' == ''">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <PackageReference Include="libLLVM" Version="9.0.0" />
   </ItemGroup>
   <Import Project="$([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildThisFileDirectory), dir.targets))\dir.targets" />
 </Project>

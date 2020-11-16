@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Runtime;
@@ -9,7 +8,8 @@ using Internal.Runtime.CompilerServices;
 using Internal.Runtime.Augments;
 using Internal.Reflection.Augments;
 
-using CorElementType = System.Runtime.RuntimeImports.RhCorElementType;
+using CorElementType = System.Reflection.CorElementType;
+using EETypeElementType = Internal.Runtime.EETypeElementType;
 
 namespace System
 {
@@ -44,64 +44,6 @@ namespace System
             return ToObject(enumType.TypeHandle.ToEETypePtr(), value);
         }
 
-        public int CompareTo(object target)
-        {
-            if (target == null)
-                return 1;
-
-            if (target == this)
-                return 0;
-
-            if (this.EETypePtr != target.EETypePtr)
-            {
-                throw new ArgumentException(SR.Format(SR.Arg_EnumAndObjectMustBeSameType, target.GetType(), this.GetType()));
-            }
-
-            ref byte pThisValue = ref this.GetRawData();
-            ref byte pTargetValue = ref target.GetRawData();
-
-            // Compare the values. Note that we're required to return 0/1/-1 for backwards compat.
-            switch (this.EETypePtr.CorElementType)
-            {
-                case CorElementType.ELEMENT_TYPE_I1:
-                    return (Unsafe.As<byte, sbyte>(ref pThisValue) == Unsafe.As<byte, sbyte>(ref pTargetValue)) ?
-                        0 : (Unsafe.As<byte, sbyte>(ref pThisValue) < Unsafe.As<byte, sbyte>(ref pTargetValue)) ? -1 : 1;
-
-                case CorElementType.ELEMENT_TYPE_U1:
-                case CorElementType.ELEMENT_TYPE_BOOLEAN:
-                    return (Unsafe.As<byte, byte>(ref pThisValue) == Unsafe.As<byte, byte>(ref pTargetValue)) ?
-                        0 : (Unsafe.As<byte, byte>(ref pThisValue) < Unsafe.As<byte, byte>(ref pTargetValue)) ? -1 : 1;
-
-                case CorElementType.ELEMENT_TYPE_I2:
-                    return (Unsafe.As<byte, short>(ref pThisValue) == Unsafe.As<byte, short>(ref pTargetValue)) ?
-                        0 : (Unsafe.As<byte, short>(ref pThisValue) < Unsafe.As<byte, short>(ref pTargetValue)) ? -1 : 1;
-
-                case CorElementType.ELEMENT_TYPE_U2:
-                case CorElementType.ELEMENT_TYPE_CHAR:
-                    return (Unsafe.As<byte, ushort>(ref pThisValue) == Unsafe.As<byte, ushort>(ref pTargetValue)) ?
-                        0 : (Unsafe.As<byte, ushort>(ref pThisValue) < Unsafe.As<byte, ushort>(ref pTargetValue)) ? -1 : 1;
-
-                case CorElementType.ELEMENT_TYPE_I4:
-                    return (Unsafe.As<byte, int>(ref pThisValue) == Unsafe.As<byte, int>(ref pTargetValue)) ?
-                        0 : (Unsafe.As<byte, int>(ref pThisValue) < Unsafe.As<byte, int>(ref pTargetValue)) ? -1 : 1;
-
-                case CorElementType.ELEMENT_TYPE_U4:
-                    return (Unsafe.As<byte, uint>(ref pThisValue) == Unsafe.As<byte, uint>(ref pTargetValue)) ?
-                        0 : (Unsafe.As<byte, uint>(ref pThisValue) < Unsafe.As<byte, uint>(ref pTargetValue)) ? -1 : 1;
-
-                case CorElementType.ELEMENT_TYPE_I8:
-                    return (Unsafe.As<byte, long>(ref pThisValue) == Unsafe.As<byte, long>(ref pTargetValue)) ?
-                        0 : (Unsafe.As<byte, long>(ref pThisValue) < Unsafe.As<byte, long>(ref pTargetValue)) ? -1 : 1;
-
-                case CorElementType.ELEMENT_TYPE_U8:
-                    return (Unsafe.As<byte, ulong>(ref pThisValue) == Unsafe.As<byte, ulong>(ref pTargetValue)) ?
-                        0 : (Unsafe.As<byte, ulong>(ref pThisValue) < Unsafe.As<byte, ulong>(ref pTargetValue)) ? -1 : 1;
-
-                default:
-                    throw new InvalidOperationException(SR.InvalidOperation_UnknownEnumType);
-            }
-        }
-
         public override bool Equals(object obj)
         {
             if (obj == null)
@@ -130,7 +72,10 @@ namespace System
             }
         }
 
-        private CorElementType InternalGetCorElementType() => this.EETypePtr.CorElementType;
+        private CorElementType InternalGetCorElementType()
+        {
+            return this.EETypePtr.CorElementType;
+        }
 
         [Intrinsic]
         public bool HasFlag(Enum flag)
@@ -180,49 +125,49 @@ namespace System
                 result = 0;
                 return false;
             }
-            CorElementType corElementType = eeType.CorElementType;
+            EETypeElementType elementType = eeType.ElementType;
 
             ref byte pValue = ref value.GetRawData();
 
-            switch (corElementType)
+            switch (elementType)
             {
-                case CorElementType.ELEMENT_TYPE_BOOLEAN:
+                case EETypeElementType.Boolean:
                     result = Unsafe.As<byte, bool>(ref pValue) ? 1UL : 0UL;
                     return true;
 
-                case CorElementType.ELEMENT_TYPE_CHAR:
+                case EETypeElementType.Char:
                     result = (ulong)(long)Unsafe.As<byte, char>(ref pValue);
                     return true;
 
-                case CorElementType.ELEMENT_TYPE_I1:
+                case EETypeElementType.SByte:
                     result = (ulong)(long)Unsafe.As<byte, sbyte>(ref pValue);
                     return true;
 
-                case CorElementType.ELEMENT_TYPE_U1:
+                case EETypeElementType.Byte:
                     result = (ulong)(long)Unsafe.As<byte, byte>(ref pValue);
                     return true;
 
-                case CorElementType.ELEMENT_TYPE_I2:
+                case EETypeElementType.Int16:
                     result = (ulong)(long)Unsafe.As<byte, short>(ref pValue);
                     return true;
 
-                case CorElementType.ELEMENT_TYPE_U2:
+                case EETypeElementType.UInt16:
                     result = (ulong)(long)Unsafe.As<byte, ushort>(ref pValue);
                     return true;
 
-                case CorElementType.ELEMENT_TYPE_I4:
+                case EETypeElementType.Int32:
                     result = (ulong)(long)Unsafe.As<byte, int>(ref pValue);
                     return true;
 
-                case CorElementType.ELEMENT_TYPE_U4:
+                case EETypeElementType.UInt32:
                     result = (ulong)(long)Unsafe.As<byte, uint>(ref pValue);
                     return true;
 
-                case CorElementType.ELEMENT_TYPE_I8:
+                case EETypeElementType.Int64:
                     result = (ulong)(long)Unsafe.As<byte, long>(ref pValue);
                     return true;
 
-                case CorElementType.ELEMENT_TYPE_U8:
+                case EETypeElementType.UInt64:
                     result = (ulong)(long)Unsafe.As<byte, ulong>(ref pValue);
                     return true;
 
@@ -383,26 +328,26 @@ namespace System
             // On Debug builds, include the big-endian code to help deter bitrot (the "Conditional("BIGENDIAN")" will prevent it from executing on little-endian). 
             // On Release builds, exclude code to deter IL bloat and toolchain work.
 #if BIGENDIAN || DEBUG
-            CorElementType corElementType = enumEEType.CorElementType;
-            switch (corElementType)
+            EETypeElementType elementType = enumEEType.ElementType;
+            switch (elementType)
             {
-                case CorElementType.ELEMENT_TYPE_I1:
-                case CorElementType.ELEMENT_TYPE_U1:
+                case EETypeElementType.SByte:
+                case EETypeElementType.Byte:
                     pValue += sizeof(long) - sizeof(byte);
                     break;
 
-                case CorElementType.ELEMENT_TYPE_I2:
-                case CorElementType.ELEMENT_TYPE_U2:
+                case EETypeElementType.Int16:
+                case EETypeElementType.UInt16:
                     pValue += sizeof(long) - sizeof(short);
                     break;
 
-                case CorElementType.ELEMENT_TYPE_I4:
-                case CorElementType.ELEMENT_TYPE_U4:
+                case EETypeElementType.Int32:
+                case EETypeElementType.UInt32:
                     pValue += sizeof(long) - sizeof(int);
                     break;
 
-                case CorElementType.ELEMENT_TYPE_I8:
-                case CorElementType.ELEMENT_TYPE_U8:
+                case EETypeElementType.Int64:
+                case EETypeElementType.UInt64:
                     break;
 
                 default:
@@ -419,7 +364,7 @@ namespace System
 
             byte* pValue = (byte*)&value;
             AdjustForEndianness(ref pValue, enumEEType);
-            return RuntimeImports.RhBox(enumEEType, pValue);
+            return RuntimeImports.RhBox(enumEEType, ref *pValue);
         }
         #endregion
     }

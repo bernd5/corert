@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
@@ -187,8 +187,6 @@ namespace System
                     typeCode = TypeCode.Single; break;
                 case CorElementType.ELEMENT_TYPE_R8:
                     typeCode = TypeCode.Double; break;
-                case CorElementType.ELEMENT_TYPE_STRING:
-                    typeCode = TypeCode.String; break;
                 case CorElementType.ELEMENT_TYPE_VALUETYPE:
                     if (this == Convert.ConvertTypes[(int)TypeCode.Decimal])
                         typeCode = TypeCode.Decimal;
@@ -295,9 +293,9 @@ namespace System
 
         protected override bool IsCOMObjectImpl() => RuntimeTypeHandle.IsComObject(this, false);
 
-        public override bool IsInstanceOfType(object? o) => RuntimeTypeHandle.IsInstanceOfType(this, o);
+        public override bool IsInstanceOfType([NotNullWhen(true)] object? o) => RuntimeTypeHandle.IsInstanceOfType(this, o);
 
-        public override bool IsAssignableFrom(TypeInfo? typeInfo)
+        public override bool IsAssignableFrom([NotNullWhen(true)] TypeInfo? typeInfo)
         {
             if (typeInfo == null)
                 return false;
@@ -305,7 +303,7 @@ namespace System
             return IsAssignableFrom(typeInfo.AsType());
         }
 
-        public override bool IsAssignableFrom(Type? c)
+        public override bool IsAssignableFrom([NotNullWhen(true)] Type? c)
         {
             if (c is null)
                 return false;

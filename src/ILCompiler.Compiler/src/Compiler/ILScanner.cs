@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -13,6 +12,7 @@ using ILCompiler.DependencyAnalysisFramework;
 using Internal.IL;
 using Internal.IL.Stubs;
 using Internal.TypeSystem;
+using Internal.ReadyToRunConstants;
 
 using Debug = System.Diagnostics.Debug;
 
@@ -136,6 +136,10 @@ namespace ILCompiler
                 MethodIL throwingIL = TypeSystemThrowingILEmitter.EmitIL(method, ex);
                 var importer = new ILImporter(this, method, throwingIL);
                 methodCodeNodeNeedingCode.InitializeDependencies(_nodeFactory, importer.Import());
+            }
+            catch (Exception ex)
+            {
+                throw new CodeGenerationFailedException(method, ex);
             }
             finally
             {

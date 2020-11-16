@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 
@@ -192,7 +191,10 @@ namespace Internal.IL
                             int delta = (sbyte)ReadILByte();
                             int target = _currentOffset + delta;
                             if ((uint)target < (uint)_basicBlocks.Length)
+                            {
                                 CreateBasicBlock(target);
+                                OnLeaveTargetCreated(target);
+                            }
                             else
                                 ReportInvalidBranchTarget(target);
                         }
@@ -225,7 +227,10 @@ namespace Internal.IL
                             int delta = (int)ReadILUInt32();
                             int target = _currentOffset + delta;
                             if ((uint)target < (uint)_basicBlocks.Length)
+                            {
                                 CreateBasicBlock(target);
+                                OnLeaveTargetCreated(target);
+                            }
                             else
                                 ReportInvalidBranchTarget(target);
                         }
@@ -273,6 +278,8 @@ namespace Internal.IL
                 }
             }
         }
+
+        partial void OnLeaveTargetCreated(int target);
 
         private void FindEHTargets()
         {
@@ -575,7 +582,7 @@ namespace Internal.IL
                         ImportConvert(WellKnownType.UInt32, false, false);
                         break;
                     case ILOpcode.conv_u8:
-                        ImportConvert(WellKnownType.UInt64, false, false);
+                        ImportConvert(WellKnownType.UInt64, false, true);
                         break;
                     case ILOpcode.callvirt:
                         ImportCall(opCode, ReadILToken());
@@ -739,25 +746,25 @@ namespace Internal.IL
                         ImportConvert(WellKnownType.SByte, true, false);
                         break;
                     case ILOpcode.conv_ovf_u1:
-                        ImportConvert(WellKnownType.Byte, true, false);
+                        ImportConvert(WellKnownType.Byte, true, true);
                         break;
                     case ILOpcode.conv_ovf_i2:
                         ImportConvert(WellKnownType.Int16, true, false);
                         break;
                     case ILOpcode.conv_ovf_u2:
-                        ImportConvert(WellKnownType.UInt16, true, false);
+                        ImportConvert(WellKnownType.UInt16, true, true);
                         break;
                     case ILOpcode.conv_ovf_i4:
                         ImportConvert(WellKnownType.Int32, true, false);
                         break;
                     case ILOpcode.conv_ovf_u4:
-                        ImportConvert(WellKnownType.UInt32, true, false);
+                        ImportConvert(WellKnownType.UInt32, true, true);
                         break;
                     case ILOpcode.conv_ovf_i8:
                         ImportConvert(WellKnownType.Int64, true, false);
                         break;
                     case ILOpcode.conv_ovf_u8:
-                        ImportConvert(WellKnownType.UInt64, true, false);
+                        ImportConvert(WellKnownType.UInt64, true, true);
                         break;
                     case ILOpcode.refanyval:
                         ImportRefAnyVal(ReadILToken());
@@ -772,10 +779,10 @@ namespace Internal.IL
                         ImportLdToken(ReadILToken());
                         break;
                     case ILOpcode.conv_u2:
-                        ImportConvert(WellKnownType.UInt16, false, false);
+                        ImportConvert(WellKnownType.UInt16, false, true);
                         break;
                     case ILOpcode.conv_u1:
-                        ImportConvert(WellKnownType.Byte, false, false);
+                        ImportConvert(WellKnownType.Byte, false, true);
                         break;
                     case ILOpcode.conv_i:
                         ImportConvert(WellKnownType.IntPtr, false, false);
@@ -784,7 +791,7 @@ namespace Internal.IL
                         ImportConvert(WellKnownType.IntPtr, true, false);
                         break;
                     case ILOpcode.conv_ovf_u:
-                        ImportConvert(WellKnownType.UIntPtr, true, false);
+                        ImportConvert(WellKnownType.UIntPtr, true, true);
                         break;
                     case ILOpcode.add_ovf:
                     case ILOpcode.add_ovf_un:

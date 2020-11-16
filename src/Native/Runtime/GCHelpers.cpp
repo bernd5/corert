@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 //
 // Unmanaged helpers exposed by the System.GC managed class.
@@ -211,18 +210,80 @@ COOP_PINVOKE_HELPER(Int64, RhGetAllocatedBytesForCurrentThread, ())
 {
     Thread *pThread = ThreadStore::GetCurrentThread();
     gc_alloc_context *ac = pThread->GetAllocContext();
-    Int64 currentAllocated = ac->alloc_bytes + ac->alloc_bytes_loh - (ac->alloc_limit - ac->alloc_ptr);
+    Int64 currentAllocated = ac->alloc_bytes + ac->alloc_bytes_uoh - (ac->alloc_limit - ac->alloc_ptr);
     return currentAllocated;
 }
 
-COOP_PINVOKE_HELPER(void, RhGetMemoryInfo, (
-    UInt64* highMemLoadThresholdBytes, UInt64* totalAvailableMemoryBytes,
-    UInt64* lastRecordedMemLoadBytes, UInt32* lastRecordedMemLoadPct,
-    size_t* lastRecordedHeapSizeBytes, size_t* lastRecordedFragmentationBytes))
+struct RH_GC_GENERATION_INFO
 {
-    return GCHeapUtilities::GetGCHeap()->GetMemoryInfo(highMemLoadThresholdBytes, totalAvailableMemoryBytes,
-                                                       lastRecordedMemLoadBytes, lastRecordedMemLoadPct,
-                                                       lastRecordedHeapSizeBytes, lastRecordedFragmentationBytes);
+    UInt64 sizeBefore;
+    UInt64 fragmentationBefore;
+    UInt64 sizeAfter;
+    UInt64 fragmentationAfter;
+};
+
+#if defined(TARGET_X86) && !defined(TARGET_UNIX)
+#include "pshpack4.h"
+#ifdef _MSC_VER 
+#pragma warning(push)
+#pragma warning(disable:4121) // alignment of a member was sensitive to packing
+#endif
+#endif
+struct RH_GH_MEMORY_INFO
+{
+public:
+    UInt64 highMemLoadThresholdBytes;
+    UInt64 totalAvailableMemoryBytes;
+    UInt64 lastRecordedMemLoadBytes;
+    UInt64 lastRecordedHeapSizeBytes;
+    UInt64 lastRecordedFragmentationBytes;
+    UInt64 totalCommittedBytes;
+    UInt64 promotedBytes;
+    UInt64 pinnedObjectCount;
+    UInt64 finalizationPendingCount;
+    UInt64 index;
+    UInt32 generation;
+    UInt32 pauseTimePercent;
+    UInt8 isCompaction;
+    UInt8 isConcurrent;
+    RH_GC_GENERATION_INFO generationInfo0;
+    RH_GC_GENERATION_INFO generationInfo1;
+    RH_GC_GENERATION_INFO generationInfo2;
+    RH_GC_GENERATION_INFO generationInfo3;
+    RH_GC_GENERATION_INFO generationInfo4;
+    UInt64 pauseDuration0;
+    UInt64 pauseDuration1;
+};
+#if defined(TARGET_X86) && !defined(TARGET_UNIX)
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+#include "poppack.h"
+#endif
+
+COOP_PINVOKE_HELPER(void, RhGetMemoryInfo, (RH_GH_MEMORY_INFO* pData, int kind))
+{
+    UInt64* genInfoRaw = (UInt64*)&(pData->generationInfo0);
+    UInt64* pauseInfoRaw = (UInt64*)&(pData->pauseDuration0);
+
+    return GCHeapUtilities::GetGCHeap()->GetMemoryInfo(
+        &(pData->highMemLoadThresholdBytes),
+        &(pData->totalAvailableMemoryBytes),
+        &(pData->lastRecordedMemLoadBytes),
+        &(pData->lastRecordedHeapSizeBytes),
+        &(pData->lastRecordedFragmentationBytes),
+        &(pData->totalCommittedBytes),
+        &(pData->promotedBytes),
+        &(pData->pinnedObjectCount),
+        &(pData->finalizationPendingCount),
+        &(pData->index),
+        &(pData->generation),
+        &(pData->pauseTimePercent),
+        (bool*)&(pData->isCompaction),
+        (bool*)&(pData->isConcurrent),
+        genInfoRaw,
+        pauseInfoRaw,
+        kind);
 }
 
 COOP_PINVOKE_HELPER(Int64, RhGetTotalAllocatedBytes, ())
@@ -268,10 +329,10 @@ EXTERN_C REDHAWK_API Int64 __cdecl RhGetTotalAllocatedBytesPrecise()
     return allocated;
 }
 
-static Array* AllocateUninitializedArrayImpl(Thread* pThread, EEType* pArrayEEType, UInt32 numElements)
+static Array* AllocateNewArrayImpl(Thread* pThread, EEType* pArrayEEType, UInt32 numElements, UInt32 flags)
 {
     size_t size;
-#ifndef BIT64
+#ifndef HOST_64BIT
     // if the element count is <= 0x10000, no overflow is possible because the component size is
     // <= 0xffff, and thus the product is <= 0xffff0000, and the base size is only ~12 bytes
     if (numElements > 0x10000)
@@ -287,20 +348,20 @@ static Array* AllocateUninitializedArrayImpl(Thread* pThread, EEType* pArrayEETy
         }
     }
     else
-#endif // !BIT64
+#endif // !HOST_64BIT
     {
         size = (size_t)pArrayEEType->get_BaseSize() + ((size_t)numElements * (size_t)pArrayEEType->get_ComponentSize());
         size = ALIGN_UP(size, sizeof(UIntNative));
     }
 
     size_t max_object_size;
-#ifdef BIT64
+#ifdef HOST_64BIT
     if (g_pConfig->GetGCAllowVeryLargeObjects())
     {
         max_object_size = (INT64_MAX - 7 - min_obj_size);
     }
     else
-#endif // BIT64
+#endif // HOST_64BIT
     {
         max_object_size = (INT32_MAX - 7 - min_obj_size);
     }
@@ -336,10 +397,13 @@ static Array* AllocateUninitializedArrayImpl(Thread* pThread, EEType* pArrayEETy
         }
     }
 
+    if (size > RH_LARGE_OBJECT_SIZE)
+        flags |= GC_ALLOC_LARGE_OBJECT_HEAP;
+
     // Save the EEType for instrumentation purposes.
     RedhawkGCInterface::SetLastAllocEEType(pArrayEEType);
 
-    Array* pArray = (Array*)GCHeapUtilities::GetGCHeap()->Alloc(pThread->GetAllocContext(), size, GC_ALLOC_ZEROING_OPTIONAL);
+    Array* pArray = (Array*)GCHeapUtilities::GetGCHeap()->Alloc(pThread->GetAllocContext(), size, flags);
     if (pArray == NULL)
     {
         return NULL;
@@ -354,7 +418,7 @@ static Array* AllocateUninitializedArrayImpl(Thread* pThread, EEType* pArrayEETy
     return pArray;
 }
 
-EXTERN_C REDHAWK_API void RhAllocateUninitializedArray(EEType* pArrayEEType, UInt32 numElements, Array** pResult)
+EXTERN_C REDHAWK_API void RhAllocateNewArray(EEType* pArrayEEType, UInt32 numElements, UInt32 flags, Array** pResult)
 {
     Thread* pThread = ThreadStore::GetCurrentThread();
 
@@ -363,7 +427,7 @@ EXTERN_C REDHAWK_API void RhAllocateUninitializedArray(EEType* pArrayEEType, UIn
 
     ASSERT(!pThread->IsDoNotTriggerGcSet());
 
-    *pResult = AllocateUninitializedArrayImpl(pThread, pArrayEEType, numElements);
+    *pResult = AllocateNewArrayImpl(pThread, pArrayEEType, numElements, flags);
 
     pThread->EnablePreemptiveMode();
 }

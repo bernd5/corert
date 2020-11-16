@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 namespace System.Reflection
 {
@@ -37,10 +36,7 @@ namespace System.Reflection
 
         public CustomAttributeNamedArgument(MemberInfo memberInfo, CustomAttributeTypedArgument typedArgument)
         {
-            if (memberInfo == null)
-                throw new ArgumentNullException(nameof(memberInfo));
-
-            m_memberInfo = memberInfo;
+            m_memberInfo = memberInfo ?? throw new ArgumentNullException(nameof(memberInfo));
             m_value = typedArgument;
         }
 

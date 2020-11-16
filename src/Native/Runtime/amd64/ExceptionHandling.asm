@@ -1,6 +1,5 @@
 ;; Licensed to the .NET Foundation under one or more agreements.
 ;; The .NET Foundation licenses this file to you under the MIT license.
-;; See the LICENSE file in the project root for more information.
 
 include asmmacros.inc
 
@@ -425,12 +424,8 @@ endif
         movdqa  xmm14,[r8 + OFFSETOF__REGDISPLAY__Xmm + 8*10h]
         movdqa  xmm15,[r8 + OFFSETOF__REGDISPLAY__Xmm + 9*10h]
 
-ifdef PROJECTN ;; @TODO Reconcile
-        mov     rcx, [rsp + rsp_offsetof_arguments + 0h]            ;; rcx <- exception object
-else
         mov     rcx, [r8 + OFFSETOF__REGDISPLAY__SP]                ;; rcx <- establisher frame
         mov     rdx, [rsp + rsp_offsetof_arguments + 0h]            ;; rdx <- exception object
-endif
         call    qword ptr [rsp + rsp_offsetof_arguments + 8h]       ;; call handler funclet
 
         EXPORT_POINTER_TO_ADDRESS PointerToRhpCallCatchFunclet2
@@ -667,12 +662,8 @@ NESTED_ENTRY RhpCallFilterFunclet, _TEXT
         mov     rbp, [rax]
 
         mov     rax, rdx                                            ;; rax <- handler funclet address
-ifdef PROJECTN ;; @TODO Reconcile
-        ;; RCX still contains the exception object
-else
         mov     rdx, rcx                                            ;; rdx <- exception object
         mov     rcx, [r8 + OFFSETOF__REGDISPLAY__SP]                ;; rcx <- establisher frame
-endif
         call    rax
 
         EXPORT_POINTER_TO_ADDRESS PointerToRhpCallFilterFunclet2

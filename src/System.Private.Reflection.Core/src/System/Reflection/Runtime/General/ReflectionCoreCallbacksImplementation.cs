@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Reflection;
@@ -46,6 +45,14 @@ namespace System.Reflection.Runtime.General
                 throw new ArgumentNullException(nameof(rawAssembly));
 
             return RuntimeAssembly.GetRuntimeAssemblyFromByteArray(rawAssembly, pdbSymbolStore);
+        }
+
+        public sealed override Assembly Load(string assemblyPath)
+        {
+            if (assemblyPath == null)
+                throw new ArgumentNullException(nameof(assemblyPath));
+
+            return RuntimeAssembly.GetRuntimeAssemblyFromPath(assemblyPath);
         }
 
         //

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Security;
 using Debug = System.Diagnostics.Debug;
@@ -12,7 +11,7 @@ using Internal.Runtime.Augments;
 using Internal.Runtime.CompilerHelpers;
 using Internal.Runtime.CompilerServices;
 
-#if BIT64
+#if TARGET_64BIT
 using nuint = System.UInt64;
 #else
 using nuint = System.UInt32;
@@ -618,7 +617,7 @@ namespace System.Runtime.InteropServices
             // Zero-init pNative if it is NULL
             if (managedArray == null)
             {
-                Buffer.ZeroMemory((byte*)pNative, expectedCharCount);
+                Buffer.ZeroMemory((byte*)pNative, (nuint)expectedCharCount);
                 return;
             }
 

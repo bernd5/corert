@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Concurrent;
@@ -10,6 +9,7 @@ using System.Reflection;
 using Internal.Runtime.Augments;
 using Internal.Reflection.Augments;
 using Internal.Reflection.Core.NonPortable;
+using System.Collections.Generic;
 
 namespace Internal.Reflection
 {
@@ -22,14 +22,23 @@ namespace Internal.Reflection
             _typeHandle = typeHandle;
         }
 
+        private bool DoNotThrowForNames => AppContext.TryGetSwitch("Switch.System.Reflection.Disabled.DoNotThrowForNames", out bool doNotThrow) && doNotThrow;
+
+        private bool DoNotThrowForAssembly => AppContext.TryGetSwitch("Switch.System.Reflection.Disabled.DoNotThrowForAssembly", out bool doNotThrow) && doNotThrow;
+
+        private bool DoNotThrowForAttributes => AppContext.TryGetSwitch("Switch.System.Reflection.Disabled.DoNotThrowForAttributes", out bool doNotThrow) && doNotThrow;
+
         public override RuntimeTypeHandle TypeHandle => _typeHandle;
-        public override string Namespace => throw new NotSupportedException(SR.Reflection_Disabled);
+
+        public override string Name => DoNotThrowForNames ? RuntimeAugments.GetLastResortString(_typeHandle) : throw new NotSupportedException(SR.Reflection_Disabled);
+
+        public override string Namespace => DoNotThrowForNames ? "" : throw new NotSupportedException(SR.Reflection_Disabled);
+
+        public override string FullName => Name;
 
         public override string AssemblyQualifiedName => throw new NotSupportedException(SR.Reflection_Disabled);
 
-        public override string FullName => throw new NotSupportedException(SR.Reflection_Disabled);
-
-        public override Assembly Assembly => throw new NotSupportedException(SR.Reflection_Disabled);
+        public override Assembly Assembly => DoNotThrowForAssembly ? Assembly.GetExecutingAssembly() :  throw new NotSupportedException(SR.Reflection_Disabled);
 
         public override Module Module => throw new NotSupportedException(SR.Reflection_Disabled);
 
@@ -49,8 +58,6 @@ namespace Internal.Reflection
                 return null;
             }
         }
-
-        public override string Name => throw new NotSupportedException(SR.Reflection_Disabled);
 
         public override bool IsByRefLike => RuntimeAugments.IsByRefLike(_typeHandle);
 
@@ -76,9 +83,11 @@ namespace Internal.Reflection
 
         public override ConstructorInfo[] GetConstructors(BindingFlags bindingAttr) => throw new NotSupportedException(SR.Reflection_Disabled);
 
-        public override object[] GetCustomAttributes(bool inherit) => throw new NotSupportedException(SR.Reflection_Disabled);
+        public override object[] GetCustomAttributes(bool inherit) => DoNotThrowForAttributes ? new Attribute[0] :  throw new NotSupportedException(SR.Reflection_Disabled);
 
-        public override object[] GetCustomAttributes(Type attributeType, bool inherit) => throw new NotSupportedException(SR.Reflection_Disabled);
+        public override object[] GetCustomAttributes(Type attributeType, bool inherit) => DoNotThrowForAttributes ? new Attribute[0] : throw new NotSupportedException(SR.Reflection_Disabled);
+
+        public override IList<CustomAttributeData> GetCustomAttributesData() => DoNotThrowForAttributes ? new List<CustomAttributeData>().AsReadOnly() : throw new NotSupportedException(SR.Reflection_Disabled);
 
         public override Type GetElementType()
         {

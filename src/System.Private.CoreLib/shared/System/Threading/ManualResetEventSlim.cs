@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 
@@ -202,7 +201,7 @@ namespace System.Threading
             Debug.Assert(DEFAULT_SPIN_SP >= 0, "Internal error - DEFAULT_SPIN_SP is outside the legal range.");
             Debug.Assert(DEFAULT_SPIN_SP <= SpinCountState_MaxValue, "Internal error - DEFAULT_SPIN_SP is outside the legal range.");
 
-            SpinCount = PlatformHelper.IsSingleProcessor ? DEFAULT_SPIN_SP : spinCount;
+            SpinCount = Environment.IsSingleProcessor ? DEFAULT_SPIN_SP : spinCount;
         }
 
         /// <summary>
@@ -360,7 +359,7 @@ namespace System.Threading
         /// </remarks>
         public void Wait()
         {
-            Wait(Timeout.Infinite, new CancellationToken());
+            Wait(Timeout.Infinite, CancellationToken.None);
         }
 
         /// <summary>
@@ -406,7 +405,7 @@ namespace System.Threading
                 throw new ArgumentOutOfRangeException(nameof(timeout));
             }
 
-            return Wait((int)totalMilliseconds, new CancellationToken());
+            return Wait((int)totalMilliseconds, CancellationToken.None);
         }
 
         /// <summary>
@@ -455,7 +454,7 @@ namespace System.Threading
         /// </exception>
         public bool Wait(int millisecondsTimeout)
         {
-            return Wait(millisecondsTimeout, new CancellationToken());
+            return Wait(millisecondsTimeout, CancellationToken.None);
         }
 
         /// <summary>
@@ -514,7 +513,7 @@ namespace System.Threading
 
                 // Spin
                 int spinCount = SpinCount;
-                var spinner = new SpinWait();
+                SpinWait spinner = default;
                 while (spinner.Count < spinCount)
                 {
                     spinner.SpinOnce(sleep1Threshold: -1);
@@ -670,7 +669,7 @@ namespace System.Threading
         /// <param name="updateBitsMask">The mask used to set the bits</param>
         private void UpdateStateAtomically(int newBits, int updateBitsMask)
         {
-            SpinWait sw = new SpinWait();
+            SpinWait sw = default;
 
             Debug.Assert((newBits | updateBitsMask) == updateBitsMask, "newBits do not fall within the updateBitsMask.");
 

@@ -1,10 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 /*
  * gcload.cpp
- * 
+ *
  * Code for loading and initializing the GC. The code in this file
  * is used in the startup path of both a standalone and non-standalone GC.
  */
@@ -29,7 +28,7 @@
 
 // These symbols are defined in gc.cpp and populate the GcDacVars
 // structure with the addresses of DAC variables within the GC.
-namespace WKS 
+namespace WKS
 {
     extern void PopulateDacVars(GcDacVars* dacVars);
 }
@@ -62,7 +61,7 @@ GC_Initialize(
 )
 {
     IGCHeapInternal* heap;
-    
+
     assert(gcDacVars != nullptr);
     assert(gcHeap != nullptr);
     assert(gcHandleManager != nullptr);
@@ -74,7 +73,7 @@ GC_Initialize(
     UNREFERENCED_PARAMETER(clrToGC);
     assert(clrToGC == nullptr);
 #endif
-    
+
     // Initialize GCConfig before anything else - initialization of our
     // various components may want to query the current configuration.
     GCConfig::Initialize();

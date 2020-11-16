@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace System.Reflection
 {
@@ -50,7 +50,7 @@ namespace System.Reflection
         public virtual IEnumerable<Type> ImplementedInterfaces => GetInterfaces();
 
         // a re-implementation of ISAF from Type, skipping the use of UnderlyingType
-        public virtual bool IsAssignableFrom(TypeInfo? typeInfo)
+        public virtual bool IsAssignableFrom([NotNullWhen(true)] TypeInfo? typeInfo)
         {
             if (typeInfo == null)
                 return false;

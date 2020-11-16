@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Runtime;
@@ -19,15 +18,6 @@ namespace System.Runtime
             IntPtr locationOfThisPointer = callerTransitionBlockParam + TransitionBlock.GetThisOffset();
             object pObject = Unsafe.As<IntPtr, object>(ref *(IntPtr*)locationOfThisPointer);
             IntPtr dispatchResolveTarget = RhpCidResolve_Worker(pObject, pCell);
-
-            if (dispatchResolveTarget == InternalCalls.RhpGetCastableObjectDispatchHelper())
-            {
-                // Swap it out for the one which reads the TLS slot to put the cell in a consistent
-                // location
-                dispatchResolveTarget = InternalCalls.RhpGetCastableObjectDispatchHelper_TailCalled();
-                InternalCalls.RhpSetTLSDispatchCell(pCell);
-            }
-
             return dispatchResolveTarget;
         }
 
@@ -68,11 +58,6 @@ namespace System.Runtime
                 pTargetCode = RhpCidResolve_Worker(pObject, pCell);
             }
 
-            // Special case for CastableOjbects: we use a thunk for the call. The thunk deals with putting
-            // the correct cell address value in the TLS variable used by castable objects dispatch.
-            if (pTargetCode == InternalCalls.RhpGetCastableObjectDispatchHelper())
-                pTargetCode = CastableObjectSupport.GetCastableObjectDispatchCellThunk(pInstanceType, pCell);
-
             return pTargetCode;
         }
 
@@ -108,39 +93,12 @@ namespace System.Runtime
 
             if (cellInfo.CellType == DispatchCellType.InterfaceAndSlot)
             {
-                // Type whose DispatchMap is used. Usually the same as the above but for types which implement ICastable
-                // we may repeat this process with an alternate type.
+                // Type whose DispatchMap is used.
                 EEType* pResolvingInstanceType = pInstanceType;
 
                 IntPtr pTargetCode = DispatchResolve.FindInterfaceMethodImplementationTarget(pResolvingInstanceType,
                                                                               cellInfo.InterfaceType.ToPointer(),
                                                                               cellInfo.InterfaceSlot);
-
-                if (pTargetCode == IntPtr.Zero && pInstanceType->IsICastable)
-                {
-                    // TODO!! BEGIN REMOVE THIS CODE WHEN WE REMOVE ICASTABLE
-                    // Dispatch not resolved through normal dispatch map, try using the ICastable
-                    // Call the ICastable.IsInstanceOfInterface method directly rather than via an interface
-                    // dispatch since we know the method address statically. We ignore any cast error exception
-                    // object passed back on failure (result == false) since IsInstanceOfInterface never throws.
-                    IntPtr pfnIsInstanceOfInterface = pInstanceType->ICastableIsInstanceOfInterfaceMethod;
-                    Exception castError = null;
-                    if (CalliIntrinsics.Call<bool>(pfnIsInstanceOfInterface, pObject, cellInfo.InterfaceType.ToPointer(), out castError))
-                    {
-                        IntPtr pfnGetImplTypeMethod = pInstanceType->ICastableGetImplTypeMethod;
-                        pResolvingInstanceType = (EEType*)CalliIntrinsics.Call<IntPtr>(pfnGetImplTypeMethod, pObject, new IntPtr(cellInfo.InterfaceType.ToPointer()));
-                        pTargetCode = DispatchResolve.FindInterfaceMethodImplementationTarget(pResolvingInstanceType,
-                                                                                 cellInfo.InterfaceType.ToPointer(),
-                                                                                 cellInfo.InterfaceSlot);
-                    }
-                    else
-                    // TODO!! END REMOVE THIS CODE WHEN WE REMOVE ICASTABLE
-                    {
-                        // Dispatch not resolved through normal dispatch map, using the CastableObject path
-                        pTargetCode = InternalCalls.RhpGetCastableObjectDispatchHelper();
-                    }
-                }
-
                 return pTargetCode;
             }
             else if (cellInfo.CellType == DispatchCellType.VTableOffset)

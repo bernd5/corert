@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Diagnostics.Tracing;
@@ -62,7 +61,7 @@ namespace System.Runtime.CompilerServices
             }
         }
 
-        public static void SetStateMachine(IAsyncStateMachine stateMachine, Task task)
+        public static void SetStateMachine(IAsyncStateMachine stateMachine, Task? task)
         {
             if (stateMachine == null)
             {
@@ -123,7 +122,9 @@ namespace System.Runtime.CompilerServices
         }
 
         internal static Task? TryGetContinuationTask(Action continuation) =>
-            (continuation?.Target as ContinuationWrapper)?._innerTask;
+            (continuation.Target is ContinuationWrapper wrapper) ?
+                wrapper._innerTask :           // A wrapped continuation, created by an awaiter
+                continuation.Target as Task;   // The continuation targets a task directly, such as with AsyncStateMachineBox
 
         /// <summary>
         /// Logically we pass just an Action (delegate) to a task for its action to 'ContinueWith' when it completes.

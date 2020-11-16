@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -15,6 +14,7 @@ using Internal.TypeSystem.Ecma;
 using Internal.CommandLine;
 
 using Debug = System.Diagnostics.Debug;
+using InstructionSet = Internal.JitInterface.InstructionSet;
 
 namespace ILCompiler
 {
@@ -46,9 +46,10 @@ namespace ILCompiler
         private bool _multiFile;
         private bool _nativeLib;
         private string _exportsFile;
-        private bool _useSharedGenerics;
         private bool _useScanner;
         private bool _noScanner;
+        private bool _preinitStatics;
+        private bool _noPreinitStatics;
         private bool _emitStackTraceData;
         private string _mapFileName;
         private string _metadataLogFileName;
@@ -58,6 +59,7 @@ namespace ILCompiler
         private bool _scanReflection;
         private bool _methodBodyFolding;
         private bool _singleThreaded;
+        private string _instructionSet;
 
         private string _singleMethodTypeName;
         private string _singleMethodName;
@@ -169,7 +171,6 @@ namespace ILCompiler
                 syntax.DefineOption("systemmodule", ref _systemModuleName, "System module name (default: System.Private.CoreLib)");
                 syntax.DefineOption("multifile", ref _multiFile, "Compile only input files (do not compile referenced assemblies)");
                 syntax.DefineOption("waitfordebugger", ref waitForDebugger, "Pause to give opportunity to attach debugger");
-                syntax.DefineOption("usesharedgenerics", ref _useSharedGenerics, "Enable shared generics");
                 syntax.DefineOptionList("codegenopt", ref _codegenOptions, "Define a codegen option");
                 syntax.DefineOptionList("rdxml", ref _rdXmlFilePaths, "RD.XML file(s) for compilation");
                 syntax.DefineOption("rootallapplicationassemblies", ref _rootAllApplicationAssemblies, "Consider all non-framework assemblies dynamically used");
@@ -189,6 +190,9 @@ namespace ILCompiler
                 syntax.DefineOptionList("runtimeopt", ref _runtimeOptions, "Runtime options to set");
                 syntax.DefineOptionList("removefeature", ref _removedFeatures, "Framework features to remove");
                 syntax.DefineOption("singlethreaded", ref _singleThreaded, "Run compilation on a single thread");
+                syntax.DefineOption("instructionset", ref _instructionSet, "Instruction set to allow or disallow");
+                syntax.DefineOption("preinitstatics", ref _preinitStatics, "Interpret static constructors at compile time if possible (implied by -O)");
+                syntax.DefineOption("nopreinitstatics", ref _noPreinitStatics, "Do not interpret static constructors at compile time");
 
                 syntax.DefineOption("targetarch", ref _targetArchitectureStr, "Target architecture for cross compilation");
                 syntax.DefineOption("targetos", ref _targetOSStr, "Target OS for cross compilation");
@@ -305,17 +309,129 @@ namespace ILCompiler
             if (_isWasmCodegen)
                 _targetArchitecture = TargetArchitecture.Wasm32;
 
+            InstructionSetSupportBuilder instructionSetSupportBuilder = new InstructionSetSupportBuilder(_targetArchitecture);
+
+            // The runtime expects certain baselines that the codegen can assume as well.
+            if ((_targetArchitecture == TargetArchitecture.X86) || (_targetArchitecture == TargetArchitecture.X64))
+            {
+                instructionSetSupportBuilder.AddSupportedInstructionSet("sse");
+                instructionSetSupportBuilder.AddSupportedInstructionSet("sse2");
+            }
+            else if (_targetArchitecture == TargetArchitecture.ARM64)
+            {
+                instructionSetSupportBuilder.AddSupportedInstructionSet("base");
+                instructionSetSupportBuilder.AddSupportedInstructionSet("neon");
+            }
+
+            if (_instructionSet != null)
+            {
+                List<string> instructionSetParams = new List<string>();
+
+                // Normalize instruction set format to include implied +.
+                string[] instructionSetParamsInput = _instructionSet.Split(',');
+                for (int i = 0; i < instructionSetParamsInput.Length; i++)
+                {
+                    string instructionSet = instructionSetParamsInput[i];
+
+                    if (String.IsNullOrEmpty(instructionSet))
+                        throw new CommandLineException("Instruction set must not be empty");
+
+                    char firstChar = instructionSet[0];
+                    if ((firstChar != '+') && (firstChar != '-'))
+                    {
+                        instructionSet = "+" + instructionSet;
+                    }
+                    instructionSetParams.Add(instructionSet);
+                }
+
+                Dictionary<string, bool> instructionSetSpecification = new Dictionary<string, bool>();
+                foreach (string instructionSetSpecifier in instructionSetParams)
+                {
+                    string instructionSet = instructionSetSpecifier.Substring(1, instructionSetSpecifier.Length - 1);
+
+                    bool enabled = instructionSetSpecifier[0] == '+' ? true : false;
+                    if (enabled)
+                    {
+                        if (!instructionSetSupportBuilder.AddSupportedInstructionSet(instructionSet))
+                            throw new CommandLineException($"Unrecognized instruction set '{instructionSet}'");
+                    }
+                    else
+                    {
+                        if (!instructionSetSupportBuilder.RemoveInstructionSetSupport(instructionSet))
+                            throw new CommandLineException($"Unrecognized instruction set '{instructionSet}'");
+                    }
+                }
+            }
+
+            instructionSetSupportBuilder.ComputeInstructionSetFlags(out var supportedInstructionSet, out var unsupportedInstructionSet,
+                (string specifiedInstructionSet, string impliedInstructionSet) =>
+                    throw new CommandLineException(String.Format("Unsupported combination of instruction sets: {0}/{1}", specifiedInstructionSet, impliedInstructionSet)));
+
+            InstructionSetSupportBuilder optimisticInstructionSetSupportBuilder = new InstructionSetSupportBuilder(_targetArchitecture);
+
+            // Optimistically assume some instruction sets are present.
+            if ((_targetArchitecture == TargetArchitecture.X86) || (_targetArchitecture == TargetArchitecture.X64))
+            {
+                // We set these hardware features as enabled always, as most
+                // of hardware in the wild supports them. Note that we do not indicate support for AVX, or any other
+                // instruction set which uses the VEX encodings as the presence of those makes otherwise acceptable
+                // code be unusable on hardware which does not support VEX encodings, as well as emulators that do not
+                // support AVX instructions.
+                //
+                // The compiler is able to generate runtime IsSupported checks for the following instruction sets.
+                optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("ssse3");
+                optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("aes");
+                optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("pclmul");
+                optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("lzcnt");
+
+                // NOTE: we don't optimistically enable SSE4.1/SSE4.2 because RyuJIT can opportunistically use
+                // these instructions in e.g. optimizing Math.Round or Vector<T> operations without IsSupported guards.
+
+                // If SSE4.2 was enabled, we can also opportunistically enable POPCNT
+                Debug.Assert(InstructionSet.X64_SSE42 == InstructionSet.X86_SSE42);
+                if (supportedInstructionSet.HasInstructionSet(InstructionSet.X64_SSE42))
+                {
+                    optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("popcnt");
+                }
+
+                // If AVX was enabled, we can opportunistically enable FMA/BMI
+                Debug.Assert(InstructionSet.X64_AVX == InstructionSet.X86_AVX);
+                if (supportedInstructionSet.HasInstructionSet(InstructionSet.X64_AVX))
+                {
+                    optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("fma");
+                    optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("bmi1");
+                    optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("bmi2");
+                }
+            }
+            else if (_targetArchitecture == TargetArchitecture.ARM64)
+            {
+                optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("aes");
+                optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("crc");
+                optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("sha1");
+                optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("sha2");
+                optimisticInstructionSetSupportBuilder.AddSupportedInstructionSet("lse");
+            }
+
+            optimisticInstructionSetSupportBuilder.ComputeInstructionSetFlags(out var optimisticInstructionSet, out _,
+                (string specifiedInstructionSet, string impliedInstructionSet) => throw new NotSupportedException());
+            optimisticInstructionSet.Remove(unsupportedInstructionSet);
+            optimisticInstructionSet.Add(supportedInstructionSet);
+
+            var instructionSetSupport = new InstructionSetSupport(supportedInstructionSet,
+                                                                  unsupportedInstructionSet,
+                                                                  optimisticInstructionSet,
+                                                                  InstructionSetSupportBuilder.GetNonSpecifiableInstructionSetsForArch(_targetArchitecture),
+                                                                  _targetArchitecture);
+
             bool supportsReflection = !_disableReflection && _systemModuleName == DefaultSystemModule;
 
             //
             // Initialize type system context
             //
 
-            SharedGenericsMode genericsMode = _useSharedGenerics || !_isWasmCodegen ?
-                SharedGenericsMode.CanonicalReferenceTypes : SharedGenericsMode.Disabled;
+            SharedGenericsMode genericsMode = SharedGenericsMode.CanonicalReferenceTypes;
 
-            // TODO: compiler switch for SIMD support?
-            var simdVectorLength = (_isCppCodegen || _isWasmCodegen) ? SimdVectorLength.None : SimdVectorLength.Vector128Bit;
+            var simdVectorLength = (_isCppCodegen || _isWasmCodegen) ? SimdVectorLength.None : instructionSetSupport.GetVectorTSimdVector();
             var targetAbi = _isCppCodegen ? TargetAbi.CppCodegen : TargetAbi.CoreRT;
             var targetDetails = new TargetDetails(_targetArchitecture, _targetOS, targetAbi, simdVectorLength);
             CompilerTypeSystemContext typeSystemContext = 
@@ -346,6 +462,9 @@ namespace ILCompiler
 
             typeSystemContext.InputFilePaths = inputFilePaths;
             typeSystemContext.ReferenceFilePaths = _referenceFilePaths;
+            if (!typeSystemContext.InputFilePaths.ContainsKey(_systemModuleName)
+                && !typeSystemContext.ReferenceFilePaths.ContainsKey(_systemModuleName))
+                throw new CommandLineException($"System module {_systemModuleName} does not exists. Make sure that you specify --systemmodule");
 
             typeSystemContext.SetSystemModule(typeSystemContext.GetModuleForSimpleName(_systemModuleName));
 
@@ -393,6 +512,7 @@ namespace ILCompiler
                 {
                     compilationRoots.Add(new MainMethodRootProvider(entrypointModule, CreateInitializerList(typeSystemContext)));
                     compilationRoots.Add(new RuntimeConfigurationRootProvider(_runtimeOptions));
+                    compilationRoots.Add(new ExpectedIsaFeaturesRootProvider(instructionSetSupport));
                 }
 
                 if (_multiFile)
@@ -429,6 +549,7 @@ namespace ILCompiler
                     // to ensure the startup method is included in the object file during multimodule mode build
                     compilationRoots.Add(new NativeLibraryInitializerRootProvider(typeSystemContext.GeneratedAssembly, CreateInitializerList(typeSystemContext)));
                     compilationRoots.Add(new RuntimeConfigurationRootProvider(_runtimeOptions));
+                    compilationRoots.Add(new ExpectedIsaFeaturesRootProvider(instructionSetSupport));
                 }
 
                 if (_rdXmlFilePaths.Count > 0)
@@ -471,8 +592,10 @@ namespace ILCompiler
                     removedFeatures |= RemovedFeature.Globalization;
                 else if (feature == "Comparers")
                     removedFeatures |= RemovedFeature.Comparers;
-                else if (feature == "CurlHandler")
-                    removedFeatures |= RemovedFeature.CurlHandler;
+                else if (feature == "SerializationGuard")
+                    removedFeatures |= RemovedFeature.SerializationGuard;
+                else if (feature == "XmlNonFileStream")
+                    removedFeatures |= RemovedFeature.XmlDownloadNonFileStream;
             }
 
             ILProvider ilProvider = new CoreRTILProvider();
@@ -483,27 +606,36 @@ namespace ILCompiler
             var stackTracePolicy = _emitStackTraceData ?
                 (StackTraceEmissionPolicy)new EcmaMethodStackTraceEmissionPolicy() : new NoStackTraceEmissionPolicy();
 
-            MetadataBlockingPolicy mdBlockingPolicy = _noMetadataBlocking 
-                    ? (MetadataBlockingPolicy)new NoMetadataBlockingPolicy() 
+            MetadataBlockingPolicy mdBlockingPolicy;
+            ManifestResourceBlockingPolicy resBlockingPolicy;
+            UsageBasedMetadataGenerationOptions metadataGenerationOptions = UsageBasedMetadataGenerationOptions.IteropILScanning;
+            if (supportsReflection)
+            {
+                mdBlockingPolicy = _noMetadataBlocking
+                    ? (MetadataBlockingPolicy)new NoMetadataBlockingPolicy()
                     : new BlockedInternalsBlockingPolicy(typeSystemContext);
 
-            ManifestResourceBlockingPolicy resBlockingPolicy = (removedFeatures & RemovedFeature.FrameworkResources) != 0 ?
-                new FrameworkStringResourceBlockingPolicy() : (ManifestResourceBlockingPolicy)new NoManifestResourceBlockingPolicy();
+                resBlockingPolicy = (removedFeatures & RemovedFeature.FrameworkResources) != 0
+                    ? new FrameworkStringResourceBlockingPolicy()
+                    : (ManifestResourceBlockingPolicy)new NoManifestResourceBlockingPolicy();
 
-            UsageBasedMetadataGenerationOptions metadataGenerationOptions = UsageBasedMetadataGenerationOptions.AnonymousTypeHeuristic;
-            if (_completeTypesMetadata)
-                metadataGenerationOptions |= UsageBasedMetadataGenerationOptions.CompleteTypesOnly;
-            if (_scanReflection)
-                metadataGenerationOptions |= UsageBasedMetadataGenerationOptions.ILScanning;
-            if (_rootAllApplicationAssemblies)
-                metadataGenerationOptions |= UsageBasedMetadataGenerationOptions.FullUserAssemblyRooting;
+                metadataGenerationOptions |= UsageBasedMetadataGenerationOptions.AnonymousTypeHeuristic;
+                if (_completeTypesMetadata)
+                    metadataGenerationOptions |= UsageBasedMetadataGenerationOptions.CompleteTypesOnly;
+                if (_scanReflection)
+                    metadataGenerationOptions |= UsageBasedMetadataGenerationOptions.ReflectionILScanning;
+                if (_rootAllApplicationAssemblies)
+                    metadataGenerationOptions |= UsageBasedMetadataGenerationOptions.FullUserAssemblyRooting;
+            }
+            else
+            {
+                mdBlockingPolicy = new FullyBlockedMetadataBlockingPolicy();
+                resBlockingPolicy = new FullyBlockedManifestResourceBlockingPolicy();
+            }
 
             DynamicInvokeThunkGenerationPolicy invokeThunkGenerationPolicy = new DefaultDynamicInvokeThunkGenerationPolicy();
 
-            MetadataManager metadataManager;
-            if (supportsReflection)
-            {
-                metadataManager = new UsageBasedMetadataManager(
+            MetadataManager metadataManager = new UsageBasedMetadataManager(
                     compilationGroup,
                     typeSystemContext,
                     mdBlockingPolicy,
@@ -513,11 +645,6 @@ namespace ILCompiler
                     invokeThunkGenerationPolicy,
                     ilProvider,
                     metadataGenerationOptions);
-            }
-            else
-            {
-                metadataManager = new EmptyMetadataManager(typeSystemContext, stackTracePolicy);
-            }
 
             InteropStateManager interopStateManager = new InteropStateManager(typeSystemContext.GeneratedAssembly);
             InteropStubManager interopStubManager = new UsageBasedInteropStubManager(interopStateManager, pinvokePolicy);
@@ -532,7 +659,15 @@ namespace ILCompiler
 
             useScanner &= !_noScanner;
 
-            builder.UseILProvider(ilProvider);
+            // Enable static data preinitialization in optimized builds.
+            bool preinitStatics = _preinitStatics ||
+                (_optimizationMode != OptimizationMode.None && !_isCppCodegen && !_multiFile);
+            preinitStatics &= !_noPreinitStatics;
+
+            var preinitManager = new PreinitializationManager(typeSystemContext, compilationGroup, ilProvider, preinitStatics);
+            builder
+                .UseILProvider(ilProvider)
+                .UsePreinitializationManager(preinitManager);
 
             ILScanResults scanResults = null;
             if (useScanner)
@@ -550,16 +685,7 @@ namespace ILCompiler
 
                 scanResults = scanner.Scan();
 
-                if (metadataManager is UsageBasedMetadataManager usageBasedManager)
-                {
-                    metadataManager = usageBasedManager.ToAnalysisBasedMetadataManager();
-                }
-                else
-                {
-                    // MetadataManager collects a bunch of state (e.g. list of compiled method bodies) that we need to reset.
-                    Debug.Assert(metadataManager is EmptyMetadataManager);
-                    metadataManager = new EmptyMetadataManager(typeSystemContext, stackTracePolicy);
-                }
+                metadataManager = ((UsageBasedMetadataManager)metadataManager).ToAnalysisBasedMetadataManager();
 
                 interopStubManager = scanResults.GetInteropStubManager(interopStateManager, pinvokePolicy);
             }
@@ -577,6 +703,7 @@ namespace ILCompiler
             compilationRoots.Add(interopStubManager);
 
             builder
+                .UseInstructionSetSupport(instructionSetSupport)
                 .UseBackendOptions(_codegenOptions)
                 .UseMethodBodyFolding(enable: _methodBodyFolding)
                 .UseSingleThread(enable: _singleThreaded)
@@ -627,8 +754,6 @@ namespace ILCompiler
 
             if (scanResults != null)
             {
-                SimdHelper simdHelper = new SimdHelper();
-
                 if (_scanDgmlLogFileName != null)
                     scanResults.WriteDependencyLog(_scanDgmlLogFileName);
 
@@ -640,7 +765,7 @@ namespace ILCompiler
                 // Check that methods and types generated during compilation are a subset of method and types scanned
                 bool scanningFail = false;
                 DiffCompilationResults(ref scanningFail, compilationResults.CompiledMethodBodies, scanResults.CompiledMethodBodies,
-                    "Methods", "compiled", "scanned", method => !(method.GetTypicalMethodDefinition() is EcmaMethod) || method.Name == "ThrowPlatformNotSupportedException");
+                    "Methods", "compiled", "scanned", method => !(method.GetTypicalMethodDefinition() is EcmaMethod) || method.Name == "ThrowPlatformNotSupportedException" || method.Name == "ThrowArgumentOutOfRangeException");
                 DiffCompilationResults(ref scanningFail, compilationResults.ConstructedEETypes, scanResults.ConstructedEETypes,
                     "EETypes", "compiled", "scanned", type => !(type.GetTypeDefinition() is EcmaType));
 
@@ -656,7 +781,7 @@ namespace ILCompiler
                     // We additionally skip methods in SIMD module because there's just too many intrisics to handle and IL scanner
                     // doesn't expand them. They would show up as noisy diffs.
                     DiffCompilationResults(ref dummy, scanResults.CompiledMethodBodies, compilationResults.CompiledMethodBodies,
-                    "Methods", "scanned", "compiled", method => !(method.GetTypicalMethodDefinition() is EcmaMethod) || simdHelper.IsSimdType(method.OwningType));
+                    "Methods", "scanned", "compiled", method => !(method.GetTypicalMethodDefinition() is EcmaMethod) || method.OwningType.IsIntrinsic);
                     DiffCompilationResults(ref dummy, scanResults.ConstructedEETypes, compilationResults.ConstructedEETypes,
                         "EETypes", "scanned", "compiled", type => !(type.GetTypeDefinition() is EcmaType));
                 }
@@ -667,6 +792,8 @@ namespace ILCompiler
 
             if (debugInfoProvider is IDisposable)
                 ((IDisposable)debugInfoProvider).Dispose();
+
+            preinitManager.LogStatistics(logger);
 
             return 0;
         }

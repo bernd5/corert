@@ -1,14 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 using System.Runtime.Versioning;
+using Internal.Runtime.CompilerServices;
 
 #pragma warning disable SA1121 // explicitly using type aliases instead of built-in types
-#if BIT64
+#if TARGET_64BIT
 using nuint = System.UInt64;
 #else
 using nuint = System.UInt32;
@@ -18,33 +19,31 @@ namespace System
 {
     [Serializable]
     [CLSCompliant(false)]
+    [StructLayout(LayoutKind.Sequential)]
     [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public readonly struct UIntPtr : IEquatable<UIntPtr>, ISerializable
+    public readonly struct UIntPtr : IEquatable<UIntPtr>, IComparable, IComparable<UIntPtr>, IFormattable, ISerializable
     {
         private readonly unsafe void* _value; // Do not rename (binary serialization)
 
         [Intrinsic]
         public static readonly UIntPtr Zero;
 
-        [Intrinsic]
         [NonVersionable]
         public unsafe UIntPtr(uint value)
         {
             _value = (void*)value;
         }
 
-        [Intrinsic]
         [NonVersionable]
         public unsafe UIntPtr(ulong value)
         {
-#if BIT64
+#if TARGET_64BIT
             _value = (void*)value;
 #else
             _value = (void*)checked((uint)value);
 #endif
         }
 
-        [Intrinsic]
         [NonVersionable]
         public unsafe UIntPtr(void* value)
         {
@@ -78,12 +77,9 @@ namespace System
             return false;
         }
 
-        unsafe bool IEquatable<UIntPtr>.Equals(UIntPtr other) =>
-            _value == other._value;
-
         public override unsafe int GetHashCode()
         {
-#if BIT64
+#if TARGET_64BIT
             ulong l = (ulong)_value;
             return unchecked((int)l) ^ (int)(l >> 32);
 #else
@@ -91,61 +87,51 @@ namespace System
 #endif
         }
 
-        [Intrinsic]
         [NonVersionable]
         public unsafe uint ToUInt32()
         {
-#if BIT64
+#if TARGET_64BIT
             return checked((uint)_value);
 #else
             return (uint)_value;
 #endif
         }
 
-        [Intrinsic]
         [NonVersionable]
         public unsafe ulong ToUInt64() => (ulong)_value;
 
-        [Intrinsic]
         [NonVersionable]
         public static explicit operator UIntPtr(uint value) =>
             new UIntPtr(value);
 
-        [Intrinsic]
         [NonVersionable]
         public static explicit operator UIntPtr(ulong value) =>
             new UIntPtr(value);
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe explicit operator UIntPtr(void* value) =>
             new UIntPtr(value);
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe explicit operator void*(UIntPtr value) =>
             value._value;
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe explicit operator uint(UIntPtr value) =>
-#if BIT64
+#if TARGET_64BIT
             checked((uint)value._value);
 #else
             (uint)value._value;
 #endif
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe explicit operator ulong(UIntPtr value) =>
             (ulong)value._value;
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe bool operator ==(UIntPtr value1, UIntPtr value2) =>
             value1._value == value2._value;
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe bool operator !=(UIntPtr value1, UIntPtr value2) =>
             value1._value != value2._value;
@@ -154,7 +140,6 @@ namespace System
         public static UIntPtr Add(UIntPtr pointer, int offset) =>
             pointer + offset;
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe UIntPtr operator +(UIntPtr pointer, int offset) =>
             new UIntPtr((nuint)pointer._value + (nuint)offset);
@@ -163,23 +148,73 @@ namespace System
         public static UIntPtr Subtract(UIntPtr pointer, int offset) =>
             pointer - offset;
 
-        [Intrinsic]
         [NonVersionable]
         public static unsafe UIntPtr operator -(UIntPtr pointer, int offset) =>
             new UIntPtr((nuint)pointer._value - (nuint)offset);
 
         public static int Size
         {
-            [Intrinsic]
             [NonVersionable]
             get => sizeof(nuint);
         }
 
-        [Intrinsic]
         [NonVersionable]
         public unsafe void* ToPointer() => _value;
 
-        public override unsafe string ToString() =>
-            ((nuint)_value).ToString(CultureInfo.InvariantCulture);
+        public static UIntPtr MaxValue
+        {
+            [NonVersionable]
+            get => (UIntPtr)nuint.MaxValue;
+        }
+
+        public static UIntPtr MinValue
+        {
+            [NonVersionable]
+            get => (UIntPtr)nuint.MinValue;
+        }
+
+        public unsafe int CompareTo(object? value)
+        {
+            if (value is null)
+            {
+                return 1;
+            }
+            if (value is UIntPtr o)
+            {
+                nuint i = (nuint)o;
+                if ((nuint)_value < i) return -1;
+                if ((nuint)_value > i) return 1;
+                return 0;
+            }
+
+            throw new ArgumentException(SR.Arg_MustBeUIntPtr);
+        }
+
+        public unsafe int CompareTo(UIntPtr value) => ((nuint)_value).CompareTo((nuint)value);
+
+        [NonVersionable]
+        public unsafe bool Equals(UIntPtr other) => (nuint)_value == (nuint)other;
+
+        public unsafe override string ToString() => ((nuint)_value).ToString();
+        public unsafe string ToString(string? format) => ((nuint)_value).ToString(format);
+        public unsafe string ToString(IFormatProvider? provider) => ((nuint)_value).ToString(provider);
+        public unsafe string ToString(string? format, IFormatProvider? provider) => ((nuint)_value).ToString(format, provider);
+
+        public static UIntPtr Parse(string s) => (UIntPtr)nuint.Parse(s);
+        public static UIntPtr Parse(string s, NumberStyles style) => (UIntPtr)nuint.Parse(s, style);
+        public static UIntPtr Parse(string s, IFormatProvider? provider) => (UIntPtr)nuint.Parse(s, provider);
+        public static UIntPtr Parse(string s, NumberStyles style, IFormatProvider? provider) => (UIntPtr)nuint.Parse(s, style, provider);
+
+        public static bool TryParse(string? s, out UIntPtr result)
+        {
+            Unsafe.SkipInit(out result);
+            return nuint.TryParse(s, out Unsafe.As<UIntPtr, nuint>(ref result));
+        }
+
+        public static bool TryParse(string? s, NumberStyles style, IFormatProvider? provider, out UIntPtr result)
+        {
+            Unsafe.SkipInit(out result);
+            return nuint.TryParse(s, style, provider, out Unsafe.As<UIntPtr, nuint>(ref result));
+        }
     }
 }

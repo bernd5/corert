@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -67,7 +66,7 @@ namespace System.Threading.Tasks
         internal readonly object? _obj;
         /// <summary>Opaque value passed through to the <see cref="IValueTaskSource"/>.</summary>
         internal readonly short _token;
-        /// <summary>true to continue on the capture context; otherwise, true.</summary>
+        /// <summary>true to continue on the captured context; otherwise, false.</summary>
         /// <remarks>Stored in the <see cref="ValueTask"/> rather than in the configured awaiter to utilize otherwise padding space.</remarks>
         internal readonly bool _continueOnCapturedContext;
 

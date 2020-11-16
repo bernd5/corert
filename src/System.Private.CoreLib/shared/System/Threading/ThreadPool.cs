@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 /*=============================================================================
 **
@@ -14,7 +13,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Tracing;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -25,8 +23,6 @@ namespace System.Threading
 {
     internal static class ThreadPoolGlobals
     {
-        public static readonly int processorCount = Environment.ProcessorCount;
-
         public static volatile bool threadPoolInitialized;
         public static bool enableWorkerTracking;
 
@@ -65,7 +61,7 @@ namespace System.Threading
                     Debug.Assert(Array.IndexOf(oldQueues, queue) == -1);
 
                     var newQueues = new WorkStealingQueue[oldQueues.Length + 1];
-                    Array.Copy(oldQueues, 0, newQueues, 0, oldQueues.Length);
+                    Array.Copy(oldQueues, newQueues, oldQueues.Length);
                     newQueues[^1] = queue;
                     if (Interlocked.CompareExchange(ref _queues, newQueues, oldQueues) == oldQueues)
                     {
@@ -99,11 +95,11 @@ namespace System.Threading
                     }
                     else if (pos == oldQueues.Length - 1)
                     {
-                        Array.Copy(oldQueues, 0, newQueues, 0, newQueues.Length);
+                        Array.Copy(oldQueues, newQueues, newQueues.Length);
                     }
                     else
                     {
-                        Array.Copy(oldQueues, 0, newQueues, 0, pos);
+                        Array.Copy(oldQueues, newQueues, pos);
                         Array.Copy(oldQueues, pos + 1, newQueues, pos, newQueues.Length - pos);
                     }
 
@@ -436,7 +432,7 @@ namespace System.Threading
             // by the VM by the time we reach this point.
             //
             int count = numOutstandingThreadRequests;
-            while (count < ThreadPoolGlobals.processorCount)
+            while (count < Environment.ProcessorCount)
             {
                 int prev = Interlocked.CompareExchange(ref numOutstandingThreadRequests, count + 1, count);
                 if (prev == count)
@@ -771,7 +767,6 @@ namespace System.Threading
 #if DEBUG
         private int executed;
 
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1821:RemoveEmptyFinalizers")]
         ~QueueUserWorkItemCallbackBase()
         {
             Interlocked.MemoryBarrier(); // ensure that an old cached value is not read below

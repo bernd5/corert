@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Text;
 
 namespace System.Collections.Generic
@@ -21,24 +21,25 @@ namespace System.Collections.Generic
         /// </summary>
         internal static string PairToString(object? key, object? value)
         {
-            StringBuilder s = StringBuilderCache.Acquire();
+            var s = new ValueStringBuilder(stackalloc char[64]);
+
             s.Append('[');
 
             if (key != null)
             {
-                s.Append(key);
+                s.Append(key.ToString());
             }
 
             s.Append(", ");
 
             if (value != null)
             {
-                s.Append(value);
+                s.Append(value.ToString());
             }
 
             s.Append(']');
 
-            return StringBuilderCache.GetStringAndRelease(s);
+            return s.ToString();
         }
     }
 
@@ -49,7 +50,9 @@ namespace System.Collections.Generic
     [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public readonly struct KeyValuePair<TKey, TValue>
     {
+        [DebuggerBrowsable(DebuggerBrowsableState.Never)]
         private readonly TKey key; // Do not rename (binary serialization)
+        [DebuggerBrowsable(DebuggerBrowsableState.Never)]
         private readonly TValue value; // Do not rename (binary serialization)
 
         public KeyValuePair(TKey key, TValue value)

@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -103,7 +102,7 @@ namespace ILCompiler
 
             DynamicInvokeTemplateData = new DynamicInvokeTemplateDataNode(commonFixupsTableNode);
             header.Add(BlobIdToReadyToRunSection(ReflectionMapBlob.DynamicInvokeTemplateData), DynamicInvokeTemplateData, DynamicInvokeTemplateData, DynamicInvokeTemplateData.EndSymbol);
-            
+
             var invokeMapNode = new ReflectionInvokeMapNode(commonFixupsTableNode);
             header.Add(BlobIdToReadyToRunSection(ReflectionMapBlob.InvokeMap), invokeMapNode, invokeMapNode, invokeMapNode.EndSymbol);
 
@@ -151,7 +150,7 @@ namespace ILCompiler
 
             var stackTraceMethodMappingNode = new StackTraceMethodMappingNode();
             header.Add(BlobIdToReadyToRunSection(ReflectionMapBlob.BlobIdStackTraceMethodRvaToTokenMapping), stackTraceMethodMappingNode, stackTraceMethodMappingNode, stackTraceMethodMappingNode.EndSymbol);
-            
+
             // The external references tables should go last
             header.Add(BlobIdToReadyToRunSection(ReflectionMapBlob.NativeReferences), nativeReferencesTableNode, nativeReferencesTableNode, nativeReferencesTableNode.EndSymbol);
             header.Add(BlobIdToReadyToRunSection(ReflectionMapBlob.NativeStatics), nativeStaticsTableNode, nativeStaticsTableNode, nativeStaticsTableNode.EndSymbol);
@@ -195,7 +194,7 @@ namespace ILCompiler
             }
 
             var nonGcStaticSectionNode = obj as NonGCStaticsNode;
-            if (nonGcStaticSectionNode != null && _typeSystemContext.HasLazyStaticConstructor(nonGcStaticSectionNode.Type))
+            if (nonGcStaticSectionNode != null && nonGcStaticSectionNode.HasCCtorContext)
             {
                 _cctorContextsGenerated.Add(nonGcStaticSectionNode);
             }
@@ -490,6 +489,8 @@ namespace ILCompiler
             ComputeMetadata(factory, out _metadataBlob, out _typeMappings, out _methodMappings, out _fieldMappings, out _stackTraceMappings);
         }
 
+        public abstract bool ShouldConsiderLdTokenReferenceAConstruction(TypeDesc type);
+
         void ICompilationRootProvider.AddCompilationRoots(IRootingServiceProvider rootProvider)
         {
             // MetadataManagers can override this to provide metadata compilation roots that need to be added to the graph ahead of time.
@@ -497,7 +498,7 @@ namespace ILCompiler
         }
 
         protected abstract void ComputeMetadata(NodeFactory factory,
-                                                out byte[] metadataBlob, 
+                                                out byte[] metadataBlob,
                                                 out List<MetadataMapping<MetadataType>> typeMappings,
                                                 out List<MetadataMapping<MethodDesc>> methodMappings,
                                                 out List<MetadataMapping<FieldDesc>> fieldMappings,
@@ -658,7 +659,13 @@ namespace ILCompiler
                     return IsReflectionBlocked(((ParameterizedType)type).ParameterType);
 
                 case TypeFlags.FunctionPointer:
-                    throw new NotImplementedException();
+                    MethodSignature pointerSignature = ((FunctionPointerType)type).Signature;
+
+                    for (int i = 0; i < pointerSignature.Length; i++)
+                        if (IsReflectionBlocked(pointerSignature[i]))
+                            return true;
+
+                    return IsReflectionBlocked(pointerSignature.ReturnType);
 
                 default:
                     Debug.Assert(type.IsDefType);
@@ -669,15 +676,11 @@ namespace ILCompiler
                         if (_blockingPolicy.IsBlocked((MetadataType)typeDefinition))
                             return true;
 
-                        foreach (var arg in type.Instantiation)
-                            if (IsReflectionBlocked(arg))
-                                return true;
+                        if (IsReflectionBlocked(type.Instantiation))
+                            return true;
 
                         return false;
                     }
-
-                    if (type.IsCanonicalDefinitionType(CanonicalFormKind.Any))
-                        return false;
 
                     return _blockingPolicy.IsBlocked((MetadataType)type);
             }
@@ -687,7 +690,7 @@ namespace ILCompiler
         {
             foreach (TypeDesc type in instantiation)
             {
-                if (IsReflectionBlocked(type))
+                if (IsReflectionBlocked(type) && !type.IsCanonicalDefinitionType(CanonicalFormKind.Any))
                     return true;
             }
             return false;

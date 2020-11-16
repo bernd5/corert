@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Numerics;
@@ -11,7 +10,7 @@ using System.Runtime.Intrinsics.X86;
 using Internal.Runtime.CompilerServices;
 
 #pragma warning disable SA1121 // explicitly using type aliases instead of built-in types
-#if BIT64
+#if TARGET_64BIT
 using nuint = System.UInt64;
 using nint = System.Int64;
 #else
@@ -107,7 +106,8 @@ namespace System
                 }
             }
 
-            if (sizeof(UIntPtr) > sizeof(int) && (byte*)minLength >= (byte*)(i + sizeof(int) / sizeof(char)))
+#if TARGET_64BIT
+            if ((byte*)minLength >= (byte*)(i + sizeof(int) / sizeof(char)))
             {
                 if (Unsafe.ReadUnaligned<int>(ref Unsafe.As<char, byte>(ref Unsafe.Add(ref first, i))) ==
                     Unsafe.ReadUnaligned<int>(ref Unsafe.As<char, byte>(ref Unsafe.Add(ref second, i))))
@@ -115,6 +115,7 @@ namespace System
                     i += sizeof(int) / sizeof(char);
                 }
             }
+#endif
 
             while ((byte*)i < (byte*)minLength)
             {
@@ -254,15 +255,15 @@ namespace System
             // remaining data that is shorter than a Vector length.
             while (lengthToExamine >= 4)
             {
-                ref char current = ref Add(ref searchSpace, offset);
+                ref char current = ref Unsafe.Add(ref searchSpace, offset);
 
                 if (value == current)
                     goto Found;
-                if (value == Add(ref current, 1))
+                if (value == Unsafe.Add(ref current, 1))
                     goto Found1;
-                if (value == Add(ref current, 2))
+                if (value == Unsafe.Add(ref current, 2))
                     goto Found2;
-                if (value == Add(ref current, 3))
+                if (value == Unsafe.Add(ref current, 3))
                     goto Found3;
 
                 offset += 4;
@@ -271,7 +272,7 @@ namespace System
 
             while (lengthToExamine > 0)
             {
-                if (value == Add(ref searchSpace, offset))
+                if (value == Unsafe.Add(ref searchSpace, offset))
                     goto Found;
 
                 offset++;
@@ -315,7 +316,7 @@ namespace System
                         else
                         {
                             // Find bitflag offset of first match and add to current offset
-                            return (int)(offset + (BitOperations.TrailingZeroCount(matches) / sizeof(char)));
+                            return (int)(offset + ((uint)BitOperations.TrailingZeroCount(matches) / sizeof(char)));
                         }
                     }
 
@@ -341,7 +342,7 @@ namespace System
 
                             // Find bitflag offset of first match and add to current offset,
                             // flags are in bytes so divide for chars
-                            return (int)(offset + (BitOperations.TrailingZeroCount(matches) / sizeof(char)));
+                            return (int)(offset + ((uint)BitOperations.TrailingZeroCount(matches) / sizeof(char)));
                         } while (lengthToExamine > 0);
                     }
 
@@ -365,7 +366,7 @@ namespace System
                         {
                             // Find bitflag offset of first match and add to current offset,
                             // flags are in bytes so divide for chars
-                            return (int)(offset + (BitOperations.TrailingZeroCount(matches) / sizeof(char)));
+                            return (int)(offset + ((uint)BitOperations.TrailingZeroCount(matches) / sizeof(char)));
                         }
                     }
 
@@ -404,7 +405,7 @@ namespace System
 
                             // Find bitflag offset of first match and add to current offset,
                             // flags are in bytes so divide for chars
-                            return (int)(offset + (BitOperations.TrailingZeroCount(matches) / sizeof(char)));
+                            return (int)(offset + ((uint)BitOperations.TrailingZeroCount(matches) / sizeof(char)));
                         } while (lengthToExamine > 0);
                     }
 
@@ -1032,10 +1033,6 @@ namespace System
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ref char Add(ref char source, nint elementOffset)
-            => ref Unsafe.Add(ref source, (IntPtr)elementOffset);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static unsafe Vector<ushort> LoadVector(ref char start, nint offset)
             => Unsafe.ReadUnaligned<Vector<ushort>>(ref Unsafe.As<char, byte>(ref Unsafe.Add(ref start, (IntPtr)offset)));
 
@@ -1046,10 +1043,6 @@ namespace System
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static unsafe Vector256<ushort> LoadVector256(ref char start, nint offset)
             => Unsafe.ReadUnaligned<Vector256<ushort>>(ref Unsafe.As<char, byte>(ref Unsafe.Add(ref start, (IntPtr)offset)));
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static unsafe UIntPtr LoadUIntPtr(ref char start, nint offset)
-            => Unsafe.ReadUnaligned<UIntPtr>(ref Unsafe.As<char, byte>(ref Unsafe.Add(ref start, (IntPtr)offset)));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static unsafe nint GetCharVectorSpanLength(nint offset, nint length)

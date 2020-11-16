@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Runtime;
@@ -73,9 +72,9 @@ namespace Internal.Runtime.JitSupport
                     Compilation compilation = new Compilation(_context);
                     _nodeFactory = compilation.NodeFactory;
 
-                    JitConfigProvider configProvider = new JitConfigProvider(new CorJitFlag[] { CorJitFlag.CORJIT_FLAG_DEBUG_CODE }, Array.Empty<KeyValuePair<string, string>>());
+                    JitConfigProvider.Initialize(new CorJitFlag[] { CorJitFlag.CORJIT_FLAG_DEBUG_CODE }, Array.Empty<KeyValuePair<string, string>>());
 
-                    _corInfoImpl = new CorInfoImpl(compilation, configProvider);
+                    _corInfoImpl = new CorInfoImpl(compilation);
                 }
 
                 MethodDesc methodToCompile = methodEntrypoint.MethodIdentifier.ToMethodDesc(_context);

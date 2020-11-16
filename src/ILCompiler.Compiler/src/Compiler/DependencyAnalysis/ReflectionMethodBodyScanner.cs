@@ -1,6 +1,7 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
+
+using System;
 
 using Internal.IL;
 using Internal.TypeSystem;
@@ -17,7 +18,14 @@ namespace ILCompiler.DependencyAnalysis
     /// </summary>
     internal static class ReflectionMethodBodyScanner
     {
-        public static void Scan(ref DependencyList list, NodeFactory factory, MethodIL methodIL)
+        [Flags]
+        internal enum ScanModes
+        {
+            Interop = 1,
+            Reflection = 2,
+        }
+
+        public static void Scan(ref DependencyList list, NodeFactory factory, MethodIL methodIL, ScanModes modes)
         {
             ILReader reader = new ILReader(methodIL.GetILBytes());
 
@@ -37,6 +45,7 @@ namespace ILCompiler.DependencyAnalysis
             // * Enum.GetValues(typeof(Foo)) - this is very common and we need to make sure Foo[] is compiled.
             // * Type.GetType("Foo, Bar").GetMethod("Blah") - framework uses this to work around layering problems.
             // * typeof(Foo<>).MakeGenericType(arg).GetMethod("Blah") - used in e.g. LINQ expressions implementation
+            // * typeof(Foo<>).GetProperty("Blah") - used in e.g. LINQ expressions implementation
             // * Marshal.SizeOf(typeof(Foo)) - very common and we need to make sure interop data is generated
 
             while (reader.HasNext)
@@ -49,7 +58,22 @@ namespace ILCompiler.DependencyAnalysis
                         break;
 
                     case ILOpcode.ldtoken:
-                        tracker.TrackLdTokenToken(reader.ReadILToken());
+                        int token = reader.ReadILToken();
+                        if (IsTypeEqualityTest(methodIL, reader, out ILReader newReader))
+                        {
+                            reader = newReader;
+                        }
+                        else
+                        {
+                            tracker.TrackLdTokenToken(token);
+                            TypeDesc type = methodIL.GetObject(token) as TypeDesc;
+                            if (type != null && !type.IsCanonicalSubtype(CanonicalFormKind.Any))
+                            {
+                                list = list ?? new DependencyList();
+                                list.Add(factory.MaximallyConstructableType(type), "Unknown LDTOKEN use");
+                            }
+                        }
+
                         break;
 
                     case ILOpcode.call:
@@ -57,7 +81,7 @@ namespace ILCompiler.DependencyAnalysis
                         var method = methodIL.GetObject(reader.ReadILToken()) as MethodDesc;
                         if (method != null)
                         {
-                            HandleCall(ref list, factory, methodIL, method, ref tracker);
+                            HandleCall(ref list, factory, methodIL, method, ref tracker, modes);
                         }
                         break;
 
@@ -68,12 +92,15 @@ namespace ILCompiler.DependencyAnalysis
             }
         }
 
-        private static void HandleCall(ref DependencyList list, NodeFactory factory, MethodIL methodIL, MethodDesc methodCalled, ref Tracker tracker)
+        private static void HandleCall(ref DependencyList list, NodeFactory factory, MethodIL methodIL, MethodDesc methodCalled, ref Tracker tracker, ScanModes modes)
         {
+            bool scanningReflection = (modes & ScanModes.Reflection) != 0;
+            bool scanningInterop = (modes & ScanModes.Interop) != 0;
+
             switch (methodCalled.Name)
             {
                 // Enum.GetValues(Type) needs array of that type
-                case "GetValues" when methodCalled.OwningType == factory.TypeSystemContext.GetWellKnownType(WellKnownType.Enum):
+                case "GetValues" when scanningReflection && methodCalled.OwningType == factory.TypeSystemContext.GetWellKnownType(WellKnownType.Enum):
                     {
                         TypeDesc type = tracker.GetLastType();
                         if (type != null && type.IsEnum && !type.IsGenericDefinition /* generic enums! */)
@@ -88,7 +115,7 @@ namespace ILCompiler.DependencyAnalysis
                     break;
 
                 // Type.GetType(string...) needs the type with the given name
-                case "GetType" when methodCalled.OwningType.IsSystemType() && methodCalled.Signature.Length > 0:
+                case "GetType" when scanningReflection && methodCalled.OwningType.IsSystemType() && methodCalled.Signature.Length > 0:
                     {
                         string name = tracker.GetLastString();
                         if (name != null
@@ -111,74 +138,106 @@ namespace ILCompiler.DependencyAnalysis
                     break;
 
                 // Type.GetMethod(string...)
-                case "GetMethod" when methodCalled.OwningType.IsSystemType():
+                case "GetMethod" when scanningReflection && methodCalled.OwningType.IsSystemType():
                     {
                         string name = tracker.GetLastString();
                         TypeDesc type = tracker.GetLastType();
                         if (name != null
-                            && type != null
-                            && !factory.MetadataManager.IsReflectionBlocked(type))
+                            && type != null)
                         {
-                            if (type.IsGenericDefinition)
-                            {
-                                Instantiation inst = TypeExtensions.GetInstantiationThatMeetsConstraints(type.Instantiation, allowCanon: false);
-                                if (inst.IsNull)
-                                    break;
-                                type = ((MetadataType)type).MakeInstantiatedType(inst);
-                                list = list ?? new DependencyList();
-                                list.Add(factory.MaximallyConstructableType(type), "Type.GetMethod");
-                            }
-                            else
-                            {
-                                // Type could be something weird like SomeType<object, __Canon> - normalize it
-                                type = type.NormalizeInstantiation();
-                            }
-
-                            MethodDesc reflectedMethod = type.GetMethod(name, null);
-                            if (reflectedMethod != null
-                                && !factory.MetadataManager.IsReflectionBlocked(reflectedMethod))
-                            {
-                                if (reflectedMethod.HasInstantiation)
-                                {
-                                    // Don't want to accidentally get Foo<__Canon>.Bar<object>()
-                                    if (reflectedMethod.OwningType.IsCanonicalSubtype(CanonicalFormKind.Any))
-                                        break;
-
-                                    Instantiation inst = TypeExtensions.GetInstantiationThatMeetsConstraints(reflectedMethod.Instantiation, allowCanon: false);
-                                    if (inst.IsNull)
-                                        break;
-                                    reflectedMethod = reflectedMethod.MakeInstantiatedMethod(inst);
-                                }
-
-                                const string reason = "Type.GetMethod";
-                                list = list ?? new DependencyList();
-                                if (reflectedMethod.IsVirtual)
-                                    RootVirtualMethodForReflection(ref list, factory, reflectedMethod, reason);
-
-                                if (!reflectedMethod.IsAbstract)
-                                {
-                                    list.Add(factory.CanonicalEntrypoint(reflectedMethod), reason);
-                                    if (reflectedMethod.HasInstantiation
-                                        && reflectedMethod != reflectedMethod.GetCanonMethodTarget(CanonicalFormKind.Specific))
-                                        list.Add(factory.MethodGenericDictionary(reflectedMethod), reason);
-                                }
-                            }
+                            HandleTypeGetMethod(ref list, factory, type, name, "Type.GetMethod");
                         }
                     }
                     break;
-                case "SizeOf" when methodCalled.OwningType.IsSystemRuntimeInteropServicesMarshal() && !methodCalled.HasInstantiation
-                    && methodCalled.Signature.Length == 1 && methodCalled.Signature[0].IsSystemType():
+
+                // Type.GetProperty(string...)
+                case "GetProperty" when scanningReflection && methodCalled.OwningType.IsSystemType():
+                    {
+                        string name = tracker.GetLastString();
+                        TypeDesc type = tracker.GetLastType();
+                        if (name != null
+                            && type != null)
+                        {
+                            // Just do the easy thing and assume C# naming conventions
+                            HandleTypeGetMethod(ref list, factory, type, "get_" + name, "Type.GetProperty");
+                            HandleTypeGetMethod(ref list, factory, type, "set_" + name, "Type.GetProperty");
+                        }
+                    }
+                    break;
+
+                case "SizeOf" when scanningInterop && IsMarshalSizeOf(methodCalled):
                     {
                         TypeDesc type = tracker.GetLastType();
-                        if (type != null && !type.IsGenericDefinition && !type.IsCanonicalSubtype(CanonicalFormKind.Any) && type is DefType defType)
+                        if (IsTypeEligibleForMarshalSizeOfTracking(type))
                         {
                             list = list ?? new DependencyList();
 
-                            list.Add(factory.StructMarshallingData(defType), "Marshal.SizeOf");
+                            list.Add(factory.StructMarshallingData((DefType)type), "Marshal.SizeOf");
                         }
                     }
                     break;
             }
+        }
+
+        private static void HandleTypeGetMethod(ref DependencyList list, NodeFactory factory, TypeDesc type, string name, string reason)
+        {
+            if (factory.MetadataManager.IsReflectionBlocked(type))
+                return;
+
+            if (type.IsGenericDefinition)
+            {
+                Instantiation inst = TypeExtensions.GetInstantiationThatMeetsConstraints(type.Instantiation, allowCanon: false);
+                if (inst.IsNull)
+                    return;
+                type = ((MetadataType)type).MakeInstantiatedType(inst);
+                list = list ?? new DependencyList();
+                list.Add(factory.MaximallyConstructableType(type), reason);
+            }
+            else
+            {
+                // Type could be something weird like SomeType<object, __Canon> - normalize it
+                type = type.NormalizeInstantiation();
+            }
+
+            MethodDesc reflectedMethod = type.GetMethod(name, null);
+            if (reflectedMethod != null
+                && !factory.MetadataManager.IsReflectionBlocked(reflectedMethod))
+            {
+                if (reflectedMethod.HasInstantiation)
+                {
+                    // Don't want to accidentally get Foo<__Canon>.Bar<object>()
+                    if (reflectedMethod.OwningType.IsCanonicalSubtype(CanonicalFormKind.Any))
+                        return;
+
+                    Instantiation inst = TypeExtensions.GetInstantiationThatMeetsConstraints(reflectedMethod.Instantiation, allowCanon: false);
+                    if (inst.IsNull)
+                        return;
+                    reflectedMethod = reflectedMethod.MakeInstantiatedMethod(inst);
+                }
+
+                list = list ?? new DependencyList();
+                if (reflectedMethod.IsVirtual)
+                    RootVirtualMethodForReflection(ref list, factory, reflectedMethod, reason);
+
+                if (!reflectedMethod.IsAbstract)
+                {
+                    list.Add(factory.CanonicalEntrypoint(reflectedMethod), reason);
+                    if (reflectedMethod.HasInstantiation
+                        && reflectedMethod != reflectedMethod.GetCanonMethodTarget(CanonicalFormKind.Specific))
+                        list.Add(factory.MethodGenericDictionary(reflectedMethod), reason);
+                }
+            }
+        }
+
+        private static bool IsMarshalSizeOf(MethodDesc methodCalled)
+        {
+            return methodCalled.OwningType.IsSystemRuntimeInteropServicesMarshal() && !methodCalled.HasInstantiation
+                    && methodCalled.Signature.Length == 1 && methodCalled.Signature[0].IsSystemType();
+        }
+
+        private static bool IsTypeEligibleForMarshalSizeOfTracking(TypeDesc type)
+        {
+            return type != null && !type.IsGenericDefinition && !type.IsCanonicalSubtype(CanonicalFormKind.Any) && type.IsDefType;
         }
 
         private static bool ResolveType(string name, ModuleDesc callingModule, out TypeDesc type, out ModuleDesc referenceModule)
@@ -269,6 +328,41 @@ namespace ILCompiler.DependencyAnalysis
             {
                 list.Add(factory.ReflectableMethod(method), reason);
             }
+        }
+
+        /// <summary>
+        /// Skips over a "foo == typeof(Bar)" or "typeof(Foo) == typeof(Bar)" sequence.
+        /// </summary>
+        private static bool IsTypeEqualityTest(MethodIL methodIL, ILReader reader, out ILReader afterTest)
+        {
+            afterTest = default;
+
+            if (reader.ReadILOpcode() != ILOpcode.call)
+                return false;
+            MethodDesc method = methodIL.GetObject(reader.ReadILToken()) as MethodDesc;
+            if (method == null || method.Name != "GetTypeFromHandle" && !method.OwningType.IsSystemType())
+                return false;
+
+            ILOpcode opcode = reader.ReadILOpcode();
+            if (opcode == ILOpcode.ldtoken)
+            {
+                reader.ReadILToken();
+                opcode = reader.ReadILOpcode();
+                if (opcode != ILOpcode.call)
+                    return false;
+                method = methodIL.GetObject(reader.ReadILToken()) as MethodDesc;
+                if (method == null || method.Name != "GetTypeFromHandle" && !method.OwningType.IsSystemType())
+                    return false;
+                opcode = reader.ReadILOpcode();
+            }
+            if (opcode != ILOpcode.call)
+                return false;
+            method = methodIL.GetObject(reader.ReadILToken()) as MethodDesc;
+            if (method == null || method.Name != "op_Equality" && !method.OwningType.IsSystemType())
+                return false;
+
+            afterTest = reader;
+            return true;
         }
 
         private static bool IsSystemType(this TypeDesc type)

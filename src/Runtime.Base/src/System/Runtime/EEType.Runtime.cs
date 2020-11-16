@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Diagnostics;
@@ -12,22 +11,17 @@ namespace Internal.Runtime
     // Extensions to EEType that are specific to the use in Runtime.Base.
     internal unsafe partial struct EEType
     {
-        internal DispatchResolve.DispatchMap* DispatchMap
-        {
-            get
-            {
-                fixed (EEType* pThis = &this)
-                    return InternalCalls.RhpGetDispatchMap(pThis);
-            }
-        }
-
         internal EEType* GetArrayEEType()
         {
+#if INPLACE_RUNTIME
+            return EETypePtr.EETypePtrOf<Array>().ToPointer();
+#else
             fixed (EEType* pThis = &this)
             {
                 IntPtr pGetArrayEEType = (IntPtr)InternalCalls.RhpGetClasslibFunctionFromEEType(new IntPtr(pThis), ClassLibFunctionId.GetSystemArrayEEType);
                 return (EEType*)CalliIntrinsics.Call<IntPtr>(pGetArrayEEType);
             }
+#endif
         }
 
         internal Exception GetClasslibException(ExceptionIDs id)
@@ -157,7 +151,7 @@ namespace Internal.Runtime
         // The binder sets a special CorElementType for this well known type
         internal static unsafe bool IsSystemArray(EEType* pEEType)
         {
-            return (pEEType->CorElementType == CorElementType.ELEMENT_TYPE_ARRAY);
+            return (pEEType->ElementType == EETypeElementType.SystemArray);
         }
     }
 }

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 // --------------------------------------------------------------------------------------
 //
@@ -380,7 +379,7 @@ namespace System
 
         private void PublicationOnlyWaitForOtherThreadToPublish()
         {
-            var spinWait = new SpinWait();
+            SpinWait spinWait = default;
             while (!ReferenceEquals(_state, null))
             {
                 // We get here when PublicationOnly temporarily sets _state to LazyHelper.PublicationOnlyWaitForOtherThreadToPublish.
@@ -525,6 +524,7 @@ namespace System
         public bool IsValueCreated => _lazy.IsValueCreated;
 
         /// <summary>Returns the value of the Lazy object.</summary>
+        [MaybeNull]
         public T Value => _lazy.ValueForDebugDisplay;
 
         /// <summary>Returns the execution mode of the Lazy object</summary>

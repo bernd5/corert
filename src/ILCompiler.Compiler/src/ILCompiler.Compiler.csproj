@@ -18,12 +18,14 @@
   <ItemGroup>
     <ProjectReference Include="..\..\ILCompiler.DependencyAnalysisFramework\src\ILCompiler.DependencyAnalysisFramework.csproj" />
     <ProjectReference Include="..\..\ILCompiler.MetadataTransform\src\ILCompiler.MetadataTransform.csproj" />
-    <ProjectReference Include="..\..\ILCompiler.MetadataWriter\src\ILCompiler.MetadataWriter.csproj" />
     <ProjectReference Include="..\..\ILCompiler.TypeSystem\src\ILCompiler.TypeSystem.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\Common\src\Internal\Runtime\GCDescEncoder.cs">
       <Link>Common\GCDescEncoder.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Common\src\Internal\Runtime\ReadyToRunConstants.cs">
+      <Link>Common\ReadyToRunConstants.cs</Link>
     </Compile>
     <Compile Include="..\..\Common\src\Internal\Runtime\InteropConstants.cs">
       <Link>Common\InteropConstants.cs</Link>
@@ -148,21 +150,24 @@
     <Compile Include="Compiler\DevirtualizationManager.cs" />
     <Compile Include="Compiler\DictionaryLayoutProvider.cs" />
     <Compile Include="Compiler\DirectPInvokePolicy.cs" />
+    <Compile Include="Compiler\Disassembler.cs" />
     <Compile Include="Compiler\DynamicInvokeThunkGenerationPolicy.cs" />
     <Compile Include="Compiler\EmptyInteropStubManager.cs" />
     <Compile Include="Compiler\DependencyAnalysis\ISortableNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\SortableDependencyNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\ImportedNodeProvider.cs" />
+    <Compile Include="Compiler\ExpectedIsaFeaturesRootProvider.cs" />
     <Compile Include="Compiler\ExternSymbolMappedField.cs" />
     <Compile Include="Compiler\FrameworkStringResourceBlockingPolicy.cs" />
     <Compile Include="Compiler\GeneratingMetadataManager.cs" />
     <Compile Include="Compiler\HardwareIntrinsicHelpers.cs" />
+    <Compile Include="Compiler\HardwareIntrinsicHelpers.Aot.cs" />
+    <Compile Include="Compiler\InstructionSetSupport.cs" />
     <Compile Include="Compiler\InternalCompilerErrorException.cs" />
     <Compile Include="Compiler\ManifestResourceBlockingPolicy.cs" />
     <Compile Include="Compiler\NoManifestResourceBlockingPolicy.cs" />
     <Compile Include="Compiler\NoMetadataBlockingPolicy.cs" />
-    <Compile Include="Compiler\PreInitFieldInfo.cs" />
-    <Compile Include="Compiler\DependencyAnalysis\FrozenArrayNode.cs" />
+    <Compile Include="Compiler\DependencyAnalysis\FrozenObjectNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\GCStaticsPreInitDataNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\ImportedGenericDictionaryNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\DynamicInvokeTemplateDataNode.cs" />
@@ -174,7 +179,6 @@
     <Compile Include="Compiler\DependencyAnalysis\ScannedMethodNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\ShadowConcreteUnboxingThunkNode.cs" />
     <Compile Include="Compiler\DependencyTrackingLevel.cs" />
-    <Compile Include="Compiler\EmptyMetadataManager.cs" />
     <Compile Include="Compiler\ILScanner.cs" />
     <Compile Include="Compiler\ILScannerBuilder.cs" />
     <Compile Include="Compiler\ILStreamReader.cs" />
@@ -272,6 +276,7 @@
     <Compile Include="Compiler\DependencyAnalysis\IExportableSymbolNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\ISymbolNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\JumpStubNode.cs" />
+    <Compile Include="Compiler\DependencyAnalysis\MethodReadOnlyDataNode.cs" />
     <Compile Include="Compiler\DependencyAnalysis\NodeFactory.cs" />
     <Compile Include="Compiler\DependencyAnalysis\NodeFactory.GenericLookups.cs" />
     <Compile Include="Compiler\DependencyAnalysis\NodeFactory.NativeLayout.cs" />
@@ -339,7 +344,6 @@
     <Compile Include="Compiler\NodeMangler.cs" />
     <Compile Include="Compiler\ObjectDumper.cs" />
     <Compile Include="Compiler\ExportsFileWriter.cs" />
-    <Compile Include="Compiler\ReadyToRun.cs" />
     <Compile Include="Compiler\RootingHelpers.cs" />
     <Compile Include="Compiler\RootingServiceProvider.cs" />
     <Compile Include="Compiler\RuntimeConfigurationRootProvider.cs" />
@@ -349,14 +353,14 @@
     <Compile Include="Compiler\ILAssemblyGeneratingMethodDebugInfoProvider.cs" />
     <Compile Include="Compiler\StackTraceEmissionPolicy.cs" />
     <Compile Include="Compiler\TypeExtensions.cs" />
-    <Compile Include="Compiler\CompilerTypeSystemContext.TypeInit.cs" />
+    <Compile Include="Compiler\PreinitializationManager.cs" />
     <Compile Include="Compiler\CoreRTNameMangler.cs" />
+    <Compile Include="Compiler\TypePreinit.cs" />
     <Compile Include="Compiler\UsageBasedInteropStubManager.cs" />
     <Compile Include="Compiler\UsageBasedMetadataManager.cs" />
     <Compile Include="Compiler\UserDefinedTypeDescriptor.cs" />
     <Compile Include="Compiler\UniversalGenericsRootProvider.cs" />
     <Compile Include="Compiler\UnixNodeMangler.cs" />
-    <Compile Include="Compiler\SimdHelper.cs" />
     <Compile Include="Compiler\VectorFieldLayoutAlgorithm.cs" />
     <Compile Include="Compiler\VectorOfTFieldLayoutAlgorithm.cs" />
     <Compile Include="Compiler\VirtualMethodCallHelper.cs" />
@@ -420,8 +424,14 @@
     <Compile Include="..\..\Common\src\TypeSystem\IL\Stubs\UnsafeIntrinsics.cs">
       <Link>IL\Stubs\UnsafeIntrinsics.cs</Link>
     </Compile>
+    <Compile Include="..\..\Common\src\TypeSystem\IL\Stubs\MemoryMarshalIntrinsics.cs">
+      <Link>IL\Stubs\MemoryMarshalIntrinsics.cs</Link>
+    </Compile>
     <Compile Include="..\..\Common\src\TypeSystem\IL\Stubs\VolatileIntrinsics.cs">
       <Link>IL\Stubs\VolatileIntrinsics.cs</Link>
+    </Compile>
+    <Compile Include="..\..\JitInterface\src\CorInfoInstructionSet.cs">
+      <Link>JitInterface\CorInfoInstructionSet.cs</Link>
     </Compile>
     <Compile Include="..\..\JitInterface\src\CorInfoTypes.VarInfo.cs">
       <Link>JitInterface\CorInfoTypes.VarInfo.cs</Link>

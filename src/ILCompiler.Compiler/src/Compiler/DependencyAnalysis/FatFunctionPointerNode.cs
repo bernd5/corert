@@ -1,12 +1,10 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using Internal.Text;
 using Internal.TypeSystem;
 
 using Debug = System.Diagnostics.Debug;
-using FatFunctionPointerConstants = Internal.Runtime.FatFunctionPointerConstants;
 
 namespace ILCompiler.DependencyAnalysis
 {
@@ -37,7 +35,7 @@ namespace ILCompiler.DependencyAnalysis
         }
 
         int ISymbolDefinitionNode.Offset => 0;
-        int ISymbolNode.Offset => FatFunctionPointerConstants.Offset;
+        int ISymbolNode.Offset => Method.Context.Target.FatFunctionPointerOffset;
 
         public override bool IsShareable => true;
 

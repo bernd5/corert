@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 #include "common.h"
 
 #include <windows.h>
@@ -29,7 +28,7 @@
 #define UBF_FUNC_REVERSE_PINVOKE        0x08
 #define UBF_FUNC_HAS_ASSOCIATED_DATA    0x10
 
-#ifdef _TARGET_X86_
+#ifdef TARGET_X86
 //
 // x86 ABI does not define RUNTIME_FUNCTION. Define our own to allow unification between x86 and other platforms.
 //
@@ -60,7 +59,7 @@ typedef struct _UNWIND_INFO {
     ULONG FunctionLength;
 } UNWIND_INFO, *PUNWIND_INFO;
 
-#elif defined(_TARGET_AMD64_)
+#elif defined(TARGET_AMD64)
 
 #define UNW_FLAG_NHANDLER 0x0
 #define UNW_FLAG_EHANDLER 0x1
@@ -91,14 +90,14 @@ typedef struct _UNWIND_INFO {
     UNWIND_CODE UnwindCode[1];
 } UNWIND_INFO, *PUNWIND_INFO;
 
-#endif // _TARGET_X86_
+#endif // TARGET_X86
 
 typedef DPTR(struct _UNWIND_INFO)      PTR_UNWIND_INFO;
 typedef DPTR(union _UNWIND_CODE)       PTR_UNWIND_CODE;
 
 static PTR_VOID GetUnwindDataBlob(TADDR moduleBase, PTR_RUNTIME_FUNCTION pRuntimeFunction, /* out */ size_t * pSize)
 {
-#if defined(_TARGET_AMD64_)
+#if defined(TARGET_AMD64)
     PTR_UNWIND_INFO pUnwindInfo(dac_cast<PTR_UNWIND_INFO>(moduleBase + pRuntimeFunction->UnwindInfoAddress));
 
     size_t size = offsetof(UNWIND_INFO, UnwindCode) + sizeof(UNWIND_CODE) * pUnwindInfo->CountOfUnwindCodes;
@@ -116,7 +115,7 @@ static PTR_VOID GetUnwindDataBlob(TADDR moduleBase, PTR_RUNTIME_FUNCTION pRuntim
 
     return pUnwindInfo;
 
-#elif defined(_TARGET_X86_)
+#elif defined(TARGET_X86)
 
     PTR_UNWIND_INFO pUnwindInfo(dac_cast<PTR_UNWIND_INFO>(moduleBase + pRuntimeFunction->UnwindInfoAddress));
 
@@ -124,7 +123,7 @@ static PTR_VOID GetUnwindDataBlob(TADDR moduleBase, PTR_RUNTIME_FUNCTION pRuntim
 
     return pUnwindInfo;
 
-#elif defined(_TARGET_ARM_)
+#elif defined(TARGET_ARM)
 
     // if this function uses packed unwind data then at least one of the two least significant bits
     // will be non-zero.  if this is the case then there will be no xdata record to enumerate.
@@ -191,7 +190,7 @@ static int LookupUnwindInfoForMethod(UInt32 relativePc,
                                      int low,
                                      int high)
 {
-#ifdef _TARGET_ARM_
+#ifdef TARGET_ARM
     relativePc |= THUMB_CODE;
 #endif 
 
@@ -380,7 +379,7 @@ void CoffNativeCodeManager::EnumGcRefs(MethodInfo *    pMethodInfo,
 
 UIntNative CoffNativeCodeManager::GetConservativeUpperBoundForOutgoingArgs(MethodInfo * pMethodInfo, REGDISPLAY * pRegisterSet)
 {
-#if defined(_TARGET_AMD64_)
+#if defined(TARGET_AMD64)
 
     // Return value
     UIntNative upperBound;
@@ -509,7 +508,7 @@ bool CoffNativeCodeManager::UnwindStackFrame(MethodInfo *    pMethodInfo,
     memset(&contextPointers, 0xDD, sizeof(contextPointers));
 #endif
 
-#ifdef _TARGET_X86_
+#ifdef TARGET_X86
     #define FOR_EACH_NONVOLATILE_REGISTER(F) \
         F(E, ax) F(E, cx) F(E, dx) F(E, bx) F(E, bp) F(E, si) F(E, di)
     #define WORDPTR PDWORD
@@ -529,9 +528,9 @@ bool CoffNativeCodeManager::UnwindStackFrame(MethodInfo *    pMethodInfo,
 
     FOR_EACH_NONVOLATILE_REGISTER(REGDISPLAY_TO_CONTEXT);
 
-#ifdef _TARGET_X86_
+#ifdef TARGET_X86
     PORTABILITY_ASSERT("CoffNativeCodeManager::UnwindStackFrame");
-#else // _TARGET_X86_
+#else // TARGET_X86
     memcpy(&context.Xmm6, pRegisterSet->Xmm, sizeof(pRegisterSet->Xmm));
 
     context.Rsp = pRegisterSet->SP;
@@ -555,7 +554,7 @@ bool CoffNativeCodeManager::UnwindStackFrame(MethodInfo *    pMethodInfo,
     pRegisterSet->pIP = PTR_PCODE(pRegisterSet->SP - sizeof(TADDR));
 
     memcpy(pRegisterSet->Xmm, &context.Xmm6, sizeof(pRegisterSet->Xmm));
-#endif // _TARGET_X86_
+#endif // TARGET_X86
 
     FOR_EACH_NONVOLATILE_REGISTER(CONTEXT_TO_REGDISPLAY);
 
@@ -583,7 +582,7 @@ bool CoffNativeCodeManager::GetReturnAddressHijackInfo(MethodInfo *    pMethodIn
                                                 PTR_PTR_VOID *  ppvRetAddrLocation, // out
                                                 GCRefKind *     pRetValueKind)      // out
 {
-#if defined(_TARGET_AMD64_)
+#if defined(TARGET_AMD64)
     CoffNativeMethodInfo * pNativeMethodInfo = (CoffNativeMethodInfo *)pMethodInfo;
 
     size_t unwindDataBlobSize;
@@ -640,7 +639,7 @@ bool CoffNativeCodeManager::GetReturnAddressHijackInfo(MethodInfo *    pMethodIn
     return true;
 #else
     return false;
-#endif // defined(_TARGET_AMD64_)
+#endif // defined(TARGET_AMD64)
 }
 
 void CoffNativeCodeManager::UnsynchronizedHijackMethodLoops(MethodInfo * pMethodInfo)

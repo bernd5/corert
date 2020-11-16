@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -311,7 +310,7 @@ namespace Internal.TypeSystem.Ecma
             }
         }
 
-        public override MethodDesc GetMethod(string name, MethodSignature signature)
+        public override MethodDesc GetMethod(string name, MethodSignature signature, Instantiation substitution)
         {
             var metadataReader = this.MetadataReader;
             var stringComparer = metadataReader.StringComparer;
@@ -321,7 +320,7 @@ namespace Internal.TypeSystem.Ecma
                 if (stringComparer.Equals(metadataReader.GetMethodDefinition(handle).Name, name))
                 {
                     MethodDesc method = (MethodDesc)_module.GetObject(handle);
-                    if (signature == null || signature.Equals(method.Signature))
+                    if (signature == null || signature.Equals(method.Signature.ApplySubstitution(substitution)))
                         return method;
                 }
             }
@@ -537,40 +536,6 @@ namespace Internal.TypeSystem.Ecma
                 result.Offsets = null;
 
             return result;
-        }
-
-        public override MarshalAsDescriptor[] GetFieldMarshalAsDescriptors()
-        {
-            var fieldDefinitionHandles = _typeDefinition.GetFields();
-
-            MarshalAsDescriptor[] marshalAsDescriptors = new MarshalAsDescriptor[fieldDefinitionHandles.Count];
-            int index = 0;
-            foreach (var handle in fieldDefinitionHandles)
-            {
-                var fieldDefinition = MetadataReader.GetFieldDefinition(handle);
-
-                if ((fieldDefinition.Attributes & FieldAttributes.Static) != 0)
-                    continue;
-
-                MarshalAsDescriptor marshalAsDescriptor = GetMarshalAsDescriptor(fieldDefinition);
-                marshalAsDescriptors[index++] = marshalAsDescriptor;
-            }
-
-            return marshalAsDescriptors;
-        }
-
-        private MarshalAsDescriptor GetMarshalAsDescriptor(FieldDefinition fieldDefinition)
-        {
-            if ((fieldDefinition.Attributes & FieldAttributes.HasFieldMarshal) == FieldAttributes.HasFieldMarshal)
-            {
-                MetadataReader metadataReader = MetadataReader;
-                BlobReader marshalAsReader = metadataReader.GetBlobReader(fieldDefinition.GetMarshallingDescriptor());
-                EcmaSignatureParser parser = new EcmaSignatureParser(EcmaModule, marshalAsReader);
-                MarshalAsDescriptor marshalAs =  parser.ParseMarshalAsDescriptor();
-                Debug.Assert(marshalAs != null);
-                return marshalAs;
-            }
-            return null;
         }
 
         public override bool IsExplicitLayout

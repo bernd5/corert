@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Runtime.CompilerServices;
 using System.Security;
@@ -82,15 +81,6 @@ namespace System.Runtime.InteropServices
         public static unsafe IntPtr CoTaskMemReAlloc(IntPtr pv, IntPtr cb)
         {
             return Interop.MemReAlloc(pv, new UIntPtr((void*)cb));
-        }
-
-        public static IntPtr SecureStringToBSTR(SecureString s)
-        {
-            if (s == null)
-            {
-                throw new ArgumentNullException(nameof(s));
-            }
-            throw new PlatformNotSupportedException();
         }
 
         // In CoreRT on Unix, there is not yet a BSTR implementation. On Windows, we would use SysAllocStringLen from OleAut32.dll.

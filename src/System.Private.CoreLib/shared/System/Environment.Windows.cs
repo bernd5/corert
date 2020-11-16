@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.IO;
 using System.Runtime.InteropServices;
@@ -14,8 +13,7 @@ namespace System
         {
             get
             {
-                Span<char> initialBuffer = stackalloc char[Interop.Kernel32.MAX_PATH];
-                var builder = new ValueStringBuilder(initialBuffer);
+                var builder = new ValueStringBuilder(stackalloc char[Interop.Kernel32.MAX_PATH]);
 
                 uint length;
                 while ((length = Interop.Kernel32.GetCurrentDirectory((uint)builder.Capacity, ref builder.GetPinnableReference())) > builder.Capacity)
@@ -65,8 +63,7 @@ namespace System
 
         private static string ExpandEnvironmentVariablesCore(string name)
         {
-            Span<char> initialBuffer = stackalloc char[128];
-            var builder = new ValueStringBuilder(initialBuffer);
+            var builder = new ValueStringBuilder(stackalloc char[128]);
 
             uint length;
             while ((length = Interop.Kernel32.ExpandEnvironmentStrings(name, ref builder.GetPinnableReference(), (uint)builder.Capacity)) > builder.Capacity)
@@ -91,16 +88,16 @@ namespace System
 
         private static unsafe OperatingSystem GetOSVersion()
         {
-            var version = new Interop.Kernel32.OSVERSIONINFOEX { dwOSVersionInfoSize = sizeof(Interop.Kernel32.OSVERSIONINFOEX) };
-            if (!Interop.Kernel32.GetVersionExW(ref version))
+            if (Interop.NtDll.RtlGetVersionEx(out Interop.NtDll.RTL_OSVERSIONINFOEX osvi) != 0)
             {
                 throw new InvalidOperationException(SR.InvalidOperation_GetVersion);
             }
 
-            return new OperatingSystem(
-                PlatformID.Win32NT,
-                new Version(version.dwMajorVersion, version.dwMinorVersion, version.dwBuildNumber, (version.wServicePackMajor << 16) | version.wServicePackMinor),
-                Marshal.PtrToStringUni((IntPtr)version.szCSDVersion));
+            var version = new Version((int)osvi.dwMajorVersion, (int)osvi.dwMinorVersion, (int)osvi.dwBuildNumber, 0);
+
+            return osvi.szCSDVersion[0] != '\0' ?
+                new OperatingSystem(PlatformID.Win32NT, version, new string(&osvi.szCSDVersion[0])) :
+                new OperatingSystem(PlatformID.Win32NT, version);
         }
 
         public static string SystemDirectory
@@ -108,8 +105,7 @@ namespace System
             get
             {
                 // Normally this will be C:\Windows\System32
-                Span<char> initialBuffer = stackalloc char[32];
-                var builder = new ValueStringBuilder(initialBuffer);
+                var builder = new ValueStringBuilder(stackalloc char[32]);
 
                 uint length;
                 while ((length = Interop.Kernel32.GetSystemDirectoryW(ref builder.GetPinnableReference(), (uint)builder.Capacity)) > builder.Capacity)
@@ -122,6 +118,28 @@ namespace System
 
                 builder.Length = (int)length;
                 return builder.ToString();
+            }
+        }
+
+        public static unsafe bool UserInteractive
+        {
+            get
+            {
+                // Per documentation of GetProcessWindowStation, this handle should not be closed
+                IntPtr handle = Interop.User32.GetProcessWindowStation();
+                if (handle != IntPtr.Zero)
+                {
+                    Interop.User32.USEROBJECTFLAGS flags = default;
+                    uint dummy = 0;
+                    if (Interop.User32.GetUserObjectInformationW(handle, Interop.User32.UOI_FLAGS, &flags, (uint)sizeof(Interop.User32.USEROBJECTFLAGS), ref dummy))
+                    {
+                        return ((flags.dwFlags & Interop.User32.WSF_VISIBLE) != 0);
+                    }
+                }
+
+                // If we can't determine, return true optimistically
+                // This will include cases like Windows Nano which do not expose WindowStations
+                return true;
             }
         }
 

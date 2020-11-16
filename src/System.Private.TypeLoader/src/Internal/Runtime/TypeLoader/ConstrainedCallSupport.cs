@@ -1,6 +1,5 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Collections.Generic;
@@ -17,7 +16,7 @@ namespace Internal.Runtime.TypeLoader
 {
     internal class ConstrainedCallSupport
     {
-#if ARM
+#if TARGET_ARM
         private delegate IntPtr ResolveCallOnReferenceTypeDel(IntPtr scratch, ref object thisPtr, IntPtr callDescIntPtr);
         private delegate IntPtr ResolveCallOnValueTypeDel(IntPtr scratch, IntPtr thisPtr, IntPtr callDescIntPtr);
 #else
@@ -204,7 +203,7 @@ namespace Internal.Runtime.TypeLoader
                 s_boxAndEqualsFuncPtr = Intrinsics.AddrOf((BoxAndCallDel2<bool>)BoxAndEquals);
             }
 
-#if ARM
+#if TARGET_ARM
             private static unsafe IntPtr ResolveCallOnReferenceType(IntPtr unused1, ref object thisPtr, IntPtr callDescIntPtr)
 #else
             private static unsafe IntPtr ResolveCallOnReferenceType(ref object thisPtr, IntPtr callDescIntPtr)
@@ -261,7 +260,7 @@ namespace Internal.Runtime.TypeLoader
                 return exactTarget;
             }
 
-#if ARM
+#if TARGET_ARM
             private static unsafe IntPtr ResolveCallOnValueType(IntPtr unused1, IntPtr unused2, IntPtr callDescIntPtr)
 #else
             private static unsafe IntPtr ResolveCallOnValueType(IntPtr unused, IntPtr callDescIntPtr)
@@ -439,7 +438,7 @@ namespace Internal.Runtime.TypeLoader
                 s_resolveCallOnValueTypeFuncPtr = Intrinsics.AddrOf((ResolveCallOnValueTypeDel)ResolveCallOnValueType);
             }
 
-#if ARM
+#if TARGET_ARM
             private static unsafe IntPtr ResolveCallOnReferenceType(IntPtr unused1, ref object thisPtr, IntPtr callDescIntPtr)
 #else
             private static unsafe IntPtr ResolveCallOnReferenceType(ref object thisPtr, IntPtr callDescIntPtr)
@@ -467,7 +466,7 @@ namespace Internal.Runtime.TypeLoader
                     thisPtr, out _);
             }
 
-#if ARM
+#if TARGET_ARM
             private static unsafe IntPtr ResolveCallOnValueType(IntPtr unused1, IntPtr unused2, IntPtr callDescIntPtr)
 #else
             private static unsafe IntPtr ResolveCallOnValueType(IntPtr unused, IntPtr callDescIntPtr)

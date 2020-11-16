@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Buffers;
 using System.Diagnostics;
@@ -207,11 +206,11 @@ namespace System.Text
             charsUsed = _encoding.GetChars(bytes, byteCount, chars, charCount, this);
             bytesUsed = _bytesUsed;
 
-            // Its completed if they've used what they wanted AND if they didn't want flush or if we are flushed
-            completed = (bytesUsed == byteCount) && (!flush || !this.HasState) &&
-                               (_fallbackBuffer == null || _fallbackBuffer.Remaining == 0);
+            // See comment in EncoderNLS.Convert for the details of the logic below.
 
-            // Our data thingy are now full, we can return
+            completed = (bytesUsed == byteCount)
+                && (!flush || !this.HasState)
+                && (_fallbackBuffer is null || _fallbackBuffer.Remaining == 0);
         }
 
         public bool MustFlush => _mustFlush;

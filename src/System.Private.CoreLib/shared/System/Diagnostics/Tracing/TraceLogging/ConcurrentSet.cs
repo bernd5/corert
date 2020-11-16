@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #if ES_BUILD_STANDALONE
 using System;
@@ -107,7 +106,7 @@ namespace System.Diagnostics.Tracing
 
                 int oldLength = oldItems.Length;
                 newItems = new ItemType[oldLength + 1];
-                Array.Copy(oldItems, 0, newItems, 0, lo);
+                Array.Copy(oldItems, newItems, lo);
                 newItems[lo] = newItem;
                 Array.Copy(oldItems, lo, newItems, lo + 1, oldLength - lo);
             }

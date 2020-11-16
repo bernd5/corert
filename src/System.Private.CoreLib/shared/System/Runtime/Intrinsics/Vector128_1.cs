@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Globalization;
@@ -31,7 +30,7 @@ namespace System.Runtime.Intrinsics
         where T : struct
     {
         // These fields exist to ensure the alignment is 8, rather than 1.
-        // This also allows the debug view to work https://github.com/dotnet/coreclr/issues/15694)
+        // This also allows the debug view to work https://github.com/dotnet/runtime/issues/9495)
         private readonly ulong _00;
         private readonly ulong _01;
 
@@ -155,14 +154,14 @@ namespace System.Runtime.Intrinsics
         {
             ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
 
-            int hashCode = 0;
+            HashCode hashCode = default;
 
             for (int i = 0; i < Count; i++)
             {
-                hashCode = HashCode.Combine(hashCode, this.GetElement(i).GetHashCode());
+                hashCode.Add(this.GetElement(i).GetHashCode());
             }
 
-            return hashCode;
+            return hashCode.ToHashCode();
         }
 
         /// <summary>Converts the current instance to an equivalent string representation.</summary>
@@ -173,20 +172,20 @@ namespace System.Runtime.Intrinsics
             ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
 
             int lastElement = Count - 1;
-            StringBuilder sb = StringBuilderCache.Acquire();
+            var sb = new ValueStringBuilder(stackalloc char[64]);
             CultureInfo invariant = CultureInfo.InvariantCulture;
 
             sb.Append('<');
             for (int i = 0; i < lastElement; i++)
             {
-                sb.Append(((IFormattable)this.GetElement(i)).ToString("G", invariant))
-                 .Append(',')
-                 .Append(' ');
+                sb.Append(((IFormattable)this.GetElement(i)).ToString("G", invariant));
+                sb.Append(',');
+                sb.Append(' ');
             }
-            sb.Append(((IFormattable)this.GetElement(lastElement)).ToString("G", invariant))
-             .Append('>');
+            sb.Append(((IFormattable)this.GetElement(lastElement)).ToString("G", invariant));
+            sb.Append('>');
 
-            return StringBuilderCache.GetStringAndRelease(sb);
+            return sb.ToString();
         }
     }
 }

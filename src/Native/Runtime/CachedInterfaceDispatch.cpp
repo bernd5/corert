@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 // ==--==
 //
 // Shared (non-architecture specific) portions of a mechanism to perform interface dispatch using an alternate
@@ -30,7 +29,7 @@
 #include "gcrhinterface.h"
 #include "shash.h"
 #include "RWLock.h"
-#include "module.h"
+#include "TypeManager.h"
 #include "RuntimeInstance.h"
 #include "eetype.inl"
 
@@ -86,7 +85,7 @@ static void * UpdatePointerPairAtomically(void * pPairLocation,
                                           void * pSecondPointer,
                                           bool fFailOnNonNull)
 {
-#if defined(BIT64)
+#if defined(HOST_64BIT)
     // The same comments apply to the AMD64 version. The CompareExchange looks a little different since the
     // API was refactored in terms of Int64 to avoid creating a 128-bit integer type.
 
@@ -129,7 +128,7 @@ static void * UpdatePointerPairAtomically(void * pPairLocation,
     // The update failed due to a racing update to the same location. Return the new value of the second
     // pointer (either a new cache that lost the race or a non-NULL pointer in the cache entry update case).
     return pSecondPointer;
-#endif // BIT64
+#endif // HOST_64BIT
 }
 
 // Helper method for updating an interface dispatch cache entry atomically. See comments by the usage of
@@ -186,12 +185,12 @@ static InterfaceDispatchCache * UpdateCellStubAndCache(InterfaceDispatchCell * p
 // any more) we can place them on one of several free lists based on their size.
 //
 
-#if defined(_AMD64_) || defined(_ARM64_)
+#if defined(HOST_AMD64) || defined(HOST_ARM64)
 
 // Head of the list of discarded cache blocks that can't be re-used just yet.
 InterfaceDispatchCache * g_pDiscardedCacheList; // for AMD64 and ARM64, m_pCell is not used and we can link the discarded blocks themselves
 
-#else // defined(_AMD64_) || defined(_ARM64_)
+#else // defined(HOST_AMD64) || defined(HOST_ARM64)
 
 struct DiscardedCacheBlock
 {
@@ -205,7 +204,7 @@ static DiscardedCacheBlock * g_pDiscardedCacheList = NULL;
 // Free list of DiscardedCacheBlock items
 static DiscardedCacheBlock * g_pDiscardedCacheFree = NULL;
 
-#endif // defined(_AMD64_) || defined(_ARM64_)
+#endif // defined(HOST_AMD64) || defined(HOST_ARM64)
 
 // Free lists for each cache size up to the maximum. We allocate from these in preference to new memory.
 static InterfaceDispatchCache * g_rgFreeLists[CID_MAX_CACHE_SIZE_LOG2 + 1];
@@ -218,26 +217,26 @@ static CrstStatic g_sListLock;
 static AllocHeap * g_pAllocHeap = NULL;
 
 // Each cache size has an associated stub used to perform lookup over that cache.
-extern "C" void (*RhpInterfaceDispatch1)();
-extern "C" void (*RhpInterfaceDispatch2)();
-extern "C" void (*RhpInterfaceDispatch4)();
-extern "C" void (*RhpInterfaceDispatch8)();
-extern "C" void (*RhpInterfaceDispatch16)();
-extern "C" void (*RhpInterfaceDispatch32)();
-extern "C" void (*RhpInterfaceDispatch64)();
+extern "C" void RhpInterfaceDispatch1();
+extern "C" void RhpInterfaceDispatch2();
+extern "C" void RhpInterfaceDispatch4();
+extern "C" void RhpInterfaceDispatch8();
+extern "C" void RhpInterfaceDispatch16();
+extern "C" void RhpInterfaceDispatch32();
+extern "C" void RhpInterfaceDispatch64();
 
-extern "C" void (*RhpVTableOffsetDispatch)();
+extern "C" void RhpVTableOffsetDispatch();
 
 typedef void (*InterfaceDispatchStub)();
 
 static void * g_rgDispatchStubs[CID_MAX_CACHE_SIZE_LOG2 + 1] = {
-    &RhpInterfaceDispatch1,
-    &RhpInterfaceDispatch2,
-    &RhpInterfaceDispatch4,
-    &RhpInterfaceDispatch8,
-    &RhpInterfaceDispatch16,
-    &RhpInterfaceDispatch32,
-    &RhpInterfaceDispatch64,
+    (void *)&RhpInterfaceDispatch1,
+    (void *)&RhpInterfaceDispatch2,
+    (void *)&RhpInterfaceDispatch4,
+    (void *)&RhpInterfaceDispatch8,
+    (void *)&RhpInterfaceDispatch16,
+    (void *)&RhpInterfaceDispatch32,
+    (void *)&RhpInterfaceDispatch64,
 };
 
 // Map a cache size into a linear index.
@@ -272,7 +271,7 @@ static UIntNative AllocateCache(UInt32 cCacheEntries, InterfaceDispatchCache * p
     if (pNewCellInfo->CellType == DispatchCellType::VTableOffset)
     {
         ASSERT(pNewCellInfo->VTableOffset < InterfaceDispatchCell::IDC_MaxVTableOffsetPlusOne);
-        *ppStub = &RhpVTableOffsetDispatch;
+        *ppStub = (void *)&RhpVTableOffsetDispatch;
         ASSERT(!InterfaceDispatchCell::IsCache(pNewCellInfo->VTableOffset));
         return pNewCellInfo->VTableOffset;
     }
@@ -350,13 +349,13 @@ static void DiscardCache(InterfaceDispatchCache * pCache)
 
     CrstHolder lh(&g_sListLock);
 
-#if defined(_AMD64_) || defined(_ARM64_)
+#if defined(HOST_AMD64) || defined(HOST_ARM64)
 
     // on AMD64 and ARM64, we can thread the list through the blocks directly
     pCache->m_pNextFree = g_pDiscardedCacheList;
     g_pDiscardedCacheList = pCache;
 
-#else // defined(_AMD64_) || defined(_ARM64_)
+#else // defined(HOST_AMD64) || defined(HOST_ARM64)
 
     // on other architectures, we cannot overwrite pCache->m_pNextFree yet
     // because it shares storage with m_pCell which may still be used as a back
@@ -376,7 +375,7 @@ static void DiscardCache(InterfaceDispatchCache * pCache)
 
         g_pDiscardedCacheList = pDiscardedCacheBlock;
     }
-#endif // defined(_AMD64_) || defined(_ARM64_)
+#endif // defined(HOST_AMD64) || defined(HOST_ARM64)
 }
 
 // Called during a GC to empty the list of discarded caches (which we can now guarantee aren't being accessed)
@@ -386,7 +385,7 @@ void ReclaimUnusedInterfaceDispatchCaches()
     // No need for any locks, we're not racing with any other threads any more.
 
     // Walk the list of discarded caches.
-#if defined(_AMD64_) || defined(_ARM64_)
+#if defined(HOST_AMD64) || defined(HOST_ARM64)
 
     // on AMD64, this is threaded directly through the cache blocks
     InterfaceDispatchCache * pCache = g_pDiscardedCacheList;
@@ -404,7 +403,7 @@ void ReclaimUnusedInterfaceDispatchCaches()
         pCache = pNextCache;
     }
 
-#else // defined(_AMD64_) || defined(_ARM64_)
+#else // defined(HOST_AMD64) || defined(HOST_ARM64)
 
     // on other architectures, we use an auxiliary list instead
     DiscardedCacheBlock * pDiscardedCacheBlock = g_pDiscardedCacheList;
@@ -426,7 +425,7 @@ void ReclaimUnusedInterfaceDispatchCaches()
         pDiscardedCacheBlock = pNextDiscardedCacheBlock;
     }
 
-#endif // defined(_AMD64_) || defined(_ARM64_)
+#endif // defined(HOST_AMD64) || defined(HOST_ARM64)
 
     // We processed all the discarded entries, so we can simply NULL the list head.
     g_pDiscardedCacheList = NULL;
@@ -496,11 +495,11 @@ COOP_PINVOKE_HELPER(PTR_Code, RhpUpdateDispatchCellCache, (InterfaceDispatchCell
     if (InterfaceDispatchCell::IsCache(newCacheValue))
     {
         pCache = (InterfaceDispatchCache*)newCacheValue;
-#if !defined(_AMD64_) && !defined(_ARM64_)
+#if !defined(HOST_AMD64) && !defined(HOST_ARM64)
         // Set back pointer to interface dispatch cell for non-AMD64 and non-ARM64
         // for AMD64 and ARM64, we have enough registers to make this trick unnecessary
         pCache->m_pCell = pCell;
-#endif // !defined(_AMD64_) && !defined(_ARM64_)
+#endif // !defined(HOST_AMD64) && !defined(HOST_ARM64)
 
         // Add entry to the first unused slot.
         InterfaceDispatchCacheEntry * pCacheEntry = &pCache->m_rgEntries[cOldCacheEntries];
@@ -539,37 +538,6 @@ COOP_PINVOKE_HELPER(PTR_Code, RhpSearchDispatchCellCache, (InterfaceDispatchCell
 COOP_PINVOKE_HELPER(void, RhpGetDispatchCellInfo, (InterfaceDispatchCell * pCell, DispatchCellInfo* pDispatchCellInfo))
 {
     *pDispatchCellInfo = pCell->GetDispatchCellInfo();
-}
-
-EXTERN_C DECLSPEC_THREAD void* t_TLS_DispatchCell = nullptr;
-
-COOP_PINVOKE_HELPER(void, RhpSetTLSDispatchCell, (void *dispatchCell))
-{
-    t_TLS_DispatchCell = dispatchCell;
-}
-
-extern "C" void(*RhpTailCallTLSDispatchCell)();
-COOP_PINVOKE_HELPER(void*, RhpGetTailCallTLSDispatchCell, ())
-{
-    return &RhpTailCallTLSDispatchCell;
-}
-
-extern "C" void(*RhpCastableObjectDispatchHelper)();
-COOP_PINVOKE_HELPER(void*, RhpGetCastableObjectDispatchHelper, ())
-{
-    return &RhpCastableObjectDispatchHelper;
-}
-
-extern "C" void(*RhpCastableObjectDispatchHelper_TailCalled)();
-COOP_PINVOKE_HELPER(void*, RhpGetCastableObjectDispatchHelper_TailCalled, ())
-{
-    return &RhpCastableObjectDispatchHelper_TailCalled;
-}
-
-extern "C" void(*RhpCastableObjectDispatch_CommonStub)();
-COOP_PINVOKE_HELPER(void*, RhpGetCastableObjectDispatch_CommonStub, ())
-{
-    return &RhpCastableObjectDispatch_CommonStub;
 }
 
 #endif // FEATURE_CACHED_INTERFACE_DISPATCH

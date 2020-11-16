@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -43,34 +42,14 @@ namespace System.Runtime.Loader
 
         private Assembly InternalLoadFromPath(string? assemblyPath, string? nativeImagePath)
         {
-            throw new PlatformNotSupportedException();
+            // TODO: This is not passing down the AssemblyLoadContext,
+            // so it won't actually work properly when multiple assemblies with the same identity get loaded.
+            return ReflectionAugments.ReflectionCoreCallbacks.Load(assemblyPath);
         }
 
         internal Assembly InternalLoad(byte[] arrAssembly, byte[] arrSymbols)
         {
             return ReflectionAugments.ReflectionCoreCallbacks.Load(arrAssembly, arrSymbols);
-        }
-
-        internal IntPtr GetResolvedUnmanagedDll(Assembly assembly, string unmanagedDllName)
-        {
-            IntPtr resolvedDll = IntPtr.Zero;
-
-            Func<Assembly, string, IntPtr> dllResolveHandler = _resolvingUnmanagedDll;
-
-            if (dllResolveHandler != null)
-            {
-                // Loop through the event subscribers and return the first non-null native library handle
-                foreach (Func<Assembly, string, IntPtr>  handler in dllResolveHandler.GetInvocationList())
-                {
-                    resolvedDll = handler(assembly, unmanagedDllName);
-                    if (resolvedDll != IntPtr.Zero)
-                    {
-                        return resolvedDll;
-                    }
-                }
-            }
-
-            return IntPtr.Zero;
         }
 
         private void ReferenceUnreferencedEvents()

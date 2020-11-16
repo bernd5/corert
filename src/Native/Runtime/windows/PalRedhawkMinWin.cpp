@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 //
 // Implementation of the Redhawk Platform Abstraction Layer (PAL) library when MinWin is the platform. In this
@@ -17,9 +16,6 @@
 #include <stdio.h>
 #include <errno.h>
 #include <evntprov.h>
-#ifdef PROJECTN
-#include <roapi.h>
-#endif
 
 #include "holder.h"
 
@@ -36,10 +32,8 @@ uint32_t PalEventWrite(REGHANDLE arg1, const EVENT_DESCRIPTOR * arg2, uint32_t a
 #define REDHAWK_PALEXPORT extern "C"
 #define REDHAWK_PALAPI __stdcall
 
-#ifndef RUNTIME_SERVICES_ONLY
 // Index for the fiber local storage of the attached thread pointer
 static UInt32 g_flsIndex = FLS_OUT_OF_INDEXES;
-#endif
 
 static DWORD g_dwPALCapabilities;
 
@@ -57,7 +51,6 @@ bool InitializeSystemInfo()
     return true;
 }
 
-#ifndef RUNTIME_SERVICES_ONLY
 // This is called when each *fiber* is destroyed. When the home fiber of a thread is destroyed,
 // it means that the thread itself is destroyed.
 // Since we receive that notification outside of the Loader Lock, it allows us to safely acquire
@@ -73,15 +66,13 @@ void __stdcall FiberDetachCallback(void* lpFlsData)
         RuntimeThreadShutdown(lpFlsData);
     }
 }
-#endif
 
 // The Redhawk PAL must be initialized before any of its exports can be called. Returns true for a successful
 // initialization and false on failure.
 REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalInit()
 {
-    g_dwPALCapabilities = WriteWatchCapability | GetCurrentProcessorNumberCapability | LowMemoryNotificationCapability;
+    g_dwPALCapabilities = WriteWatchCapability | LowMemoryNotificationCapability;
 
-#ifndef RUNTIME_SERVICES_ONLY
     // We use fiber detach callbacks to run our thread shutdown code because the fiber detach
     // callback is made without the OS loader lock
     g_flsIndex = FlsAlloc(FiberDetachCallback);
@@ -89,7 +80,6 @@ REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalInit()
     {
         return false;
     }
-#endif
 
     return true;
 }
@@ -100,7 +90,6 @@ REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalHasCapability(PalCapability capability)
     return (g_dwPALCapabilities & (DWORD)capability) == (DWORD)capability;
 }
 
-#ifndef RUNTIME_SERVICES_ONLY
 // Attach thread to PAL. 
 // It can be called multiple times for the same thread.
 // It fails fast if a different thread was already registered with the current fiber
@@ -150,7 +139,6 @@ REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalDetachThread(void* thread)
     FlsSetValue(g_flsIndex, NULL);
     return true;
 }
-#endif // RUNTIME_SERVICES_ONLY
 
 extern "C" UInt64 PalGetCurrentThreadIdForLogging()
 {
@@ -274,7 +262,7 @@ REDHAWK_PALEXPORT _Success_(return) bool REDHAWK_PALAPI PalGetThreadContext(HAND
         (win32ctx.ContextFlags & (CONTEXT_SERVICE_ACTIVE | CONTEXT_EXCEPTION_ACTIVE)))
         return false;
 
-#ifdef _X86_
+#ifdef HOST_X86
     pCtx->IP = win32ctx.Eip;
     pCtx->Rsp = win32ctx.Esp;
     pCtx->Rbp = win32ctx.Ebp;
@@ -282,7 +270,7 @@ REDHAWK_PALEXPORT _Success_(return) bool REDHAWK_PALAPI PalGetThreadContext(HAND
     pCtx->Rsi = win32ctx.Esi;
     pCtx->Rax = win32ctx.Eax;
     pCtx->Rbx = win32ctx.Ebx;
-#elif defined(_AMD64_)
+#elif defined(HOST_AMD64)
     pCtx->IP = win32ctx.Rip;
     pCtx->Rsp = win32ctx.Rsp;
     pCtx->Rbp = win32ctx.Rbp;
@@ -294,7 +282,7 @@ REDHAWK_PALEXPORT _Success_(return) bool REDHAWK_PALAPI PalGetThreadContext(HAND
     pCtx->R13 = win32ctx.R13;
     pCtx->R14 = win32ctx.R14;
     pCtx->R15 = win32ctx.R15;
-#elif defined(_ARM_)
+#elif defined(HOST_ARM)
     pCtx->IP = win32ctx.Pc;
     pCtx->R0 = win32ctx.R0;
     pCtx->R4 = win32ctx.R4;
@@ -307,7 +295,7 @@ REDHAWK_PALEXPORT _Success_(return) bool REDHAWK_PALAPI PalGetThreadContext(HAND
     pCtx->R11 = win32ctx.R11;
     pCtx->SP = win32ctx.Sp;
     pCtx->LR = win32ctx.Lr;
-#elif defined(_ARM64_)
+#elif defined(HOST_ARM64)
     pCtx->IP = win32ctx.Pc;
     pCtx->X0 = win32ctx.X0;
     pCtx->X1 = win32ctx.X1;
@@ -440,6 +428,31 @@ REDHAWK_PALEXPORT HANDLE REDHAWK_PALAPI PalGetModuleHandleFromPointer(_In_ void*
     return (HANDLE)module;
 }
 
+REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalIsAvxEnabled()
+{
+    typedef DWORD64(WINAPI* PGETENABLEDXSTATEFEATURES)();
+    PGETENABLEDXSTATEFEATURES pfnGetEnabledXStateFeatures = NULL;
+
+    HMODULE hMod = LoadLibraryExW(L"kernel32", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (hMod == NULL)
+        return FALSE;
+
+    pfnGetEnabledXStateFeatures = (PGETENABLEDXSTATEFEATURES)GetProcAddress(hMod, "GetEnabledXStateFeatures");
+
+    if (pfnGetEnabledXStateFeatures == NULL)
+    {
+        return FALSE;
+    }
+
+    DWORD64 FeatureMask = pfnGetEnabledXStateFeatures();
+    if ((FeatureMask & XSTATE_MASK_AVX) == 0)
+    {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
 REDHAWK_PALEXPORT void* REDHAWK_PALAPI PalAddVectoredExceptionHandler(UInt32 firstHandler, _In_ PVECTORED_EXCEPTION_HANDLER vectoredHandler)
 {
     return AddVectoredExceptionHandler(firstHandler, vectoredHandler);
@@ -481,3 +494,38 @@ REDHAWK_PALEXPORT _Ret_maybenull_ void* REDHAWK_PALAPI PalSetWerDataBuffer(_In_ 
     static void* pBuffer;
     return InterlockedExchangePointer(&pBuffer, pNewBuffer);
 }
+
+#if defined(HOST_ARM64)
+
+#include "IntrinsicConstants.h"
+
+REDHAWK_PALIMPORT void REDHAWK_PALAPI PAL_GetCpuCapabilityFlags(int* flags)
+{
+    *flags = 0;
+
+    // FP and SIMD support are enabled by default
+    *flags |= ARM64IntrinsicConstants_ArmBase;
+    *flags |= ARM64IntrinsicConstants_ArmBase_Arm64;
+    *flags |= ARM64IntrinsicConstants_AdvSimd;
+    *flags |= ARM64IntrinsicConstants_AdvSimd_Arm64;
+    
+    if (IsProcessorFeaturePresent(PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE))
+    {
+        *flags |= ARM64IntrinsicConstants_Aes;
+        *flags |= ARM64IntrinsicConstants_Sha1;
+        *flags |= ARM64IntrinsicConstants_Sha256;
+    }
+
+    if (IsProcessorFeaturePresent(PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE))
+    {
+        *flags |= ARM64IntrinsicConstants_Crc32;
+        *flags |= ARM64IntrinsicConstants_Crc32_Arm64;
+    }
+
+    if (IsProcessorFeaturePresent(PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE))
+    {
+        *flags |= ARM64IntrinsicConstants_Atomics;
+    }
+}
+
+#endif

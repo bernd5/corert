@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Diagnostics;
@@ -11,7 +10,7 @@ namespace Internal.IO
 {
     //
     // Subsetted clone of System.IO.File for internal runtime use.
-    // Keep in sync with https://github.com/dotnet/corefx/tree/master/src/System.IO.FileSystem.
+    // Keep in sync with https://github.com/dotnet/runtime/tree/master/src/libraries/System.IO.FileSystem.
     //
     internal static partial class File
     {

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 
@@ -20,12 +19,15 @@ namespace Internal.IL.Stubs
             Debug.Assert(((MetadataType)method.OwningType).Name == "RuntimeHelpers");
             string methodName = method.Name;
 
-            if (methodName == "GetRawSzArrayData")
+            if (methodName == "GetMethodTable")
             {
                 ILEmitter emit = new ILEmitter();
                 ILCodeStream codeStream = emit.NewCodeStream();
                 codeStream.EmitLdArg(0);
-                codeStream.Emit(ILOpcode.ldflda, emit.NewToken(method.Context.SystemModule.GetKnownType("System.Runtime.CompilerServices", "RawSzArrayData").GetField("Data")));
+                codeStream.Emit(ILOpcode.ldflda, emit.NewToken(method.Context.SystemModule.GetKnownType("System.Runtime.CompilerServices", "RawData").GetField("Data")));
+                codeStream.EmitLdc(-method.Context.Target.PointerSize);
+                codeStream.Emit(ILOpcode.add);
+                codeStream.Emit(ILOpcode.ldind_i);
                 codeStream.Emit(ILOpcode.ret);
                 return emit.Link(method);
             }

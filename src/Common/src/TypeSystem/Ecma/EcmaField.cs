@@ -1,14 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
-
-using Internal.TypeSystem;
 
 namespace Internal.TypeSystem.Ecma
 {
@@ -259,10 +256,33 @@ namespace Internal.TypeSystem.Ecma
             return !MetadataReader.GetCustomAttributeHandle(MetadataReader.GetFieldDefinition(_handle).GetCustomAttributes(),
                 attributeNamespace, attributeName).IsNil;
         }
+
+        public override MarshalAsDescriptor GetMarshalAsDescriptor()
+        {
+            MetadataReader reader = MetadataReader;
+            FieldDefinition definition = reader.GetFieldDefinition(_handle);
+            if ((definition.Attributes & FieldAttributes.HasFieldMarshal) != 0)
+            {
+                BlobReader marshalAsReader = reader.GetBlobReader(definition.GetMarshallingDescriptor());
+                EcmaSignatureParser parser = new EcmaSignatureParser(_type.EcmaModule, marshalAsReader);
+                return parser.ParseMarshalAsDescriptor();
+            }
+
+            return null;
+        }
     }
 
     public static class EcmaFieldExtensions
     {
+        /// <summary>
+        /// Returns the RVA associated with an RVA mapped field from the PE module.
+        /// </summary>
+        public static int GetFieldRvaValue(this EcmaField field)
+        {
+            Debug.Assert(field.HasRva);
+            return field.MetadataReader.GetFieldDefinition(field.Handle).GetRelativeVirtualAddress();
+        }
+
         /// <summary>
         /// Retrieves the data associated with an RVA mapped field from the PE module.
         /// </summary>
@@ -277,7 +297,7 @@ namespace Internal.TypeSystem.Ecma
                 throw new BadImageFormatException();
 
             byte[] result = new byte[size];
-            memBlock.CopyTo(0, result, 0, result.Length);
+            memBlock.CopyTo(0, result, 0, size);
 
             return result;
         }

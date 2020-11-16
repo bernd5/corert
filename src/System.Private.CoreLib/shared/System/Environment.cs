@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Collections;
 using System.Diagnostics;
@@ -11,6 +10,16 @@ namespace System
 {
     public static partial class Environment
     {
+        public static int ProcessorCount { get; } = GetProcessorCount();
+
+        /// <summary>
+        /// Gets whether the current machine has only a single processor.
+        /// </summary>
+        internal static bool IsSingleProcessor => ProcessorCount == 1;
+
+        // Unconditionally return false since .NET Core does not support object finalization during shutdown.
+        public static bool HasShutdownStarted => false;
+
         public static string? GetEnvironmentVariable(string variable)
         {
             if (variable == null)
@@ -128,21 +137,16 @@ namespace System
             }
         }
 
-        public static bool UserInteractive => true;
-
         public static Version Version
         {
             get
             {
-                // FX_PRODUCT_VERSION is expected to be set by the host
-                // Use AssemblyInformationalVersionAttribute as fallback if the exact product version is not specified by the host
-                string? versionString = (string?)AppContext.GetData("FX_PRODUCT_VERSION") ??
-                    typeof(object).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                string? versionString = typeof(object).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 
                 ReadOnlySpan<char> versionSpan = versionString.AsSpan();
 
                 // Strip optional suffixes
-                int separatorIndex = versionSpan.IndexOfAny("-+ ");
+                int separatorIndex = versionSpan.IndexOfAny('-', '+', ' ');
                 if (separatorIndex != -1)
                     versionSpan = versionSpan.Slice(0, separatorIndex);
 

@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -262,6 +261,7 @@ namespace System.Threading
         /// <param name="useSynchronizationContext">A Boolean value that indicates whether to capture
         /// the current <see cref="System.Threading.SynchronizationContext">SynchronizationContext</see> and use it
         /// when invoking the <paramref name="callback"/>.</param>
+        /// <param name="useExecutionContext">true to capture the current ExecutionContext; otherwise, false.</param>
         /// <returns>The <see cref="System.Threading.CancellationTokenRegistration"/> instance that can
         /// be used to unregister the callback.</returns>
         /// <exception cref="System.ArgumentNullException"><paramref name="callback"/> is null.</exception>

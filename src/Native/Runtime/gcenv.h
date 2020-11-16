@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 #ifndef __GCENV_H__
 #define __GCENV_H__
 
@@ -40,7 +39,7 @@
 #include "slist.h"
 #include "RWLock.h"
 #include "shash.h"
-#include "module.h"
+#include "TypeManager.h"
 #include "RuntimeInstance.h"
 #include "eetype.inl"
 #include "volatile.h"

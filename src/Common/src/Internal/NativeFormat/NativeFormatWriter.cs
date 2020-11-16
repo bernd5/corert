@@ -1,11 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.IO;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 // Managed mirror of NativeFormatWriter.h/.cpp
@@ -200,7 +200,7 @@ namespace Internal.NativeFormat
 
         public void WriteString(string s)
         {
-            // The actual bytes are only necessary for the final version during the growing plase
+            // The actual bytes are only necessary for the final version during the growing phase
             if (IsGrowing())
             {
                 byte[] bytes = _stringEncoding.GetBytes(s);
@@ -2041,13 +2041,9 @@ namespace Internal.NativeFormat
             // we can use the ordering to terminate the lookup prematurely.
             uint mask = ((_nBuckets - 1) << 8) | 0xFF;
 
-            // sort it by hashcode
-            _Entries.Sort(
-                    (a, b) =>
-                    {
-                        return (int)(a.Hashcode & mask) - (int)(b.Hashcode & mask);
-                    }
-                );
+            // Sort by hashcode. This sort must be stable since we need determinism even if two entries have
+            // the same hashcode. This is deterministic if entries are added in a deterministic order.
+            _Entries = _Entries.OrderBy(entry => entry.Hashcode & mask).ToList();
 
             // Start with maximum size entries
             _entryIndexSize = 2;

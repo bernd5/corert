@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Reflection.Metadata;
@@ -170,6 +169,8 @@ namespace Internal.TypeSystem.Ecma
                 Debug.Assert((int)MethodSignatureFlags.UnmanagedCallingConventionStdCall == (int)SignatureCallingConvention.StdCall);
                 Debug.Assert((int)MethodSignatureFlags.UnmanagedCallingConventionThisCall == (int)SignatureCallingConvention.ThisCall);
                 Debug.Assert((int)MethodSignatureFlags.CallingConventionVarargs == (int)SignatureCallingConvention.VarArgs);
+                // [TODO] Debug.Assert((int)MethodSignatureFlags.UnmanagedCallingConvention == (int)SignatureCallingConvention.Unmanaged);
+                Debug.Assert((int)MethodSignatureFlags.UnmanagedCallingConvention == 9);
 
                 flags = (MethodSignatureFlags)signatureCallConv;
             }
@@ -295,7 +296,7 @@ namespace Internal.TypeSystem.Ecma
             Debug.Assert(_reader.RemainingBytes != 0);
 
             NativeTypeKind type = (NativeTypeKind)_reader.ReadByte();
-            NativeTypeKind arraySubType = NativeTypeKind.Invalid;
+            NativeTypeKind arraySubType = NativeTypeKind.Default;
             uint? paramNum = null, numElem = null;
 
             switch (type)
@@ -347,6 +348,42 @@ namespace Internal.TypeSystem.Ecma
                         {
                             numElem = (uint)_reader.ReadCompressedInteger();
                         }
+                    }
+                    break;
+                case NativeTypeKind.SafeArray:
+                    {
+                        // There's nobody to consume SafeArrays, so let's just parse the data
+                        // to avoid asserting later.
+
+                        // Get optional VARTYPE for the element
+                        if (_reader.RemainingBytes != 0)
+                        {
+                            _reader.ReadCompressedInteger();
+                        }
+
+                        // VARTYPE can be followed by optional type name
+                        if (_reader.RemainingBytes != 0)
+                        {
+                            _reader.ReadSerializedString();
+                        }
+                    }
+                    break;
+                case NativeTypeKind.CustomMarshaler:
+                    {
+                        // There's nobody to consume CustomMarshaller, so let's just parse the data
+                        // to avoid asserting later.
+
+                        // Read typelib guid
+                        _reader.ReadSerializedString();
+
+                        // Read native type name
+                        _reader.ReadSerializedString();
+
+                        // Read managed marshaler name
+                        _reader.ReadSerializedString();
+
+                        // Read cookie
+                        _reader.ReadSerializedString();
                     }
                     break;
                 default:
